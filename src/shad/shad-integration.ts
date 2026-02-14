@@ -9,13 +9,15 @@
  * - Secure retrieval server for Shad's Code Mode
  * - Per-user vault isolation
  * - On-demand decryption (documents never stored in plaintext on server)
- * - Blockchain-verifiable document proofs
+ * - Memory-cached for fast RLM access
+ * - Supports both local encrypted vault and UHRP-based vault
  */
 
 import { spawn } from 'child_process';
 import { createServer } from 'http';
 import type { AddressInfo } from 'net';
 import { EncryptedShadVault } from './encrypted-vault.js';
+import { LocalEncryptedVault } from '../vault/local-encrypted-vault.js';
 import type {
   BRC100Wallet,
   ShadConfig,
@@ -26,19 +28,42 @@ import type {
   VaultProof,
 } from '../types/index.js';
 
+/**
+ * Vault interface that both local and UHRP vaults implement
+ */
+interface VaultInterface {
+  read(path: string): Promise<string | null>;
+  search(query: string, options?: { limit?: number }): Promise<Array<{ path: string; score: number; snippet?: string }>>;
+  list(): Promise<string[]>;
+}
+
 export interface ShadBridgeConfig extends ShadConfig {
-  encryptedVault: EncryptedShadVault;
+  /** Local encrypted vault (fast, recommended) */
+  localVault?: LocalEncryptedVault;
+  /** UHRP-based vault (slower, blockchain-backed) */
+  encryptedVault?: EncryptedShadVault;
+  /** Wallet for identity */
   wallet: BRC100Wallet;
+  /** User public key for UHRP vault access */
+  userPublicKey?: string;
 }
 
 export class AGIdentityShadBridge {
-  private encryptedVault: EncryptedShadVault;
+  private localVault?: LocalEncryptedVault;
+  private uhrpVault?: EncryptedShadVault;
+  private userPublicKey?: string;
   readonly wallet: BRC100Wallet;
   private config: Required<ShadConfig>;
 
   constructor(bridgeConfig: ShadBridgeConfig) {
-    this.encryptedVault = bridgeConfig.encryptedVault;
+    this.localVault = bridgeConfig.localVault;
+    this.uhrpVault = bridgeConfig.encryptedVault;
+    this.userPublicKey = bridgeConfig.userPublicKey;
     this.wallet = bridgeConfig.wallet;
+
+    if (!this.localVault && !this.uhrpVault) {
+      throw new Error('Either localVault or encryptedVault must be provided');
+    }
 
     // Set defaults
     this.config = {
@@ -53,27 +78,56 @@ export class AGIdentityShadBridge {
   }
 
   /**
+   * Get the active vault (prefers local for speed)
+   */
+  private getVault(): VaultInterface {
+    if (this.localVault) {
+      return {
+        read: (path) => this.localVault!.read(path),
+        search: (query, opts) => this.localVault!.search(query, opts),
+        list: () => this.localVault!.list(),
+      };
+    }
+
+    if (this.uhrpVault && this.userPublicKey) {
+      return {
+        read: (path) => this.uhrpVault!.readDocument(this.userPublicKey!, path),
+        search: async (query, opts) => {
+          const results = await this.uhrpVault!.searchDocuments(this.userPublicKey!, query, opts);
+          return results.map(r => ({ path: r.path, score: r.relevanceScore }));
+        },
+        list: async () => this.uhrpVault!.listDocuments().map(d => d.path),
+      };
+    }
+
+    throw new Error('No vault available');
+  }
+
+  /**
    * Execute a Shad task with encrypted vault retrieval
    *
    * This is the core Edwin-style approach:
-   * 1. Create secure retrieval context for user
+   * 1. Create secure retrieval context
    * 2. Start temporary retrieval server
    * 3. Execute Shad pointing to our secure endpoint
    * 4. Shad's Code Mode queries our server
-   * 5. Server decrypts documents on-demand
+   * 5. Server decrypts documents on-demand (from cache for speed)
    * 6. Return results
    */
   async executeTask(
-    userPublicKey: string,
     task: string,
     options?: {
       strategy?: ShadStrategy;
       maxDepth?: number;
       maxTime?: number;
+      userPublicKey?: string;
     }
   ): Promise<ShadResult> {
-    // 1. Create secure retrieval context for this user
-    const retrievalContext = this.createSecureRetrievalContext(userPublicKey);
+    // Use provided userPublicKey or fall back to configured one
+    const userKey = options?.userPublicKey ?? this.userPublicKey;
+
+    // 1. Create secure retrieval context
+    const retrievalContext = this.createSecureRetrievalContext(userKey);
 
     // 2. Start secure retrieval server
     const server = await this.startSecureRetrievalServer(retrievalContext);
@@ -99,31 +153,24 @@ export class AGIdentityShadBridge {
    * Useful for quick lookups or when you just need to search/read documents.
    */
   async quickRetrieve(
-    userPublicKey: string,
     query: string,
     options?: { limit?: number; includeContent?: boolean }
-  ): Promise<Array<SearchResult & { content?: string }>> {
+  ): Promise<Array<{ path: string; score: number; content?: string }>> {
     const limit = options?.limit ?? 5;
+    const vault = this.getVault();
 
     // Search for matching documents
-    const searchResults = await this.encryptedVault.searchDocuments(
-      userPublicKey,
-      query,
-      { limit }
-    );
+    const searchResults = await vault.search(query, { limit });
 
     if (!options?.includeContent) {
-      return searchResults;
+      return searchResults.map(r => ({ path: r.path, score: r.score }));
     }
 
     // Fetch content for each result
     const resultsWithContent = await Promise.all(
       searchResults.map(async (result) => {
-        const content = await this.encryptedVault.readDocument(
-          userPublicKey,
-          result.path
-        );
-        return { ...result, content: content ?? undefined };
+        const content = await vault.read(result.path);
+        return { path: result.path, score: result.score, content: content ?? undefined };
       })
     );
 
@@ -131,30 +178,41 @@ export class AGIdentityShadBridge {
   }
 
   /**
-   * Create a secure retrieval context for a user
+   * Create a secure retrieval context
    *
-   * This wraps vault access with encryption/decryption.
-   * Shad's Code Mode will use these methods to access the vault.
+   * This wraps vault access. Documents are decrypted on-demand
+   * but cached in memory for fast subsequent access.
    */
   private createSecureRetrievalContext(
-    userPublicKey: string
+    userPublicKey?: string
   ): SecureRetrievalContext {
+    const vault = this.getVault();
+
     return {
-      userPublicKey,
+      userPublicKey: userPublicKey ?? 'local',
 
       // Search returns paths only (no content)
       search: async (query: string, limit: number = 10): Promise<SearchResult[]> => {
-        return this.encryptedVault.searchDocuments(userPublicKey, query, { limit });
+        const results = await vault.search(query, { limit });
+        return results.map(r => ({
+          path: r.path,
+          uhrpUrl: '', // Not applicable for local vault
+          relevanceScore: r.score,
+        }));
       },
 
-      // Read decrypts document on demand
+      // Read decrypts document on demand (cached for speed)
       readNote: async (path: string): Promise<string | null> => {
-        return this.encryptedVault.readDocument(userPublicKey, path);
+        return vault.read(path);
       },
 
-      // Verify document with blockchain proof
+      // Verify document - only applicable for UHRP vault
       verifyDocument: async (path: string): Promise<VaultProof> => {
-        return this.encryptedVault.getVaultProof(path);
+        if (this.uhrpVault) {
+          return this.uhrpVault.getVaultProof(path);
+        }
+        // Local vault doesn't have blockchain proofs
+        return { exists: true };
       }
     };
   }
@@ -221,9 +279,10 @@ export class AGIdentityShadBridge {
               res.end(JSON.stringify(proof));
             } else if (url === '/list') {
               // List all documents
-              const docs = this.encryptedVault.listDocuments();
+              const vault = this.getVault();
+              const docs = await vault.list();
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ documents: docs.map(d => d.path) }));
+              res.end(JSON.stringify({ documents: docs }));
             } else {
               res.writeHead(404, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Unknown endpoint' }));
@@ -394,7 +453,40 @@ export class AGIdentityShadBridge {
 }
 
 /**
+ * Create Shad bridge with local encrypted vault (recommended for speed)
+ */
+export function createShadBridgeWithLocalVault(
+  localVault: LocalEncryptedVault,
+  wallet: BRC100Wallet,
+  config?: Partial<ShadConfig>
+): AGIdentityShadBridge {
+  return new AGIdentityShadBridge({
+    localVault,
+    wallet,
+    ...config
+  });
+}
+
+/**
+ * Create Shad bridge with UHRP vault (blockchain-backed, slower)
+ */
+export function createShadBridgeWithUHRP(
+  encryptedVault: EncryptedShadVault,
+  wallet: BRC100Wallet,
+  userPublicKey: string,
+  config?: Partial<ShadConfig>
+): AGIdentityShadBridge {
+  return new AGIdentityShadBridge({
+    encryptedVault,
+    wallet,
+    userPublicKey,
+    ...config
+  });
+}
+
+/**
  * Create Shad bridge with default configuration
+ * @deprecated Use createShadBridgeWithLocalVault for better performance
  */
 export function createShadBridge(
   encryptedVault: EncryptedShadVault,

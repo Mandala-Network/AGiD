@@ -44,7 +44,7 @@ export function createAGIdentityPlugin(
       api.logger.info('Initializing AGIdentity plugin...');
 
       // Initialize agent wallet
-      const agentWallet = await createAgentWallet(config.agentWallet);
+      const { wallet: agentWallet } = await createAgentWallet(config.agentWallet);
       const agentIdentity = await agentWallet.getPublicKey({ identityKey: true });
 
       api.logger.info(`Agent identity: ${agentIdentity.publicKey.slice(0, 16)}...`);
@@ -182,7 +182,6 @@ export function createAGIdentityPlugin(
 
           try {
             const results = await shadBridge.quickRetrieve(
-              userContext.userPublicKey,
               params.query as string,
               {
                 limit: (params.limit as number) ?? 5,
@@ -194,7 +193,7 @@ export function createAGIdentityPlugin(
               success: true,
               results: results.map(r => ({
                 path: r.path,
-                relevance: r.relevanceScore,
+                relevance: r.score,
                 content: r.content?.slice(0, 1000)  // Truncate for context
               }))
             };
@@ -246,10 +245,10 @@ export function createAGIdentityPlugin(
 
           try {
             const result = await shadBridge.executeTask(
-              userContext.userPublicKey,
               params.task as string,
               {
-                strategy: (params.strategy as 'software' | 'research' | 'analysis' | 'planning') ?? 'research'
+                strategy: (params.strategy as 'software' | 'research' | 'analysis' | 'planning') ?? 'research',
+                userPublicKey: userContext.userPublicKey
               }
             );
 
@@ -476,7 +475,6 @@ export function createAGIdentityPlugin(
           if (docs.length > 0 && event.prompt) {
             try {
               const relevant = await shadBridge.quickRetrieve(
-                userContext.userPublicKey,
                 (event.prompt as string).slice(0, 200),  // Use first 200 chars as query
                 { limit: 3, includeContent: true }
               );

@@ -73,7 +73,7 @@ export function createSecureAGIdentityPlugin(
       // Initialize Core Components
       // =====================================================================
 
-      const agentWallet = await createAgentWallet(config.agentWallet);
+      const { wallet: agentWallet } = await createAgentWallet(config.agentWallet);
       const agentIdentity = await agentWallet.getPublicKey({ identityKey: true });
 
       api.logger.info(`Agent identity: ${agentIdentity.publicKey.slice(0, 16)}...`);
@@ -269,7 +269,6 @@ export function createSecureAGIdentityPlugin(
 
           try {
             const results = await shadBridge.quickRetrieve(
-              session.publicKey,
               params.query as string,
               { limit: (params.limit as number) ?? 5, includeContent: true }
             );
@@ -441,7 +440,6 @@ Network: ${config.network ?? 'mainnet'}`,
           if (docs.length > 0 && event.prompt) {
             try {
               const relevant = await shadBridge.quickRetrieve(
-                session.publicKey,
                 (event.prompt as string).slice(0, 200),
                 { limit: 3, includeContent: true }
               );

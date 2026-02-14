@@ -371,13 +371,17 @@ export interface BlockchainAnchor {
 // Configuration Types
 // ============================================================================
 
+// AgentWalletConfig is defined in wallet/agent-wallet.ts
+import type { AgentWalletConfig as WalletConfig } from '../wallet/agent-wallet.js';
+export type { AgentWalletConfig } from '../wallet/agent-wallet.js';
+
 export interface AGIdentityConfig {
   // Storage
   storageUrl: string;
   network?: 'mainnet' | 'testnet';
 
   // Agent wallet
-  agentWallet: AgentWalletConfig;
+  agentWallet: WalletConfig;
 
   // Shad integration
   shad?: ShadConfig;
@@ -387,14 +391,6 @@ export interface AGIdentityConfig {
 
   // Security
   security?: SecurityConfig;
-}
-
-export interface AgentWalletConfig {
-  type: 'privateKey' | 'mnemonic' | 'external';
-  privateKeyWif?: string;
-  mnemonic?: string;
-  externalWallet?: BRC100Wallet;
-  storagePath?: string;
 }
 
 export interface PaymentConfig {

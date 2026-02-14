@@ -19,6 +19,19 @@ export interface AGIdentityEnvConfig {
   uhrpMainnetResolver: string;
   uhrpTestnetResolver: string;
 
+  // Obsidian Vault (Local Encrypted)
+  obsidianVaultPath?: string;
+  vaultAutoWarmup: boolean;
+  vaultEncryptedDir: string;
+
+  // Shad
+  shadPath: string;
+  shadPythonPath: string;
+  shadStrategy: 'software' | 'research' | 'analysis' | 'planning';
+  shadMaxDepth: number;
+  shadMaxNodes: number;
+  shadMaxTime: number;
+
   // MessageBox
   messageBoxHost: string;
   messageBoxLogging: boolean;
@@ -83,6 +96,19 @@ export function loadConfig(): AGIdentityEnvConfig {
     uhrpStorageUrl: env.UHRP_STORAGE_URL,
     uhrpMainnetResolver: env.UHRP_MAINNET_RESOLVER ?? 'https://uhrp.network/resolve',
     uhrpTestnetResolver: env.UHRP_TESTNET_RESOLVER ?? 'https://testnet.uhrp.network/resolve',
+
+    // Obsidian Vault (Local Encrypted)
+    obsidianVaultPath: env.OBSIDIAN_VAULT_PATH,
+    vaultAutoWarmup: parseBool(env.VAULT_AUTO_WARMUP, true),
+    vaultEncryptedDir: env.VAULT_ENCRYPTED_DIR ?? '.agid',
+
+    // Shad
+    shadPath: env.SHAD_PATH ?? '~/.shad',
+    shadPythonPath: env.SHAD_PYTHON_PATH ?? 'python3',
+    shadStrategy: (env.SHAD_STRATEGY as 'software' | 'research' | 'analysis' | 'planning') ?? 'research',
+    shadMaxDepth: parseInt(env.SHAD_MAX_DEPTH, 3),
+    shadMaxNodes: parseInt(env.SHAD_MAX_NODES, 50),
+    shadMaxTime: parseInt(env.SHAD_MAX_TIME, 300),
 
     // MessageBox
     messageBoxHost: env.MESSAGEBOX_HOST ?? 'https://messagebox.babbage.systems',

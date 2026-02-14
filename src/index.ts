@@ -21,10 +21,19 @@ export type { AgentWalletConfig, WalletBalanceInfo } from './wallet/agent-wallet
 export { AGIdentityStorageManager } from './uhrp/storage-manager.js';
 export type { StorageManagerConfig, UploadOptions } from './uhrp/storage-manager.js';
 
+// Local Encrypted Vault (fast, for Shad)
+export { LocalEncryptedVault, createLocalEncryptedVault } from './vault/index.js';
+export type { LocalEncryptedVaultConfig } from './vault/index.js';
+
 // Shad Integration
 export { EncryptedShadVault } from './shad/encrypted-vault.js';
 export type { EncryptedVaultConfig } from './shad/encrypted-vault.js';
-export { AGIdentityShadBridge, createShadBridge } from './shad/shad-integration.js';
+export {
+  AGIdentityShadBridge,
+  createShadBridge,
+  createShadBridgeWithLocalVault,
+  createShadBridgeWithUHRP,
+} from './shad/shad-integration.js';
 export type { ShadBridgeConfig } from './shad/shad-integration.js';
 
 // Encryption
