@@ -15,6 +15,7 @@ export * from './types/index.js';
 
 // Wallet
 export { AgentWallet, createAgentWallet } from './wallet/agent-wallet.js';
+export type { AgentWalletConfig, WalletBalanceInfo } from './wallet/agent-wallet.js';
 
 // UHRP Storage
 export { AGIdentityStorageManager } from './uhrp/storage-manager.js';
@@ -76,6 +77,26 @@ export type {
   RevocationChecker,
 } from './identity/index.js';
 
+// Server (BRC-103/104 Auth)
+export { createAGIDServer } from './server/index.js';
+export type { AGIDServerConfig, AGIDServer } from './server/index.js';
+
+// Messaging (MessageBox Client)
+export { AGIDMessageClient, createMessageClient } from './messaging/index.js';
+export type {
+  AGIDMessageConfig,
+  AGIDMessage,
+  AGIDPayment,
+  AGIDPermission,
+  AGIDQuote,
+  MessageHandler,
+  PaymentHandler,
+} from './messaging/index.js';
+
+// Unified Service
+export { createAGIdentityService } from './service/index.js';
+export type { AGIdentityServiceConfig, AGIdentityService } from './service/index.js';
+
 // ============================================================================
 // Convenience Factory Functions
 // ============================================================================
@@ -125,7 +146,7 @@ export async function createAGIdentity(
   config: AGIdentityConfig
 ): Promise<AGIdentityInstance> {
   // Initialize wallet
-  const wallet = await createAgentWallet(config.agentWallet);
+  const { wallet } = await createAgentWallet(config.agentWallet);
 
   // Initialize storage
   const storage = new AGIdentityStorageManager({

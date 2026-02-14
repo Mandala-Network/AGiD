@@ -27,6 +27,8 @@
     "vault:sync": "node dist/cli/vault-sync.js"
   },
   "dependencies": {
+    "@bsv/auth-express-middleware": "^2.0.2",
+    "@bsv/message-box-client": "^2.0.0",
     "@bsv/sdk": "^2.0.3",
     "@bsv/wallet-toolbox": "^2.0.14",
     "curvepoint": "github:p2ppsr/curvepoint",
