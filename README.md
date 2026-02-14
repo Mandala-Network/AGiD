@@ -1,14 +1,18 @@
-# AGIdentity
+# AGIdentity (AGID)
 
-**BSV Blockchain Identity & Encrypted Memory for AI Agents**
+**The Identity Layer for AI Agents**
 
-AGIdentity is a lightweight wrapper around [OpenClaw](https://github.com/openclaw) that adds Edwin-style security features for enterprise AI deployments:
+AGIdentity is the cryptographic identity infrastructure that makes AI agents deployable in enterprises. Every agent action is verified, every user's data is isolated, and every decision is auditable.
 
-- **BRC-100 Wallet Identity**: Each agent has its own blockchain wallet and verifiable identity
-- **Encrypted Shad Memory**: Semantic knowledge vault with per-user encryption
-- **UHRP Cloud Storage**: Blockchain-timestamped document storage
+## Key Features
+
+- **Verified Agent Identity**: Every action cryptographically signed and attributable
+- **Isolated Memory**: User A's data invisible to User B, same infrastructure
+- **Blockchain-Anchored Audit Trails**: Immutable, tamper-proof, timestamped
 - **Per-Interaction Encryption**: Perfect Forward Secrecy for all communications
-- **Signed Audit Trails**: Cryptographically signed, tamper-evident logs
+- **Team Collaboration**: CurvePoint group encryption for shared documents
+- **BRC-103/104 Mutual Auth**: Enterprise-grade HTTP authentication
+- **Revocable Certificates**: When someone leaves, access dies instantly
 
 ## Table of Contents
 
@@ -16,54 +20,57 @@ AGIdentity is a lightweight wrapper around [OpenClaw](https://github.com/opencla
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Running Tests](#running-tests)
+- [Running the Server](#running-the-server)
+- [Client SDK](#client-sdk)
 - [API Reference](#api-reference)
+- [Messaging](#messaging)
 - [Certificate Identity](#certificate-identity)
 - [Team Vault](#team-vault)
 - [Security Model](#security-model)
 - [Configuration](#configuration)
 - [OpenClaw Integration](#openclaw-integration)
-- [CLI Commands](#cli-commands)
+- [Running Tests](#running-tests)
 - [BRC Standards](#brc-standards-used)
 - [License](#license)
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         AGIDENTITY ARCHITECTURE                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   USER DEVICE                              AGIDENTITY SERVER            │
-│   ───────────                              ─────────────────            │
-│   ┌─────────────┐                          ┌─────────────────────────┐  │
-│   │  BRC-100    │◄───── Mutual Auth ──────►│  AUTH LAYER (BRC-103)   │  │
-│   │  WALLET     │      (BRC-103/104)       │                         │  │
-│   │             │                          │  ENCRYPTION LAYER       │  │
-│   │  Private    │◄─── Per-Interaction ────►│  (BRC-42 derived keys)  │  │
-│   │  Keys       │      Encryption          │                         │  │
-│   └─────────────┘                          │  SHAD ENGINE            │  │
-│                                            │  (Encrypted retrieval)  │  │
-│   ┌─────────────┐                          │                         │  │
-│   │  OBSIDIAN   │◄───── Sync ─────────────►│  UHRP STORAGE           │  │
-│   │  VAULT      │      (Encrypted)         │  (Blockchain timestamps)│  │
-│   └─────────────┘                          └─────────────────────────┘  │
-│                                                        │                │
-│                                                        ▼                │
-│                                            ┌─────────────────────────┐  │
-│                                            │    BSV BLOCKCHAIN       │  │
-│                                            │  • Document timestamps  │  │
-│                                            │  • Audit anchors        │  │
-│                                            │  • Identity proofs      │  │
-│                                            └─────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              AGIdentity System                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────┐    ┌──────────────────┐    ┌────────────────────────┐  │
+│  │  AgentWallet    │    │  Auth Server     │    │   MessageBox Client    │  │
+│  │  (BRC-100)      │◄──►│  (BRC-103/104)   │◄──►│   (Async Messaging)    │  │
+│  └────────┬────────┘    └────────┬─────────┘    └───────────┬────────────┘  │
+│           │                      │                          │               │
+│           ▼                      ▼                          ▼               │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                        AGIdentity Core                                  │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐  │ │
+│  │  │  Identity   │  │  Encrypted  │  │    Team     │  │    Audit      │  │ │
+│  │  │    Gate     │  │    Vault    │  │    Vault    │  │    Trail      │  │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └───────────────┘  │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                          Storage Layer                                  │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐  │ │
+│  │  │   Local     │  │    UHRP     │  │    Shad     │  │  BSV          │  │ │
+│  │  │  Vault      │  │   Storage   │  │  Integration│  │  Blockchain   │  │ │
+│  │  │  (Fast)     │  │  (Cloud)    │  │  (RLM)      │  │  (Timestamps) │  │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └───────────────┘  │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
 
 - **Node.js** >= 22.0.0
-- **npm** or **yarn**
-- **Python 3** (optional, for Shad integration)
+- **npm** >= 9.0.0
+- **Python 3** (optional, for Shad RLM integration)
 - **Shad** (optional, `pip install shad`)
 
 ## Installation
@@ -79,7 +86,7 @@ npm install agidentity
 ```bash
 # Clone the repository
 git clone https://github.com/b1narydt/AGIdentity.git
-cd AGIdentity
+cd AGIdentity/agidentity
 
 # Install dependencies
 npm install
@@ -93,16 +100,33 @@ npm test
 
 ## Quick Start
 
-### 1. Create an Agent Wallet
+### 1. Set Up Environment
 
-First, generate a BSV private key for your agent:
+Create a `.env` file (copy from `.env.example`):
 
 ```bash
-# Using OpenSSL to generate a random key (for development only)
-openssl rand -hex 32
+cp .env.example .env
 ```
 
-Convert this to WIF format using the BSV SDK, or use an existing wallet.
+Edit `.env` with your configuration:
+
+```bash
+# Agent private key (generate with: openssl rand -hex 32)
+AGENT_PRIVATE_KEY=your-private-key-hex
+
+# Network
+BSV_NETWORK=mainnet
+
+# Storage
+UHRP_STORAGE_URL=https://uhrp.babbage.systems
+OBSIDIAN_VAULT_PATH=~/Documents/ObsidianVault
+
+# Server
+AGID_SERVER_PORT=3000
+
+# Messaging
+MESSAGEBOX_HOST=https://messagebox.babbage.systems
+```
 
 ### 2. Standalone Usage
 
@@ -111,11 +135,11 @@ import { createAGIdentity } from 'agidentity';
 
 // Initialize AGIdentity
 const agidentity = await createAGIdentity({
-  storageUrl: 'https://uhrp.example.com',
+  storageUrl: process.env.UHRP_STORAGE_URL!,
   network: 'mainnet',
   agentWallet: {
     type: 'privateKey',
-    privateKeyWif: 'L1234...' // Your agent's WIF private key
+    privateKeyHex: process.env.AGENT_PRIVATE_KEY!
   }
 });
 
@@ -124,127 +148,277 @@ const identity = await agidentity.wallet.getPublicKey({ identityKey: true });
 console.log('Agent Public Key:', identity.publicKey);
 
 // Initialize a user's encrypted vault
-const userPublicKey = '02abc123...'; // User's BRC-100 public key
+const userPublicKey = '02abc123...';
 await agidentity.vault.initializeVault(userPublicKey, 'user-vault-id');
 
 // Store an encrypted document
-const entry = await agidentity.vault.uploadDocument(
+await agidentity.vault.uploadDocument(
   userPublicKey,
   'notes/meeting.md',
-  '# Meeting Notes\n\nDiscussed project timeline and deliverables.'
+  '# Meeting Notes\n\nDiscussed project timeline.'
 );
-console.log('Document stored at:', entry.uhrpUrl);
-
-// Read the document back
-const content = await agidentity.vault.readDocument(userPublicKey, 'notes/meeting.md');
-console.log('Document content:', content);
 
 // Search with Shad semantic retrieval
 const results = await agidentity.shad.quickRetrieve(
-  userPublicKey,
   'project timeline',
   { limit: 5, includeContent: true }
 );
-console.log('Search results:', results);
-
-// Get blockchain proof for a document
-const proof = await agidentity.vault.getVaultProof('notes/meeting.md');
-console.log('Blockchain TX:', proof.blockchainTxId);
 ```
 
-### 3. With OpenClaw Plugin
+### 3. Full Service with Server and Messaging
 
 ```typescript
-import { createAGIdentityPlugin } from 'agidentity';
-import { createGateway } from 'openclaw';
+import { createAGIdentityService } from 'agidentity';
 
-// Create the plugin
-const plugin = createAGIdentityPlugin({
-  storageUrl: 'https://uhrp.example.com',
-  network: 'mainnet',
-  agentWallet: {
+// Create the unified service
+const agid = await createAGIdentityService({
+  wallet: {
     type: 'privateKey',
-    privateKeyWif: process.env.AGENT_PRIVATE_KEY
+    privateKeyHex: process.env.AGENT_PRIVATE_KEY!,
+    network: 'mainnet',
   },
-  shad: {
-    pythonPath: 'python3',
-    maxDepth: 3,
-    strategy: 'research'
-  }
+  storageUrl: process.env.UHRP_STORAGE_URL!,
+  server: {
+    enabled: true,
+    port: 3000,
+    trustedCertifiers: ['03abc...'],
+  },
+  messaging: {
+    enabled: true,
+    messageBoxHost: process.env.MESSAGEBOX_HOST,
+  },
 });
 
-// Create OpenClaw gateway with the plugin
-const gateway = createGateway({
-  plugins: [plugin]
+// Start the service
+await agid.start();
+
+// Listen for messages
+agid.messaging?.onMessage('commands', async (msg) => {
+  console.log('Received:', msg.body);
+  await agid.messaging?.acknowledgeMessage(msg.messageId);
 });
 
-// Start the gateway
-await gateway.start();
+await agid.messaging?.listenForMessages('commands');
+
+// Graceful shutdown
+process.on('SIGINT', () => agid.stop());
 ```
 
-## Running Tests
+## Running the Server
 
-AGIdentity includes 137 comprehensive security tests:
+### Development
 
 ```bash
-# Run all tests
-npm test
+# Start the server
+npm run start
 
-# Run tests with coverage
-npm run test -- --coverage
-
-# Run specific test file
-npm run test -- src/__tests__/cryptographic-security.test.ts
-
-# Run tests in watch mode
-npm run test:watch
+# Or with ts-node for development
+npx ts-node src/examples/server.ts
 ```
 
-### Test Categories
+### Production
 
-| Category | Tests | Description |
-|----------|-------|-------------|
-| Cryptographic Security | 22 | Key derivation, encryption, signatures, HMAC |
-| Per-Interaction Encryption | 26 | PFS, unique keys, signed envelopes |
-| Session Security | 28 | Timing anomalies, expiration, replay prevention |
-| Audit Trail | 25 | Hash chains, tamper detection, anchoring |
-| Vault Isolation | 18 | Per-user encryption, content integrity |
-| Enterprise Compliance | 18 | Attack vectors, performance, compliance |
+```typescript
+import { createAGIdentityService } from 'agidentity';
+import { loadConfig } from 'agidentity';
+
+const config = loadConfig();
+
+const agid = await createAGIdentityService({
+  wallet: {
+    type: 'privateKey',
+    privateKeyHex: config.agentPrivateKey,
+    network: config.network,
+  },
+  storageUrl: config.uhrpStorageUrl,
+  server: {
+    enabled: true,
+    port: config.serverPort,
+    trustedCertifiers: config.trustedCertifiers,
+    allowUnauthenticated: false,
+  },
+  messaging: {
+    enabled: true,
+    messageBoxHost: config.messageBoxHost,
+  },
+});
+
+await agid.start();
+console.log(`AGIdentity server running on port ${config.serverPort}`);
+console.log(`Agent identity: ${await agid.getIdentityKey()}`);
+```
+
+### Server Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/identity` | Optional | Get agent and client identity |
+| POST | `/identity/register` | Required | Register session |
+| POST | `/vault/init` | Required | Initialize user vault |
+| POST | `/vault/store` | Required | Store encrypted document |
+| GET | `/vault/read/:path` | Required | Read encrypted document |
+| GET | `/vault/list` | Required | List all documents |
+| POST | `/vault/search` | Required | Search documents |
+| GET | `/vault/proof/:path` | Required | Get blockchain proof |
+| POST | `/team/create` | Required | Create team |
+| GET | `/team/:id` | Required | Get team details |
+| POST | `/team/:id/member` | Required | Add team member |
+| DELETE | `/team/:id/member/:key` | Required | Remove member |
+| GET | `/team/:id/access` | Required | Check access |
+| POST | `/team/:id/document` | Required | Store team document |
+| GET | `/team/:id/document/:path` | Required | Read team document |
+| GET | `/team/:id/documents` | Required | List team documents |
+| POST | `/sign` | Required | Sign message |
+| POST | `/verify` | Required | Verify signature |
+| GET | `/health` | None | Health check |
+| GET | `/status` | Optional | Session status |
+
+## Client SDK
+
+The Client SDK provides authenticated access to AGIdentity servers.
+
+### Installation
+
+The client is included in the main package:
+
+```typescript
+import { createAGIDClient } from 'agidentity';
+```
+
+### Basic Usage
+
+```typescript
+import { createAGIDClient, createAgentWallet } from 'agidentity';
+
+// Create wallet for authentication
+const { wallet } = await createAgentWallet({
+  type: 'privateKey',
+  privateKeyHex: process.env.CLIENT_PRIVATE_KEY!,
+  network: 'mainnet',
+});
+
+// Create client
+const client = createAGIDClient({
+  wallet,
+  serverUrl: 'http://localhost:3000',
+  timeout: 30000,
+  retries: 3,
+});
+
+// Initialize
+await client.initialize();
+
+// Full setup (register session + init vault)
+const { session, vault } = await client.setup();
+console.log('Session created:', session.publicKey);
+console.log('Vault initialized:', vault.vaultId);
+
+// Store document
+await client.storeDocument('notes/meeting.md', '# Meeting Notes');
+
+// Read document
+const doc = await client.readDocument('notes/meeting.md');
+console.log('Content:', doc.data?.content);
+
+// Search
+const results = await client.searchDocuments('meeting', 5);
+
+// Create team
+const team = await client.createTeam('Engineering');
+
+// Add team member
+await client.addTeamMember(team.data!.teamId, memberPublicKey, 'member');
+
+// Sign message
+const sig = await client.signMessage('Important message');
+console.log('Signature:', sig.data?.signature);
+```
+
+### Batch Operations
+
+```typescript
+// Store multiple documents
+const results = await client.storeDocuments([
+  { path: 'doc1.md', content: 'Content 1' },
+  { path: 'doc2.md', content: 'Content 2' },
+  { path: 'doc3.md', content: 'Content 3' },
+]);
+
+// Read multiple documents
+const docs = await client.readDocuments(['doc1.md', 'doc2.md', 'doc3.md']);
+docs.forEach((content, path) => {
+  console.log(`${path}: ${content}`);
+});
+```
+
+### Error Handling
+
+```typescript
+const result = await client.storeDocument('path.md', 'content');
+
+if (!result.success) {
+  console.error('Error:', result.error);
+  console.error('Status:', result.statusCode);
+} else {
+  console.log('Stored:', result.data?.path);
+}
+```
 
 ## API Reference
 
-### createAGIdentity(config)
+### createAGIdentityService(config)
 
-Creates a fully initialized AGIdentity instance.
+Creates a unified AGIdentity service with all components.
 
 ```typescript
-const agidentity = await createAGIdentity({
-  storageUrl: 'https://uhrp.example.com',
-  network: 'mainnet',
-  agentWallet: {
+const agid = await createAGIdentityService({
+  wallet: {
     type: 'privateKey',
-    privateKeyWif: 'L1234...'
-  }
+    privateKeyHex: '...',
+    network: 'mainnet',
+  },
+  storageUrl: 'https://uhrp.example.com',
+  server: {
+    enabled: true,
+    port: 3000,
+    trustedCertifiers: ['03abc...'],
+    allowUnauthenticated: false,
+  },
+  messaging: {
+    enabled: true,
+    messageBoxHost: 'https://messagebox.babbage.systems',
+  },
+  teams: {
+    requireCertificates: false,
+  },
+  shad: {
+    strategy: 'research',
+    maxDepth: 3,
+  },
 });
 ```
 
-**Returns**: `AGIdentityInstance` with the following properties:
+**Returns**: `AGIdentityService` with:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `wallet` | `BRC100Wallet` | Agent's wallet for signing and encryption |
-| `storage` | `AGIdentityStorageManager` | UHRP storage manager |
-| `vault` | `EncryptedShadVault` | Encrypted document vault |
-| `shad` | `AGIdentityShadBridge` | Shad semantic search integration |
-| `config` | `AGIdentityConfig` | Configuration used |
+| `wallet` | `AgentWallet` | BRC-100 wallet |
+| `storage` | `AGIdentityStorageManager` | UHRP storage |
+| `vault` | `EncryptedShadVault` | Encrypted vault |
+| `shad` | `AGIdentityShadBridge` | Shad integration |
+| `encryption` | `PerInteractionEncryption` | PFS encryption |
+| `identityGate` | `IdentityGate` | Certificate verification |
+| `teamVault` | `TeamVault` | Team collaboration |
+| `server` | `AGIDServer \| null` | HTTP server |
+| `messaging` | `AGIDMessageClient \| null` | Messaging client |
 
 ### Wallet Methods
 
 ```typescript
-// Get public key
+// Get identity key
 const { publicKey } = await wallet.getPublicKey({ identityKey: true });
 
-// Encrypt data for a user
+// Encrypt data
 const encrypted = await wallet.encrypt({
   plaintext: new TextEncoder().encode('secret'),
   protocolID: [2, 'my-protocol'],
@@ -262,14 +436,14 @@ const decrypted = await wallet.decrypt({
 
 // Create signature
 const signature = await wallet.createSignature({
-  data: new TextEncoder().encode('message'),
+  data: Array.from(new TextEncoder().encode('message')),
   protocolID: [1, 'signing'],
   keyID: 'sig-key'
 });
 
 // Verify signature
 const { valid } = await wallet.verifySignature({
-  data: new TextEncoder().encode('message'),
+  data: Array.from(new TextEncoder().encode('message')),
   signature: signature.signature,
   protocolID: [1, 'signing'],
   keyID: 'sig-key'
@@ -279,7 +453,7 @@ const { valid } = await wallet.verifySignature({
 ### Vault Methods
 
 ```typescript
-// Initialize vault for a user
+// Initialize vault
 await vault.initializeVault(userPublicKey, 'vault-id');
 
 // Upload document
@@ -301,36 +475,14 @@ const proof = await vault.getVaultProof('path/doc.md');
 const stats = await vault.syncFromLocalVault('/path/to/vault', userPublicKey);
 ```
 
-### Shad Integration
-
-```typescript
-// Quick retrieval (search + optional content)
-const results = await shad.quickRetrieve(
-  userPublicKey,
-  'search query',
-  { limit: 5, includeContent: true }
-);
-
-// Full Shad task execution
-const result = await shad.executeTask(
-  userPublicKey,
-  'Research how authentication works in the codebase',
-  { strategy: 'software', maxDepth: 3, maxTime: 300 }
-);
-
-// Check Shad availability
-const status = await shad.checkShadAvailable();
-```
-
 ### Per-Interaction Encryption
 
 ```typescript
 import { PerInteractionEncryption, SessionEncryption } from 'agidentity';
 
-// Create encryption instance
 const encryption = new PerInteractionEncryption(wallet);
 
-// Encrypt a message with unique key
+// Encrypt with unique key
 const encrypted = await encryption.encryptMessage(
   userPublicKey,
   'Hello, secure world!',
@@ -345,111 +497,73 @@ const encrypted = await encryption.encryptMessage(
 // Decrypt
 const decrypted = await encryption.decryptMessage(userPublicKey, encrypted);
 
-// Create signed envelope (encryption + authentication)
-const envelope = await encryption.createSignedEnvelope(
-  userPublicKey,
-  'Authenticated message',
-  context
-);
-
-// Verify and decrypt
-const result = await encryption.verifyAndDecrypt(userPublicKey, envelope);
-console.log(result.plaintext, result.signatureValid);
-
-// Session-based encryption (auto-increments message index)
+// Session-based (auto message index)
 const session = new SessionEncryption(wallet, userPublicKey);
 const enc1 = await session.encryptOutbound('Message 1');
 const enc2 = await session.encryptOutbound('Message 2');
 ```
 
-### Audit Trail
+## Messaging
+
+AGIdentity includes a MessageBox client for encrypted P2P messaging.
 
 ```typescript
-import { SignedAuditTrail } from 'agidentity';
+// Get messaging client from service
+const messaging = agid.messaging!;
 
-const audit = new SignedAuditTrail({
-  wallet,
-  anchorToBlockchain: true,
-  anchorIntervalEntries: 100
-});
-
-// Create audit entry
-const entry = await audit.createEntry({
-  action: 'document.access',
-  userPublicKey: 'user-key',
-  agentPublicKey: 'agent-key',
-  input: 'document path',
-  output: 'document content hash',
-  metadata: { endpoint: '/api/docs' }
-});
-
-// Verify entry
-const verification = await audit.verifyEntry(entry);
-
-// Verify entire chain
-const chainVerification = await audit.verifyChain();
-
-// Query entries
-const userEntries = await audit.getEntriesForUser(userPublicKey);
-const actionEntries = audit.getEntriesByAction('document.access');
-const rangeEntries = audit.getEntriesInRange(startTime, endTime);
-
-// Export/import
-const json = audit.exportToJson();
-await audit.importFromJson(json);
-```
-
-### Session Management
-
-```typescript
-import { SessionManager } from 'agidentity';
-
-const sessions = new SessionManager({
-  wallet,
-  maxSessionDurationMs: 24 * 60 * 60 * 1000, // 24 hours
-  timingAnomalyThresholdMs: 500
-});
-
-// Create session
-const session = await sessions.createSession(userPublicKey);
-
-// Verify session (with timing anomaly detection)
-const result = await sessions.verifySession(
-  session.sessionId,
-  signature,
-  clientTimestamp
+// Send encrypted message
+await messaging.sendMessage(
+  recipientPublicKey,
+  'inbox',
+  { type: 'greeting', text: 'Hello!' }
 );
 
-// Get/refresh/invalidate
-const active = sessions.getSession(sessionId);
-sessions.refreshSession(sessionId);
-sessions.invalidateSession(sessionId);
-sessions.invalidateUserSessions(userPublicKey);
+// Send live message (WebSocket with HTTP fallback)
+await messaging.sendLiveMessage(recipientPublicKey, 'inbox', 'Live message');
 
-// Statistics
-const stats = sessions.getStats();
+// Listen for messages
+messaging.onMessage('inbox', async (msg) => {
+  console.log('From:', msg.sender);
+  console.log('Body:', msg.body);
+  await messaging.acknowledgeMessage(msg.messageId);
+});
+
+await messaging.listenForMessages('inbox');
+
+// Send payment
+await messaging.sendPayment(recipientPublicKey, 1000); // satoshis
+
+// Listen for payments
+messaging.onPayment(async (payment) => {
+  console.log('Payment:', payment.amount, 'from', payment.sender);
+  return true; // Accept
+});
+
+await messaging.listenForPayments();
+
+// Set permissions
+await messaging.setPermission('inbox', { recipientFee: 100 }); // Require fee
+await messaging.allowNotificationsFrom(peerPublicKey);
+await messaging.denyNotificationsFrom(spammerPublicKey);
 ```
 
 ## Certificate Identity
 
-AGIdentity implements BRC-52/53 certificate-based identity for enterprise access control. When an employee leaves, their certificate is revoked and they immediately lose access to all team documents.
+AGIdentity implements BRC-52/53 certificate-based identity for enterprise access control.
 
-### Certificate Authority (Admin)
-
-The organization admin runs a Certificate Authority to issue identity certificates:
+### Certificate Authority
 
 ```typescript
 import { CertificateAuthority } from 'agidentity';
 
-// Initialize Certificate Authority with admin wallet
 const ca = new CertificateAuthority({
   wallet: adminWallet,
   organizationName: 'Acme Corp',
 });
 await ca.initialize();
 
-// Issue certificate to new employee
-const issued = await ca.issueCertificate({
+// Issue employee certificate
+const cert = await ca.issueCertificate({
   subjectPublicKey: employeePublicKey,
   certificateType: 'employee',
   fields: {
@@ -461,326 +575,82 @@ const issued = await ca.issueCertificate({
   },
 });
 
-// Issue certificate to AI bot
-const botCert = await ca.issueCertificate({
-  subjectPublicKey: botPublicKey,
-  certificateType: 'bot',
-  fields: {
-    name: 'Support Bot',
-    email: 'bot@acme.com',
-    validFrom: new Date().toISOString(),
-    validUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-});
+// Revoke on offboarding
+await ca.revokeCertificate(cert.serialNumber, 'Employment terminated');
 ```
 
-### Certificate Types
-
-| Type        | Description                          |
-|-------------|--------------------------------------|
-| `employee`  | Standard employee certificate        |
-| `admin`     | Admin with elevated privileges       |
-| `contractor`| Temporary contractor access          |
-| `bot`       | AI agent/bot identity                |
-| `service`   | Service account                      |
-
-### Revoking Certificates (Employee Offboarding)
-
-When an employee leaves, immediately revoke their certificate:
+### Identity Gate
 
 ```typescript
-// Revoke the certificate
-await ca.revokeCertificate(
-  employeeCert.serialNumber,
-  'Employment terminated'
-);
+import { IdentityGate } from 'agidentity';
 
-// Sync revocation to all services
-await teamVault.syncRevocationList([employeeCert.serialNumber]);
-
-// Employee can no longer:
-// - Access any team documents
-// - Write to any vaults
-// - Authenticate to any services
-```
-
-### Secure Team Vault (Certificate-Required)
-
-For enterprise deployments, use `SecureTeamVault` which requires valid certificates:
-
-```typescript
-import { SecureTeamVault, CertificateAuthority } from 'agidentity';
-
-// Create secure team vault with trusted CA
-const teamVault = new SecureTeamVault({
-  wallet: companyWallet,
-  trustedCertifiers: [ca.getCertifierPublicKey()],
+const gate = new IdentityGate({
+  wallet,
+  trustedCertifiers: [caPublicKey],
+  requireCertificate: true,
 });
+await gate.initialize();
 
-// Create team - owner must have valid certificate
-const team = await teamVault.createTeam('Engineering', adminCert);
-
-// Add member - requires valid certificate
-await teamVault.addMember(team.teamId, employeeCert, 'member', adminPublicKey);
-
-// Add bot - requires valid bot certificate
-await teamVault.addBot(team.teamId, botCert, adminPublicKey);
-
-// Store document - verifies author certificate
-await teamVault.storeDocument(
-  team.teamId,
-  '/docs/secret.md',
-  'Confidential content',
-  employeePublicKey
-);
-
-// Read document - verifies reader certificate
-const content = await teamVault.readDocumentText(
-  team.teamId,
-  '/docs/secret.md',
-  employeePublicKey
-);
-```
-
-### Certificate Verification Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    CERTIFICATE VERIFICATION FLOW                        │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   1. EMPLOYEE ONBOARDING                                                │
-│      ┌──────────┐     ┌──────────┐     ┌──────────┐                     │
-│      │  Admin   │────►│   CA     │────►│Certificate│                    │
-│      │          │     │ Issues   │     │  Issued  │                     │
-│      └──────────┘     └──────────┘     └──────────┘                     │
-│                                                                         │
-│   2. TEAM ACCESS                                                        │
-│      ┌──────────┐     ┌──────────┐     ┌──────────┐                     │
-│      │ Employee │────►│  Verify  │────►│  Access  │                     │
-│      │   Cert   │     │   Cert   │     │ Granted  │                     │
-│      └──────────┘     └──────────┘     └──────────┘                     │
-│                                                                         │
-│   3. EMPLOYEE OFFBOARDING                                               │
-│      ┌──────────┐     ┌──────────┐     ┌──────────┐                     │
-│      │  Admin   │────►│  Revoke  │────►│Certificate│                    │
-│      │          │     │   Cert   │     │ Revoked  │                     │
-│      └──────────┘     └──────────┘     └──────────┘                     │
-│                              │                                          │
-│                              ▼                                          │
-│      ┌──────────┐     ┌──────────┐     ┌──────────┐                     │
-│      │ Employee │────►│  Verify  │────►│  Access  │                     │
-│      │   Cert   │     │  FAILS   │     │ DENIED   │                     │
-│      └──────────┘     └──────────┘     └──────────┘                     │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### Certificate Verifier (Services)
-
-Services can verify certificates without running a full CA:
-
-```typescript
-import { CertificateVerifier } from 'agidentity';
-
-const verifier = new CertificateVerifier({
-  wallet: serviceWallet,
-  trustedCertifiers: [companyCAPublicKey],
-});
-
-// Verify a certificate
-const result = await verifier.verify(certificate);
-if (!result.valid) {
+// Verify identity
+const result = await gate.verifyIdentity(certificate);
+if (!result.verified) {
   throw new Error(`Access denied: ${result.error}`);
 }
 
-// Register certificate for public key lookups
-await verifier.registerCertificate(certificate);
-
-// Verify by public key
-const access = await verifier.verifyPublicKey(userPublicKey);
+// Gated operation
+const data = await gate.gatedOperation(certificate, async () => {
+  return await sensitiveOperation();
+});
 ```
 
 ## Team Vault
 
-AGIdentity supports team/group encryption using [CurvePoint](https://github.com/p2ppsr/curvepoint), enabling multiple team members to access shared encrypted documents.
-
-### Creating a Team
+Team collaboration with CurvePoint group encryption.
 
 ```typescript
 import { TeamVault } from 'agidentity';
 
 const teamVault = new TeamVault({ wallet });
 
-// Create a new team (you become the owner)
-const team = await teamVault.createTeam('Engineering', ownerPublicKey, {
-  maxMembers: 50,
-  allowMemberInvite: false
-});
+// Create team
+const team = await teamVault.createTeam('Engineering', ownerPublicKey);
 
-console.log(`Team created: ${team.teamId}`);
-```
-
-### Managing Team Members
-
-```typescript
-// Add a team member
-await teamVault.addMember(
-  team.teamId,
-  memberPublicKey,
-  'member',  // Role: 'owner' | 'admin' | 'member' | 'readonly' | 'bot'
-  ownerPublicKey
-);
-
-// Add an AI bot to the team
+// Add members
+await teamVault.addMember(team.teamId, memberPublicKey, 'member', ownerPublicKey);
 await teamVault.addBot(team.teamId, botPublicKey, ownerPublicKey);
 
-// Remove a member
-await teamVault.removeMember(team.teamId, memberPublicKey, ownerPublicKey);
-
-// Check access
-const access = await teamVault.checkAccess(team.teamId, userPublicKey);
-if (access.hasAccess) {
-  console.log(`User has ${access.role} access`);
-}
-```
-
-### Storing Team Documents
-
-Documents are encrypted with CurvePoint group encryption - any team member can decrypt:
-
-```typescript
-// Store a document (encrypted for all team members)
-const doc = await teamVault.storeDocument(
+// Store team document (encrypted for all members)
+await teamVault.storeDocument(
   team.teamId,
   '/docs/api-spec.md',
-  'API specification content...',
-  authorPublicKey,
-  { mimeType: 'text/markdown', tags: ['api', 'documentation'] }
-);
-
-// Read document (decrypted for current wallet)
-const content = await teamVault.readDocumentText(team.teamId, '/docs/api-spec.md');
-
-// Update document
-await teamVault.updateDocument(
-  team.teamId,
-  '/docs/api-spec.md',
-  'Updated content...',
+  'API specification...',
   authorPublicKey
 );
 
-// List all documents
-const documents = await teamVault.listDocuments(team.teamId);
-```
+// Read document
+const content = await teamVault.readDocumentText(team.teamId, '/docs/api-spec.md');
 
-### How CurvePoint Group Encryption Works
+// Check access
+const access = await teamVault.checkAccess(team.teamId, userPublicKey);
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    CURVEPOINT GROUP ENCRYPTION                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   1. Generate random symmetric key (AES-256)                            │
-│      ┌─────────────────────┐                                            │
-│      │   Symmetric Key K   │                                            │
-│      └─────────┬───────────┘                                            │
-│                │                                                        │
-│   2. Encrypt document with K                                            │
-│      ┌─────────────────────┐    ┌─────────────────────┐                 │
-│      │    Document         │───►│ Encrypted Document  │                 │
-│      └─────────────────────┘    └─────────────────────┘                 │
-│                                                                         │
-│   3. Encrypt K for each team member using ECDH                          │
-│      ┌──────────┐  ┌──────────┐  ┌──────────┐                           │
-│      │ Member A │  │ Member B │  │ Bot      │                           │
-│      │ Public K │  │ Public K │  │ Public K │                           │
-│      └────┬─────┘  └────┬─────┘  └────┬─────┘                           │
-│           │             │             │                                 │
-│           ▼             ▼             ▼                                 │
-│      ┌──────────┐  ┌──────────┐  ┌──────────┐                           │
-│      │ K enc.   │  │ K enc.   │  │ K enc.   │                           │
-│      │ for A    │  │ for B    │  │ for Bot  │                           │
-│      └──────────┘  └──────────┘  └──────────┘                           │
-│                                                                         │
-│   4. Store: Header (all encrypted keys) + Encrypted Document            │
-│                                                                         │
-│   5. Decryption: Member uses their private key to decrypt K,            │
-│      then K decrypts the document                                       │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### Hierarchical Teams
-
-Create sub-teams for organizational structure:
-
-```typescript
-// Create a sub-team under the parent team
-const frontendTeam = await teamVault.createSubTeam(
-  parentTeam.teamId,
-  'Frontend',
-  ownerPublicKey
-);
-
-// Get all sub-teams
-const subTeams = await teamVault.getSubTeams(parentTeam.teamId);
+// Remove member (re-encrypts all documents)
+await teamVault.removeMember(team.teamId, exMemberPublicKey, ownerPublicKey);
 ```
 
 ### Team Roles
 
-| Role     | Add Members | Remove Members | Write Docs | Delete Docs |
-|----------|-------------|----------------|------------|-------------|
-| owner    | Yes         | Yes            | Yes        | Yes         |
-| admin    | Yes         | Members only   | Yes        | Yes         |
-| member   | No          | No             | Yes        | No          |
-| readonly | No          | No             | No         | No          |
-| bot      | No          | No             | Yes        | No          |
-
-### Audit Trail
-
-All team operations are logged:
-
-```typescript
-const auditLog = teamVault.getAuditLog(team.teamId);
-
-for (const entry of auditLog) {
-  console.log(`${entry.action} by ${entry.actorPublicKey} at ${entry.timestamp}`);
-}
-```
-
-### Use Case: Corporate AI Bot
-
-Enable your entire team to interact with a single AI bot:
-
-```typescript
-// Initialize team vault for your organization
-const teamVault = new TeamVault({ wallet: companyWallet });
-
-// Create team
-const team = await teamVault.createTeam('Sales Team', adminPublicKey);
-
-// Add team members
-await teamVault.addMember(team.teamId, alice, 'member', adminPublicKey);
-await teamVault.addMember(team.teamId, bob, 'member', adminPublicKey);
-await teamVault.addMember(team.teamId, carol, 'member', adminPublicKey);
-
-// Add the AI bot
-await teamVault.addBot(team.teamId, aiBotPublicKey, adminPublicKey);
-
-// Now any team member can:
-// 1. Store encrypted documents that only team members can access
-// 2. The AI bot can read and respond to team documents
-// 3. All actions are audited with blockchain-anchored timestamps
-```
+| Role | Add Members | Remove Members | Write Docs | Delete Docs |
+|------|-------------|----------------|------------|-------------|
+| owner | Yes | Yes | Yes | Yes |
+| admin | Yes | Members only | Yes | Yes |
+| member | No | No | Yes | No |
+| bot | No | No | Yes | No |
 
 ## Security Model
 
-AGIdentity implements the Edwin security model with multiple layers of protection:
-
 ### 1. Cryptographic Isolation
 
-The AI agent **never has access to user private keys**:
+The AI agent never has access to user private keys:
 
 ```
 User Device                         Agent Server
@@ -803,197 +673,218 @@ Every message uses a unique derived key:
 Key_i = HMAC(SharedSecret, session_id || message_index || timestamp || direction)
 ```
 
-**Security Properties**:
-- Compromising key K_i reveals nothing about K_j (i ≠ j)
-- Past messages remain secure even if current key is compromised
-- Unique key for each direction (inbound vs outbound)
-
 ### 3. Per-User Data Isolation
 
-Each user's vault is encrypted with their own derived keys:
-
-```
-User A: Document → Encrypt(K_A) → UHRP → Blockchain Timestamp
-User B: Document → Encrypt(K_B) → UHRP → Blockchain Timestamp
-
-K_A ≠ K_B → User A cannot decrypt User B's documents
-```
+Each user's vault is encrypted with their own derived keys.
 
 ### 4. Timing Anomaly Detection
 
-Sessions are protected against replay and timing attacks:
-
-- Clock drift detection (configurable threshold)
-- Future timestamp rejection
-- Old timestamp rejection (replay protection)
-- Constant-time secret comparison
+Sessions are protected against replay and timing attacks.
 
 ### 5. Signed Audit Trails
 
-Every action creates a tamper-evident record:
-
-```
-Entry_n:
-  - action, timestamp, hashes
-  - previous_entry_hash (chain linkage)
-  - signature (agent's key)
-
-Tampering Entry_n → Breaks chain at Entry_n+1
-```
-
-Periodic blockchain anchoring provides irrefutable timestamps.
+Every action creates a tamper-evident, blockchain-anchored record.
 
 ## Configuration
 
+### Environment Variables
+
+```bash
+# Required
+AGENT_PRIVATE_KEY=your-64-char-hex-private-key
+
+# Network
+BSV_NETWORK=mainnet
+
+# Storage
+UHRP_STORAGE_URL=https://uhrp.babbage.systems
+OBSIDIAN_VAULT_PATH=~/Documents/ObsidianVault
+VAULT_AUTO_WARMUP=true
+VAULT_CACHE_DIR=./.vault-cache
+
+# Server
+AGID_SERVER_PORT=3000
+AGID_SERVER_LOGGING=true
+AGID_SERVER_LOG_LEVEL=info
+ALLOW_UNAUTHENTICATED=false
+
+# Messaging
+MESSAGEBOX_HOST=https://messagebox.babbage.systems
+MESSAGEBOX_LOGGING=false
+
+# Shad
+SHAD_PATH=~/.shad
+SHAD_PYTHON_PATH=python3
+SHAD_STRATEGY=research
+SHAD_MAX_DEPTH=3
+SHAD_MAX_NODES=50
+SHAD_MAX_TIME=300
+
+# Security
+TRUSTED_CERTIFIERS=03abc...,03def...
+```
+
+### Programmatic Configuration
+
 ```typescript
-interface AGIdentityConfig {
-  // Required: UHRP storage provider URL
-  storageUrl: string;
+import { getConfig, loadConfig } from 'agidentity';
 
-  // BSV network (default: 'mainnet')
-  network?: 'mainnet' | 'testnet';
+// Load from environment
+loadConfig();
 
-  // Agent wallet configuration
-  agentWallet: {
-    type: 'privateKey' | 'mnemonic' | 'external';
-    privateKeyWif?: string;      // For 'privateKey' type
-    mnemonic?: string;           // For 'mnemonic' type
-    externalWallet?: BRC100Wallet; // For 'external' type
-    storagePath?: string;        // Wallet storage location
-  };
-
-  // Shad configuration (optional)
-  shad?: {
-    pythonPath?: string;         // Path to Python (default: 'python3')
-    shadPath?: string;           // Shad installation path
-    maxDepth?: number;           // Max search depth (default: 3)
-    maxNodes?: number;           // Max nodes to explore (default: 50)
-    maxTime?: number;            // Timeout in seconds (default: 300)
-    strategy?: 'software' | 'research' | 'analysis' | 'planning';
-    retriever?: 'auto' | 'qmd' | 'filesystem' | 'api';
-  };
-
-  // Payment configuration (optional)
-  payment?: {
-    enabled?: boolean;
-    pricePerRequest?: number;    // Satoshis per request
-    freeRequestsPerDay?: number;
-    premiumFeatures?: string[];
-  };
-
-  // Security configuration (optional)
-  security?: {
-    requireAuth?: boolean;
-    allowUnauthenticated?: boolean;
-    maxSessionDurationMs?: number;      // Default: 24 hours
-    timingAnomalyThresholdMs?: number;  // Default: 500ms
-    auditToBlockchain?: boolean;
-  };
-}
+// Get current config
+const config = getConfig();
+console.log(config.serverPort); // 3000
 ```
 
 ## OpenClaw Integration
+
+### Plugin Usage
+
+```typescript
+import { createAGIdentityPlugin } from 'agidentity';
+import { createGateway } from 'openclaw';
+
+const plugin = createAGIdentityPlugin({
+  storageUrl: process.env.UHRP_STORAGE_URL!,
+  network: 'mainnet',
+  agentWallet: {
+    type: 'privateKey',
+    privateKeyHex: process.env.AGENT_PRIVATE_KEY!
+  },
+  shad: {
+    strategy: 'research',
+    maxDepth: 3,
+  }
+});
+
+const gateway = createGateway({
+  plugins: [plugin]
+});
+
+await gateway.start();
+```
 
 ### Registered Tools
 
 | Tool | Description |
 |------|-------------|
-| `memory_recall` | Search encrypted knowledge vault using Shad semantic retrieval |
-| `deep_research` | Full Shad research with recursive reasoning |
-| `store_document` | Save document to encrypted vault with blockchain timestamp |
-| `read_document` | Retrieve and decrypt document from vault |
-| `verify_document` | Get blockchain proof for document existence |
-| `list_documents` | List all documents in user's vault |
-| `sign_message` | Cryptographically sign a message with agent identity |
-| `wallet_balance` | Check agent wallet balance |
+| `wallet_info` | Get wallet and session info |
+| `memory_recall` | Search encrypted vault with Shad |
+| `deep_research` | Full Shad RLM execution |
+| `store_document` | Save encrypted document |
+| `read_document` | Retrieve encrypted document |
+| `verify_document` | Get blockchain proof |
+| `list_documents` | List all documents |
+| `sign_message` | Sign with agent identity |
 
 ### Hooks
 
-- `before_agent_start`: Injects agent context and auto-retrieves relevant vault content
+- `before_agent_start`: Injects context and auto-retrieves relevant vault content
 - `agent_end`: Signs audit entry for the interaction
 
-## CLI Commands
+## Running Tests
 
-When using with OpenClaw:
+AGIdentity includes 235 comprehensive security tests:
 
 ```bash
-# Show AGIdentity status
-openclaw agidentity:status
+# Run all tests
+npm test
 
-# Sync local Obsidian vault to encrypted UHRP storage
-openclaw agidentity:sync /path/to/vault -k <user-public-key>
+# Run with coverage
+npm run test -- --coverage
 
-# Verify document with blockchain proof
-openclaw agidentity:verify notes/meeting.md
+# Run specific test
+npm run test -- src/__tests__/client-sdk.test.ts
+
+# Watch mode
+npm run test:watch
 ```
 
-## BRC Standards Used
+### Test Coverage
 
-| Standard | Purpose |
-|----------|---------|
-| [BRC-42](https://brc.dev/42) | Key derivation using ECDH + HMAC |
-| [BRC-43](https://brc.dev/43) | Security levels (0=public, 1=app, 2=counterparty) |
-| [BRC-100](https://brc.dev/100) | Wallet interface standard |
-| [BRC-103](https://brc.dev/103) | Mutual authentication protocol |
-| [BRC-104](https://brc.dev/104) | HTTP transport for authentication |
+| Category | Tests | Description |
+|----------|-------|-------------|
+| Client SDK | 25 | HTTP client, auth, batching |
+| Per-Interaction Encryption | 26 | PFS, unique keys, envelopes |
+| Cryptographic Security | 22 | Key derivation, signatures |
+| Certificate Identity | 29 | Certificates, verification |
+| Team Vault | 44 | Group encryption, RBAC |
+| Vault Isolation | 18 | Per-user encryption |
+| Enterprise Compliance | 18 | Attack vectors, performance |
+| Audit Trail | 25 | Hash chains, tamper detection |
+| Session Security | 28 | Timing, expiration, replay |
 
 ## Project Structure
 
 ```
 agidentity/
 ├── src/
-│   ├── index.ts              # Main exports and factory functions
+│   ├── index.ts              # Main exports
 │   ├── wallet/
-│   │   └── agent-wallet.ts   # BRC-100 wallet implementation
+│   │   └── agent-wallet.ts   # BRC-100 wallet
+│   ├── client/
+│   │   └── agidentity-client.ts # Client SDK
+│   ├── server/
+│   │   └── auth-server.ts    # HTTP server with BRC-103
+│   ├── messaging/
+│   │   └── message-client.ts # MessageBox client
+│   ├── service/
+│   │   └── agidentity-service.ts # Unified service
 │   ├── encryption/
 │   │   └── per-interaction.ts # PFS encryption
+│   ├── identity/
+│   │   └── identity-gate.ts  # Certificate verification
+│   ├── team/
+│   │   └── team-vault.ts     # CurvePoint group encryption
 │   ├── shad/
-│   │   ├── encrypted-vault.ts # Encrypted document vault
-│   │   └── shad-integration.ts # Shad CLI bridge
+│   │   ├── encrypted-vault.ts # Encrypted vault
+│   │   └── shad-integration.ts # Shad RLM bridge
+│   ├── vault/
+│   │   └── local-encrypted-vault.ts # Fast local vault
 │   ├── uhrp/
-│   │   └── storage-manager.ts # UHRP upload/download
+│   │   └── storage-manager.ts # UHRP storage
 │   ├── audit/
-│   │   └── signed-audit.ts   # Hash chain audit trail
+│   │   └── signed-audit.ts   # Hash chain audit
 │   ├── auth/
 │   │   └── session-manager.ts # Session management
+│   ├── config/
+│   │   └── index.ts          # Configuration
 │   ├── plugin/
 │   │   └── agidentity-plugin.ts # OpenClaw plugin
 │   ├── types/
-│   │   ├── index.ts          # Core type definitions
-│   │   └── openclaw-plugin.ts # Plugin types
-│   └── __tests__/            # 137 security tests
+│   │   └── index.ts          # TypeScript types
+│   └── __tests__/            # 235 tests
 ├── dist/                     # Compiled output
+├── .env.example              # Environment template
 ├── package.json
 ├── tsconfig.json
 └── vitest.config.ts
 ```
 
+## BRC Standards Used
+
+| Standard | Purpose |
+|----------|---------|
+| [BRC-42](https://brc.dev/42) | Key derivation (ECDH + HMAC) |
+| [BRC-43](https://brc.dev/43) | Security levels |
+| [BRC-52](https://brc.dev/52) | Identity certificates |
+| [BRC-53](https://brc.dev/53) | Certificate fields |
+| [BRC-100](https://brc.dev/100) | Wallet interface |
+| [BRC-103](https://brc.dev/103) | Mutual authentication |
+| [BRC-104](https://brc.dev/104) | HTTP transport |
+
 ## Dependencies
 
 | Package | Purpose |
 |---------|---------|
-| [@bsv/sdk](https://github.com/bsv-blockchain/ts-sdk) | BSV blockchain operations |
-| [@bsv/wallet-toolbox](https://github.com/bsv-blockchain/wallet-toolbox) | BRC-100 wallet utilities |
-| [express](https://expressjs.com/) | HTTP server for Shad retrieval |
-| [zod](https://zod.dev/) | Runtime type validation |
-| [openclaw](https://github.com/openclaw) | AI gateway (peer dependency) |
-| [shad](https://github.com/jonesj38/shad) | Semantic memory (optional) |
-
-## Environment Variables
-
-```bash
-# Agent private key (WIF format)
-AGENT_PRIVATE_KEY=L1234...
-
-# UHRP storage provider
-UHRP_STORAGE_URL=https://uhrp.example.com
-
-# Network (mainnet or testnet)
-BSV_NETWORK=mainnet
-
-# Python path for Shad
-PYTHON_PATH=/usr/bin/python3
-```
+| @bsv/sdk | BSV blockchain operations |
+| @bsv/wallet-toolbox | BRC-100 wallet |
+| @bsv/auth-express-middleware | BRC-103/104 auth |
+| @bsv/message-box-client | P2P messaging |
+| curvepoint | Group encryption |
+| express | HTTP server |
+| dotenv | Environment config |
 
 ## License
 
@@ -1001,10 +892,12 @@ MIT
 
 ## Contributing
 
-Contributions are welcome! Please ensure all tests pass before submitting PRs:
-
 ```bash
-npm test        # Run tests
+npm test        # Run tests (all must pass)
 npm run build   # Build TypeScript
 npm run lint    # Check code style
 ```
+
+---
+
+**SSL unlocked e-commerce. AGIdentity unlocks enterprise AI.**

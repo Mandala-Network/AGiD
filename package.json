@@ -32,6 +32,7 @@
     "@bsv/sdk": "^2.0.3",
     "@bsv/wallet-toolbox": "^2.0.14",
     "curvepoint": "github:p2ppsr/curvepoint",
+    "dotenv": "^17.3.1",
     "express": "^5.0.0",
     "zod": "^3.23.0"
   },

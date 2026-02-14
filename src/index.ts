@@ -106,6 +106,29 @@ export type {
 export { createAGIdentityService } from './service/index.js';
 export type { AGIdentityServiceConfig, AGIdentityService } from './service/index.js';
 
+// Client SDK
+export { AGIDClient, createAGIDClient } from './client/index.js';
+export type {
+  AGIDClientConfig,
+  APIResponse,
+  IdentityInfo,
+  SessionInfo,
+  VaultInfo,
+  StoredDocument,
+  DocumentEntry,
+  SearchResult,
+  VaultProof,
+  TeamInfo,
+  TeamDetails,
+  TeamMember,
+  AccessCheck,
+  TeamDocument,
+  SignatureResult,
+  VerificationResult,
+  HealthStatus,
+  SessionStatus,
+} from './client/index.js';
+
 // Configuration
 export { getConfig, loadConfig, resetConfig, getUhrpResolver, validateConfig } from './config/index.js';
 export type { AGIdentityEnvConfig } from './config/index.js';
