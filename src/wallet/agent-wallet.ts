@@ -38,12 +38,16 @@ import type {
 export interface AgentWalletConfig {
   /** Private key hex - store this securely (env var, secrets manager, etc.) */
   privateKeyHex: string;
-  /** Path to SQLite database for wallet storage */
+  /** Path to SQLite database for wallet storage (only for 'local' storage mode) */
   storagePath?: string;
   /** Network: 'mainnet' or 'testnet' */
   network?: 'mainnet' | 'testnet';
-  /** Database name */
+  /** Database name (only for 'local' storage mode) */
   databaseName?: string;
+  /** Storage mode: 'local' (SQLite) or 'remote' (Babbage storage service) */
+  storageMode?: 'local' | 'remote';
+  /** Custom storage URL (only for 'remote' storage mode) */
+  storageUrl?: string;
 }
 
 /**
@@ -75,26 +79,39 @@ export class AgentWallet implements BRC100Wallet {
     const pk = PrivateKey.fromHex(this.config.privateKeyHex);
     this.identityPublicKey = pk.toPublicKey().toString();
 
-    const storagePath = this.config.storagePath ?? './agent-wallet.sqlite';
-    const databaseName = this.config.databaseName ?? 'agentWallet';
+    const storageMode = this.config.storageMode ?? 'remote';
 
-    const env = {
-      chain: this.chain,
-      identityKey: this.identityPublicKey,
-      identityKey2: this.identityPublicKey,
-      filePath: storagePath,
-      taalApiKey: '',
-      devKeys: { [this.identityPublicKey]: this.config.privateKeyHex },
-      mySQLConnection: '',
-    };
+    if (storageMode === 'remote') {
+      // Use remote storage (Babbage storage service) - no SQLite required
+      this.wallet = await Setup.createWalletClientNoEnv({
+        chain: this.chain,
+        rootKeyHex: this.config.privateKeyHex,
+        storageUrl: this.config.storageUrl,
+      });
+    } else {
+      // Use local SQLite storage
+      const storagePath = this.config.storagePath ?? './agent-wallet.sqlite';
+      const databaseName = this.config.databaseName ?? 'agentWallet';
 
-    const result = await Setup.createWalletSQLite({
-      filePath: storagePath,
-      databaseName,
-      env,
-      rootKeyHex: this.config.privateKeyHex,
-    });
-    this.wallet = result.wallet;
+      const env = {
+        chain: this.chain,
+        identityKey: this.identityPublicKey,
+        identityKey2: this.identityPublicKey,
+        filePath: storagePath,
+        taalApiKey: '',
+        devKeys: { [this.identityPublicKey]: this.config.privateKeyHex },
+        mySQLConnection: '',
+      };
+
+      const result = await Setup.createWalletSQLite({
+        filePath: storagePath,
+        databaseName,
+        env,
+        rootKeyHex: this.config.privateKeyHex,
+      });
+      this.wallet = result.wallet;
+    }
+
     this.initialized = true;
   }
 
