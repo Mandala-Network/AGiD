@@ -39,6 +39,8 @@ export type {
 
 // Plugin
 export { createAGIdentityPlugin, default as createAGIdentityPluginDefault } from './plugin/agidentity-plugin.js';
+export { createSecureAGIdentityPlugin } from './plugin/secure-plugin.js';
+export type { SecurePluginConfig } from './plugin/secure-plugin.js';
 
 // Team/Group Encryption
 export { TeamVault } from './team/team-vault.js';
@@ -54,6 +56,11 @@ export type {
 export {
   CertificateAuthority,
   CertificateVerifier,
+  IdentityGate,
+  LocalCertificateIssuer,
+  LocalRevocationChecker,
+  gatedOperation,
+  gatedOperationByKey,
 } from './identity/index.js';
 export type {
   CertificateAuthorityConfig,
@@ -63,6 +70,10 @@ export type {
   CertificateIssuanceRequest,
   IssuedCertificate,
   CertificateVerificationResult,
+  IdentityGateConfig,
+  IdentityVerificationResult,
+  CertificateIssuer,
+  RevocationChecker,
 } from './identity/index.js';
 
 // ============================================================================
