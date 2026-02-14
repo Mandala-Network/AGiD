@@ -43,6 +43,27 @@ export { createAGIdentityPlugin, default as createAGIdentityPluginDefault } from
 // Team/Group Encryption
 export { TeamVault } from './team/team-vault.js';
 export type { TeamVaultConfig } from './team/team-vault.js';
+export { SecureTeamVault } from './team/secure-team-vault.js';
+export type {
+  SecureTeamVaultConfig,
+  CertifiedTeamMember,
+  CertifiedTeamConfig,
+} from './team/secure-team-vault.js';
+
+// Identity & Certificates (BRC-52/53)
+export {
+  CertificateAuthority,
+  CertificateVerifier,
+} from './identity/index.js';
+export type {
+  CertificateAuthorityConfig,
+  CertificateVerifierConfig,
+  CertificateType,
+  EmployeeCertificateFields,
+  CertificateIssuanceRequest,
+  IssuedCertificate,
+  CertificateVerificationResult,
+} from './identity/index.js';
 
 // ============================================================================
 // Convenience Factory Functions
