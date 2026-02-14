@@ -291,10 +291,9 @@ export class AGIdentityStorageManager {
   }
 
   private async resolveUhrpUrl(uhrpUrl: string): Promise<string[]> {
-    // Query UHRP resolution service
-    const lookupUrl = this.network === 'mainnet'
-      ? 'https://uhrp.network/resolve'
-      : 'https://testnet.uhrp.network/resolve';
+    // Query UHRP resolution service (configurable via env)
+    const { getUhrpResolver } = await import('../config/index.js');
+    const lookupUrl = getUhrpResolver(this.network);
 
     try {
       const response = await fetch(lookupUrl, {

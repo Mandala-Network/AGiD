@@ -23,6 +23,7 @@ import { TeamVault } from '../team/team-vault.js';
 import { SecureTeamVault } from '../team/secure-team-vault.js';
 import { createAGIDServer, AGIDServer } from '../server/auth-server.js';
 import { AGIDMessageClient, createMessageClient } from '../messaging/message-client.js';
+import { getConfig } from '../config/index.js';
 
 /**
  * Configuration for the unified AGIdentity service
@@ -155,6 +156,9 @@ export interface AGIdentityService {
 export async function createAGIdentityService(
   config: AGIdentityServiceConfig
 ): Promise<AGIdentityService> {
+  // Get environment defaults
+  const envConfig = getConfig();
+
   // Initialize wallet
   const { wallet } = await createAgentWallet(config.wallet);
   const identityKey = (await wallet.getPublicKey({ identityKey: true })).publicKey;
@@ -163,15 +167,16 @@ export async function createAGIdentityService(
 
   // Initialize storage
   const storage = new AGIdentityStorageManager({
-    storageUrl: config.storageUrl,
+    storageUrl: config.storageUrl ?? envConfig.uhrpStorageUrl ?? '',
     wallet,
-    network: config.network,
+    network: config.network ?? envConfig.network,
   });
 
   // Initialize vault
   const vault = new EncryptedShadVault({
     storageManager: storage,
     wallet,
+    cacheDir: envConfig.vaultCacheDir,
   });
 
   // Initialize Shad bridge
@@ -228,22 +233,24 @@ export async function createAGIdentityService(
       identityGate,
       vault,
       teamVault: serverTeamVault,
-      port: config.server?.port ?? 3000,
-      trustedCertifiers: config.server?.trustedCertifiers ?? [],
-      allowUnauthenticated: config.server?.allowUnauthenticated ?? false,
-      enableLogging: config.server?.enableLogging ?? false,
-      logLevel: config.server?.logLevel ?? 'info',
+      port: config.server?.port ?? envConfig.serverPort,
+      trustedCertifiers: config.server?.trustedCertifiers ?? envConfig.trustedCertifiers,
+      allowUnauthenticated: config.server?.allowUnauthenticated ?? envConfig.allowUnauthenticated,
+      enableLogging: config.server?.enableLogging ?? envConfig.serverLogging,
+      logLevel: config.server?.logLevel ?? envConfig.serverLogLevel,
     });
   }
 
   // Initialize messaging (optional)
+  // MessageBoxClient handles encryption internally via BRC-2 ECDH
   let messaging: AGIDMessageClient | null = null;
   if (config.messaging?.enabled !== false) {
+    const network = config.network ?? envConfig.network;
     messaging = createMessageClient({
       wallet,
-      messageBoxHost: config.messaging?.messageBoxHost,
-      enableLogging: config.messaging?.enableLogging ?? false,
-      networkPreset: config.network === 'testnet' ? 'testnet' : 'mainnet',
+      messageBoxHost: config.messaging?.messageBoxHost ?? envConfig.messageBoxHost,
+      enableLogging: config.messaging?.enableLogging ?? envConfig.messageBoxLogging,
+      networkPreset: network === 'testnet' ? 'testnet' : 'mainnet',
     });
     await messaging.initialize();
   }

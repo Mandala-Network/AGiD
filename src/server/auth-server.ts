@@ -11,6 +11,7 @@ import type { AgentWallet } from '../wallet/agent-wallet.js';
 import type { IdentityGate } from '../identity/identity-gate.js';
 import type { EncryptedShadVault } from '../shad/encrypted-vault.js';
 import type { TeamVault } from '../team/team-vault.js';
+import { getConfig } from '../config/index.js';
 
 /**
  * Server configuration
@@ -54,7 +55,10 @@ export interface AGIDServer {
  */
 export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDServer> {
   const app = express();
-  const port = config.port ?? 3000;
+
+  // Get defaults from environment config
+  const envConfig = getConfig();
+  const port = config.port ?? envConfig.serverPort;
 
   // Get underlying wallet-toolbox wallet for auth middleware
   const underlyingWallet = config.wallet.getUnderlyingWallet();

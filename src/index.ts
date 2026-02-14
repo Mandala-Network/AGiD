@@ -97,6 +97,10 @@ export type {
 export { createAGIdentityService } from './service/index.js';
 export type { AGIdentityServiceConfig, AGIdentityService } from './service/index.js';
 
+// Configuration
+export { getConfig, loadConfig, resetConfig, getUhrpResolver, validateConfig } from './config/index.js';
+export type { AGIdentityEnvConfig } from './config/index.js';
+
 // ============================================================================
 // Convenience Factory Functions
 // ============================================================================

@@ -7,6 +7,7 @@
 
 import { MessageBoxClient, PeerPayClient } from '@bsv/message-box-client';
 import type { AgentWallet } from '../wallet/agent-wallet.js';
+import { getConfig } from '../config/index.js';
 
 /**
  * Configuration for the message client
@@ -114,18 +115,23 @@ export class AGIDMessageClient {
       throw new Error('Wallet not initialized');
     }
 
+    // Get defaults from environment config
+    const envConfig = getConfig();
+    const messageBoxHost = config.messageBoxHost ?? envConfig.messageBoxHost;
+    const enableLogging = config.enableLogging ?? envConfig.messageBoxLogging;
+
     // MessageBoxClient auto-encrypts messages using BRC-2 ECDH
     this.messageClient = new MessageBoxClient({
-      host: config.messageBoxHost ?? 'https://messagebox.babbage.systems',
+      host: messageBoxHost,
       walletClient: underlyingWallet,
-      enableLogging: config.enableLogging ?? false,
+      enableLogging,
       networkPreset: config.networkPreset ?? 'mainnet',
     });
 
     this.payClient = new PeerPayClient({
-      messageBoxHost: config.messageBoxHost ?? 'https://messagebox.babbage.systems',
+      messageBoxHost,
       walletClient: underlyingWallet,
-      enableLogging: config.enableLogging ?? false,
+      enableLogging,
     });
   }
 
