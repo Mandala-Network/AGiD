@@ -18,6 +18,7 @@ AGIdentity is a lightweight wrapper around [OpenClaw](https://github.com/opencla
 - [Quick Start](#quick-start)
 - [Running Tests](#running-tests)
 - [API Reference](#api-reference)
+- [Team Vault](#team-vault)
 - [Security Model](#security-model)
 - [Configuration](#configuration)
 - [OpenClaw Integration](#openclaw-integration)
@@ -426,6 +427,179 @@ sessions.invalidateUserSessions(userPublicKey);
 
 // Statistics
 const stats = sessions.getStats();
+```
+
+## Team Vault
+
+AGIdentity supports team/group encryption using [CurvePoint](https://github.com/p2ppsr/curvepoint), enabling multiple team members to access shared encrypted documents.
+
+### Creating a Team
+
+```typescript
+import { TeamVault } from 'agidentity';
+
+const teamVault = new TeamVault({ wallet });
+
+// Create a new team (you become the owner)
+const team = await teamVault.createTeam('Engineering', ownerPublicKey, {
+  maxMembers: 50,
+  allowMemberInvite: false
+});
+
+console.log(`Team created: ${team.teamId}`);
+```
+
+### Managing Team Members
+
+```typescript
+// Add a team member
+await teamVault.addMember(
+  team.teamId,
+  memberPublicKey,
+  'member',  // Role: 'owner' | 'admin' | 'member' | 'readonly' | 'bot'
+  ownerPublicKey
+);
+
+// Add an AI bot to the team
+await teamVault.addBot(team.teamId, botPublicKey, ownerPublicKey);
+
+// Remove a member
+await teamVault.removeMember(team.teamId, memberPublicKey, ownerPublicKey);
+
+// Check access
+const access = await teamVault.checkAccess(team.teamId, userPublicKey);
+if (access.hasAccess) {
+  console.log(`User has ${access.role} access`);
+}
+```
+
+### Storing Team Documents
+
+Documents are encrypted with CurvePoint group encryption - any team member can decrypt:
+
+```typescript
+// Store a document (encrypted for all team members)
+const doc = await teamVault.storeDocument(
+  team.teamId,
+  '/docs/api-spec.md',
+  'API specification content...',
+  authorPublicKey,
+  { mimeType: 'text/markdown', tags: ['api', 'documentation'] }
+);
+
+// Read document (decrypted for current wallet)
+const content = await teamVault.readDocumentText(team.teamId, '/docs/api-spec.md');
+
+// Update document
+await teamVault.updateDocument(
+  team.teamId,
+  '/docs/api-spec.md',
+  'Updated content...',
+  authorPublicKey
+);
+
+// List all documents
+const documents = await teamVault.listDocuments(team.teamId);
+```
+
+### How CurvePoint Group Encryption Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    CURVEPOINT GROUP ENCRYPTION                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   1. Generate random symmetric key (AES-256)                            │
+│      ┌─────────────────────┐                                            │
+│      │   Symmetric Key K   │                                            │
+│      └─────────┬───────────┘                                            │
+│                │                                                        │
+│   2. Encrypt document with K                                            │
+│      ┌─────────────────────┐    ┌─────────────────────┐                 │
+│      │    Document         │───►│ Encrypted Document  │                 │
+│      └─────────────────────┘    └─────────────────────┘                 │
+│                                                                         │
+│   3. Encrypt K for each team member using ECDH                          │
+│      ┌──────────┐  ┌──────────┐  ┌──────────┐                           │
+│      │ Member A │  │ Member B │  │ Bot      │                           │
+│      │ Public K │  │ Public K │  │ Public K │                           │
+│      └────┬─────┘  └────┬─────┘  └────┬─────┘                           │
+│           │             │             │                                 │
+│           ▼             ▼             ▼                                 │
+│      ┌──────────┐  ┌──────────┐  ┌──────────┐                           │
+│      │ K enc.   │  │ K enc.   │  │ K enc.   │                           │
+│      │ for A    │  │ for B    │  │ for Bot  │                           │
+│      └──────────┘  └──────────┘  └──────────┘                           │
+│                                                                         │
+│   4. Store: Header (all encrypted keys) + Encrypted Document            │
+│                                                                         │
+│   5. Decryption: Member uses their private key to decrypt K,            │
+│      then K decrypts the document                                       │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Hierarchical Teams
+
+Create sub-teams for organizational structure:
+
+```typescript
+// Create a sub-team under the parent team
+const frontendTeam = await teamVault.createSubTeam(
+  parentTeam.teamId,
+  'Frontend',
+  ownerPublicKey
+);
+
+// Get all sub-teams
+const subTeams = await teamVault.getSubTeams(parentTeam.teamId);
+```
+
+### Team Roles
+
+| Role     | Add Members | Remove Members | Write Docs | Delete Docs |
+|----------|-------------|----------------|------------|-------------|
+| owner    | Yes         | Yes            | Yes        | Yes         |
+| admin    | Yes         | Members only   | Yes        | Yes         |
+| member   | No          | No             | Yes        | No          |
+| readonly | No          | No             | No         | No          |
+| bot      | No          | No             | Yes        | No          |
+
+### Audit Trail
+
+All team operations are logged:
+
+```typescript
+const auditLog = teamVault.getAuditLog(team.teamId);
+
+for (const entry of auditLog) {
+  console.log(`${entry.action} by ${entry.actorPublicKey} at ${entry.timestamp}`);
+}
+```
+
+### Use Case: Corporate AI Bot
+
+Enable your entire team to interact with a single AI bot:
+
+```typescript
+// Initialize team vault for your organization
+const teamVault = new TeamVault({ wallet: companyWallet });
+
+// Create team
+const team = await teamVault.createTeam('Sales Team', adminPublicKey);
+
+// Add team members
+await teamVault.addMember(team.teamId, alice, 'member', adminPublicKey);
+await teamVault.addMember(team.teamId, bob, 'member', adminPublicKey);
+await teamVault.addMember(team.teamId, carol, 'member', adminPublicKey);
+
+// Add the AI bot
+await teamVault.addBot(team.teamId, aiBotPublicKey, adminPublicKey);
+
+// Now any team member can:
+// 1. Store encrypted documents that only team members can access
+// 2. The AI bot can read and respond to team documents
+// 3. All actions are audited with blockchain-anchored timestamps
 ```
 
 ## Security Model

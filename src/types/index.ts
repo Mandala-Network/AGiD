@@ -430,3 +430,182 @@ export interface ToolExecutionContext {
   messageChannel?: string;
   sandboxed?: boolean;
 }
+
+// ============================================================================
+// Team/Group Encryption Types (CurvePoint Integration)
+// ============================================================================
+
+/**
+ * Represents a team member with their public key and role
+ */
+export interface TeamMember {
+  publicKey: string;
+  role: TeamRole;
+  addedAt: number;
+  addedBy: string;
+  metadata?: TeamMemberMetadata;
+}
+
+/**
+ * Team member roles with different access levels
+ */
+export type TeamRole = 'owner' | 'admin' | 'member' | 'readonly' | 'bot';
+
+/**
+ * Optional metadata for team members
+ */
+export interface TeamMemberMetadata {
+  displayName?: string;
+  email?: string;
+  department?: string;
+  customFields?: Record<string, string>;
+}
+
+/**
+ * Security level for BRC-43 key derivation
+ * 0 = public, 1 = app-wide, 2 = per-counterparty
+ */
+export type SecurityLevel = 0 | 1 | 2;
+
+/**
+ * Team configuration with encryption settings
+ */
+export interface TeamConfig {
+  teamId: string;
+  name: string;
+  createdAt: number;
+  createdBy: string;
+  protocolID: [SecurityLevel, string];
+  keyID: string;
+  members: TeamMember[];
+  parentTeamId?: string;  // For hierarchical teams
+  settings?: TeamSettings;
+}
+
+/**
+ * Team-specific settings
+ */
+export interface TeamSettings {
+  allowMemberInvite?: boolean;
+  requireAdminApproval?: boolean;
+  maxMembers?: number;
+  defaultMemberRole?: TeamRole;
+  botAccessLevel?: TeamRole;
+}
+
+/**
+ * Encrypted team document with group encryption header
+ */
+export interface TeamDocument {
+  documentId: string;
+  teamId: string;
+  path: string;
+  encryptedContent: number[];
+  header: number[];  // CurvePoint group encryption header
+  createdAt: number;
+  createdBy: string;
+  lastModifiedAt: number;
+  lastModifiedBy: string;
+  contentHash: string;
+  metadata?: TeamDocumentMetadata;
+}
+
+/**
+ * Team document metadata
+ */
+export interface TeamDocumentMetadata {
+  filename?: string;
+  mimeType?: string;
+  description?: string;
+  tags?: string[];
+  version?: number;
+}
+
+/**
+ * Team vault index for tracking all team documents
+ */
+export interface TeamVaultIndex {
+  teamId: string;
+  documents: TeamDocumentEntry[];
+  lastSynced: number;
+  indexUhrpUrl?: string;
+}
+
+/**
+ * Entry in the team vault index
+ */
+export interface TeamDocumentEntry {
+  documentId: string;
+  path: string;
+  uhrpUrl: string;
+  keyId: string;
+  lastModified: number;
+  contentHash: string;
+  createdBy: string;
+}
+
+/**
+ * Result of team operations
+ */
+export interface TeamOperationResult {
+  success: boolean;
+  teamId: string;
+  operation: 'create' | 'addMember' | 'removeMember' | 'storeDocument' | 'updateSettings';
+  timestamp: number;
+  error?: string;
+}
+
+/**
+ * Team member access result
+ */
+export interface TeamAccessResult {
+  hasAccess: boolean;
+  role?: TeamRole;
+  teamId?: string;
+  error?: string;
+}
+
+/**
+ * Team invitation for onboarding new members
+ */
+export interface TeamInvitation {
+  invitationId: string;
+  teamId: string;
+  inviteePublicKey?: string;  // Optional: can be claimed by anyone with the invitation
+  invitedBy: string;
+  role: TeamRole;
+  createdAt: number;
+  expiresAt: number;
+  claimed: boolean;
+  claimedAt?: number;
+  claimedBy?: string;
+}
+
+/**
+ * Team activity audit entry
+ */
+export interface TeamAuditEntry {
+  entryId: string;
+  teamId: string;
+  action: TeamAction;
+  actorPublicKey: string;
+  targetPublicKey?: string;  // For member-related actions
+  documentId?: string;  // For document-related actions
+  timestamp: number;
+  details?: Record<string, unknown>;
+  signature: string;
+}
+
+/**
+ * Types of team actions for auditing
+ */
+export type TeamAction =
+  | 'team_created'
+  | 'member_added'
+  | 'member_removed'
+  | 'member_role_changed'
+  | 'document_created'
+  | 'document_updated'
+  | 'document_deleted'
+  | 'settings_changed'
+  | 'team_deleted';

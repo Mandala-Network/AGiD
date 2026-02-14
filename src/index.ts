@@ -40,6 +40,10 @@ export type {
 // Plugin
 export { createAGIdentityPlugin, default as createAGIdentityPluginDefault } from './plugin/agidentity-plugin.js';
 
+// Team/Group Encryption
+export { TeamVault } from './team/team-vault.js';
+export type { TeamVaultConfig } from './team/team-vault.js';
+
 // ============================================================================
 // Convenience Factory Functions
 // ============================================================================
@@ -50,6 +54,7 @@ import { AGIdentityStorageManager } from './uhrp/storage-manager.js';
 import { EncryptedShadVault } from './shad/encrypted-vault.js';
 import { createShadBridge, AGIdentityShadBridge } from './shad/shad-integration.js';
 import { createAGIdentityPlugin } from './plugin/agidentity-plugin.js';
+import { TeamVault } from './team/team-vault.js';
 
 /**
  * AGIdentity instance with all components initialized
@@ -59,6 +64,7 @@ export interface AGIdentityInstance {
   storage: AGIdentityStorageManager;
   vault: EncryptedShadVault;
   shad: AGIdentityShadBridge;
+  team: TeamVault;
   config: AGIdentityConfig;
 }
 
@@ -105,11 +111,15 @@ export async function createAGIdentity(
   // Initialize Shad bridge
   const shad = createShadBridge(vault, wallet, config.shad);
 
+  // Initialize team vault for group encryption
+  const team = new TeamVault({ wallet });
+
   return {
     wallet,
     storage,
     vault,
     shad,
+    team,
     config
   };
 }
