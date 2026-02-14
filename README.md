@@ -18,6 +18,7 @@ AGIdentity is a lightweight wrapper around [OpenClaw](https://github.com/opencla
 - [Quick Start](#quick-start)
 - [Running Tests](#running-tests)
 - [API Reference](#api-reference)
+- [Certificate Identity](#certificate-identity)
 - [Team Vault](#team-vault)
 - [Security Model](#security-model)
 - [Configuration](#configuration)
@@ -427,6 +428,177 @@ sessions.invalidateUserSessions(userPublicKey);
 
 // Statistics
 const stats = sessions.getStats();
+```
+
+## Certificate Identity
+
+AGIdentity implements BRC-52/53 certificate-based identity for enterprise access control. When an employee leaves, their certificate is revoked and they immediately lose access to all team documents.
+
+### Certificate Authority (Admin)
+
+The organization admin runs a Certificate Authority to issue identity certificates:
+
+```typescript
+import { CertificateAuthority } from 'agidentity';
+
+// Initialize Certificate Authority with admin wallet
+const ca = new CertificateAuthority({
+  wallet: adminWallet,
+  organizationName: 'Acme Corp',
+});
+await ca.initialize();
+
+// Issue certificate to new employee
+const issued = await ca.issueCertificate({
+  subjectPublicKey: employeePublicKey,
+  certificateType: 'employee',
+  fields: {
+    name: 'Alice Smith',
+    email: 'alice@acme.com',
+    department: 'Engineering',
+    validFrom: new Date().toISOString(),
+    validUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+});
+
+// Issue certificate to AI bot
+const botCert = await ca.issueCertificate({
+  subjectPublicKey: botPublicKey,
+  certificateType: 'bot',
+  fields: {
+    name: 'Support Bot',
+    email: 'bot@acme.com',
+    validFrom: new Date().toISOString(),
+    validUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+});
+```
+
+### Certificate Types
+
+| Type        | Description                          |
+|-------------|--------------------------------------|
+| `employee`  | Standard employee certificate        |
+| `admin`     | Admin with elevated privileges       |
+| `contractor`| Temporary contractor access          |
+| `bot`       | AI agent/bot identity                |
+| `service`   | Service account                      |
+
+### Revoking Certificates (Employee Offboarding)
+
+When an employee leaves, immediately revoke their certificate:
+
+```typescript
+// Revoke the certificate
+await ca.revokeCertificate(
+  employeeCert.serialNumber,
+  'Employment terminated'
+);
+
+// Sync revocation to all services
+await teamVault.syncRevocationList([employeeCert.serialNumber]);
+
+// Employee can no longer:
+// - Access any team documents
+// - Write to any vaults
+// - Authenticate to any services
+```
+
+### Secure Team Vault (Certificate-Required)
+
+For enterprise deployments, use `SecureTeamVault` which requires valid certificates:
+
+```typescript
+import { SecureTeamVault, CertificateAuthority } from 'agidentity';
+
+// Create secure team vault with trusted CA
+const teamVault = new SecureTeamVault({
+  wallet: companyWallet,
+  trustedCertifiers: [ca.getCertifierPublicKey()],
+});
+
+// Create team - owner must have valid certificate
+const team = await teamVault.createTeam('Engineering', adminCert);
+
+// Add member - requires valid certificate
+await teamVault.addMember(team.teamId, employeeCert, 'member', adminPublicKey);
+
+// Add bot - requires valid bot certificate
+await teamVault.addBot(team.teamId, botCert, adminPublicKey);
+
+// Store document - verifies author certificate
+await teamVault.storeDocument(
+  team.teamId,
+  '/docs/secret.md',
+  'Confidential content',
+  employeePublicKey
+);
+
+// Read document - verifies reader certificate
+const content = await teamVault.readDocumentText(
+  team.teamId,
+  '/docs/secret.md',
+  employeePublicKey
+);
+```
+
+### Certificate Verification Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    CERTIFICATE VERIFICATION FLOW                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   1. EMPLOYEE ONBOARDING                                                │
+│      ┌──────────┐     ┌──────────┐     ┌──────────┐                     │
+│      │  Admin   │────►│   CA     │────►│Certificate│                    │
+│      │          │     │ Issues   │     │  Issued  │                     │
+│      └──────────┘     └──────────┘     └──────────┘                     │
+│                                                                         │
+│   2. TEAM ACCESS                                                        │
+│      ┌──────────┐     ┌──────────┐     ┌──────────┐                     │
+│      │ Employee │────►│  Verify  │────►│  Access  │                     │
+│      │   Cert   │     │   Cert   │     │ Granted  │                     │
+│      └──────────┘     └──────────┘     └──────────┘                     │
+│                                                                         │
+│   3. EMPLOYEE OFFBOARDING                                               │
+│      ┌──────────┐     ┌──────────┐     ┌──────────┐                     │
+│      │  Admin   │────►│  Revoke  │────►│Certificate│                    │
+│      │          │     │   Cert   │     │ Revoked  │                     │
+│      └──────────┘     └──────────┘     └──────────┘                     │
+│                              │                                          │
+│                              ▼                                          │
+│      ┌──────────┐     ┌──────────┐     ┌──────────┐                     │
+│      │ Employee │────►│  Verify  │────►│  Access  │                     │
+│      │   Cert   │     │  FAILS   │     │ DENIED   │                     │
+│      └──────────┘     └──────────┘     └──────────┘                     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Certificate Verifier (Services)
+
+Services can verify certificates without running a full CA:
+
+```typescript
+import { CertificateVerifier } from 'agidentity';
+
+const verifier = new CertificateVerifier({
+  wallet: serviceWallet,
+  trustedCertifiers: [companyCAPublicKey],
+});
+
+// Verify a certificate
+const result = await verifier.verify(certificate);
+if (!result.valid) {
+  throw new Error(`Access denied: ${result.error}`);
+}
+
+// Register certificate for public key lookups
+await verifier.registerCertificate(certificate);
+
+// Verify by public key
+const access = await verifier.verifyPublicKey(userPublicKey);
 ```
 
 ## Team Vault
