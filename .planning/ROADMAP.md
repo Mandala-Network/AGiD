@@ -106,7 +106,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Interface Hardening | 4/4 | Complete | 2026-02-15 |
-| 2. MessageBox Channel | 1/TBD | In progress | - |
+| 2. MessageBox Channel | 2/3 | In progress | - |
 | 3. MPC Wallet Interface | 0/TBD | Not started | - |
 | 4. OpenClaw Gateway | 0/TBD | Not started | - |
 | 5. Shad Semantic Memory | 0/TBD | Not started | - |
