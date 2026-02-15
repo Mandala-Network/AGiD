@@ -11,6 +11,7 @@ import type { AgentWallet } from '../wallet/agent-wallet.js';
 import type { IdentityGate } from '../identity/identity-gate.js';
 import type { EncryptedShadVault } from '../shad/encrypted-vault.js';
 import type { TeamVault } from '../team/team-vault.js';
+import type { AGIdentityMemoryServer } from '../memory/agidentity-memory-server.js';
 import { getConfig } from '../config/index.js';
 
 /**
@@ -21,6 +22,7 @@ export interface AGIDServerConfig {
   identityGate: IdentityGate;
   vault: EncryptedShadVault;
   teamVault: TeamVault;
+  memoryServer?: AGIdentityMemoryServer;
   port?: number;
   trustedCertifiers: string[];
   allowUnauthenticated?: boolean;
@@ -563,6 +565,78 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
 
       updateSession(clientKey);
       res.json({ success: true, valid: result.valid });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // =========================================================================
+  // Memory Endpoints
+  // =========================================================================
+
+  app.post('/memory/search', async (req: AuthRequest, res: Response) => {
+    const clientKey = getClientKey(req);
+    if (!clientKey) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    if (!config.memoryServer) {
+      res.status(503).json({ error: 'Memory server not configured' });
+      return;
+    }
+
+    const { query, limit } = req.body;
+    if (!query) {
+      res.status(400).json({ error: 'Missing query' });
+      return;
+    }
+
+    try {
+      const response = await config.memoryServer.memory_search(query, limit ?? 10);
+      const data = JSON.parse(response.content[0].text);
+
+      updateSession(clientKey);
+      res.json({
+        success: true,
+        results: data.results,
+        count: data.count,
+        query: data.query,
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.get('/memory/get/:path(*)', async (req: AuthRequest, res: Response) => {
+    const clientKey = getClientKey(req);
+    if (!clientKey) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    if (!config.memoryServer) {
+      res.status(503).json({ error: 'Memory server not configured' });
+      return;
+    }
+
+    try {
+      const path = getParam(req.params.path);
+      const response = await config.memoryServer.memory_get(path);
+      const data = JSON.parse(response.content[0].text);
+
+      if (data.error) {
+        res.status(404).json({ error: data.error, path: data.path });
+        return;
+      }
+
+      updateSession(clientKey);
+      res.json({
+        success: true,
+        path: data.path,
+        content: data.content,
+        length: data.length,
+      });
     } catch (error) {
       res.status(500).json({ error: String(error) });
     }
