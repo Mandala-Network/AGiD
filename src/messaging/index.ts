@@ -27,3 +27,12 @@ export type {
   VerifiedMessageHandler,
   CertificateExchangeMessage,
 } from './gated-message-handler.js';
+
+// Conversation manager for session threading
+export { ConversationManager } from './conversation-manager.js';
+export type {
+  Conversation,
+  ConversationMessage,
+  ConversationManagerConfig,
+  ProcessedMessageResult,
+} from './conversation-manager.js';
