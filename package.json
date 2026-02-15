@@ -21,7 +21,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js",
+    "start": "node dist/start.js",
+    "gateway": "node dist/start.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/",
