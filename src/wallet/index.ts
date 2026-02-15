@@ -8,3 +8,11 @@ export {
   type DKGProgressInfo,
   type MPCKeyId,
 } from './mpc-agent-wallet.js';
+
+// Production MPC integration
+export {
+  createProductionMPCWallet,
+  loadMPCConfigFromEnv,
+  type ProductionMPCConfig,
+  type ProductionMPCWalletResult,
+} from './mpc-integration.js';
