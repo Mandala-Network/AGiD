@@ -77,6 +77,37 @@ export function createAGIdentityPlugin(
       const userContexts = new Map<string, UserContext>();
       const sessionEncryptions = new Map<string, SessionEncryption>();
 
+      // Session cleanup configuration
+      const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Run cleanup every 5 minutes
+
+      /**
+       * Clean up stale sessions to prevent memory leaks
+       */
+      function cleanupStaleSessions(): void {
+        const now = Date.now();
+
+        // Clean userContexts based on lastActivityAt
+        for (const [key, context] of userContexts) {
+          if (now - context.lastActivityAt > SESSION_TIMEOUT_MS) {
+            userContexts.delete(key);
+          }
+        }
+
+        // Clean sessionEncryptions - remove if corresponding context is gone
+        for (const key of sessionEncryptions.keys()) {
+          if (!userContexts.has(key)) {
+            sessionEncryptions.delete(key);
+          }
+        }
+      }
+
+      // Start periodic cleanup
+      const cleanupInterval = setInterval(cleanupStaleSessions, CLEANUP_INTERVAL_MS);
+      // Note: If OpenClaw adds plugin unregister hooks, clear this interval there
+      // For now, interval persists for plugin lifetime
+      void cleanupInterval;
+
       // =====================================================================
       // Helper Functions
       // =====================================================================
