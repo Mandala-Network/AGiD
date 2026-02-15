@@ -703,15 +703,36 @@ export class TeamVault {
     targetPublicKey?: string,
     documentId?: string
   ): Promise<void> {
-    const entry: TeamAuditEntry = {
-      entryId: await this.generateDocumentId(teamId, action),
+    const entryId = await this.generateDocumentId(teamId, action);
+    const timestamp = Date.now();
+
+    // Create entry data without signature for signing
+    const entryData = {
+      entryId,
       teamId,
       action,
       actorPublicKey,
       targetPublicKey,
       documentId,
-      timestamp: Date.now(),
-      signature: '', // Would be signed in production
+      timestamp,
+    };
+
+    // Sign the entry data using wallet
+    const dataToSign = JSON.stringify(entryData);
+    const signatureResult = await this.wallet.createSignature({
+      data: Array.from(new TextEncoder().encode(dataToSign)),
+      protocolID: [0, 'agidentity-team-audit'], // Level 0 = publicly verifiable
+      keyID: `audit-${entryId}`,
+    });
+
+    // Convert signature to hex string
+    const signature = Array.from(new Uint8Array(signatureResult.signature))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    const entry: TeamAuditEntry = {
+      ...entryData,
+      signature,
     };
 
     this.auditLog.push(entry);
