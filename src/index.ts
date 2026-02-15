@@ -16,6 +16,17 @@ export * from './types/index.js';
 // Wallet
 export { AgentWallet, createAgentWallet } from './wallet/agent-wallet.js';
 export type { AgentWalletConfig, WalletBalanceInfo } from './wallet/agent-wallet.js';
+export {
+  MPCAgentWallet,
+  createMPCAgentWallet,
+} from './wallet/mpc-agent-wallet.js';
+export type {
+  MPCAgentWalletConfig,
+  IMPCWallet,
+  MPCWalletFactory,
+  DKGProgressInfo,
+  MPCKeyId,
+} from './wallet/mpc-agent-wallet.js';
 
 // UHRP Storage
 export { AGIdentityStorageManager } from './uhrp/storage-manager.js';
