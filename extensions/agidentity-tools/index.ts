@@ -1,4 +1,5 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk';
+import { createWalletTools } from './src/wallet-tools.js';
 
 /**
  * AGIdentity OpenClaw Plugin
@@ -14,7 +15,14 @@ export default function register(api: OpenClawPluginApi): void {
   api.logger.info('[AGIdentity] Plugin registered');
   api.logger.info(`[AGIdentity] Gateway URL: ${gatewayUrl}`);
 
-  // Tool registration will be added in subsequent tasks
-  // - Wallet tools (Task 2)
-  // - Memory tools (Task 3)
+  // Register wallet tools (requires explicit allowlist, disabled in sandbox mode)
+  api.registerTool(
+    (ctx) => (ctx.sandboxed ? null : createWalletTools({ gatewayUrl })),
+    {
+      names: ['agid_get_balance', 'agid_create_transaction'],
+      optional: true,
+    }
+  );
+
+  // Memory tools will be added in Task 3
 }
