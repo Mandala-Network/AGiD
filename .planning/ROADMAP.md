@@ -15,7 +15,7 @@ None (custom enterprise identity system)
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Interface Hardening** - Fix security issues, add validation, sign audit entries (Complete 2026-02-15)
-- [ ] **Phase 2: MessageBox Channel** - Complete send/receive flow as primary communication
+- [x] **Phase 2: MessageBox Channel** - Complete send/receive flow as primary communication (Complete 2026-02-15)
 - [ ] **Phase 3: MPC Wallet Interface** - Define interface for MPC wallet integration
 - [ ] **Phase 4: OpenClaw Gateway** - Wrap OpenClaw with identity-gated access
 - [ ] **Phase 5: Shad Semantic Memory** - Connect encrypted vault for AI long-term memory
@@ -106,7 +106,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Interface Hardening | 4/4 | Complete | 2026-02-15 |
-| 2. MessageBox Channel | 2/3 | In progress | - |
+| 2. MessageBox Channel | 3/3 | Complete | 2026-02-15 |
 | 3. MPC Wallet Interface | 0/TBD | Not started | - |
 | 4. OpenClaw Gateway | 0/TBD | Not started | - |
 | 5. Shad Semantic Memory | 0/TBD | Not started | - |
