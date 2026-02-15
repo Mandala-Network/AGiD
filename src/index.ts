@@ -102,6 +102,18 @@ export type {
   PaymentHandler,
 } from './messaging/index.js';
 
+// MessageBox Gateway (unified AI communication entry point)
+export { MessageBoxGateway, createMessageBoxGateway } from './messaging/index.js';
+export type {
+  ProcessedMessage,
+  ProcessingContext,
+  MessageResponse,
+  GatewayError,
+  GatewayErrorType,
+  MessageBoxGatewayConfig,
+  CreateGatewayConfig,
+} from './messaging/index.js';
+
 // Unified Service
 export { createAGIdentityService } from './service/index.js';
 export type { AGIdentityServiceConfig, AGIdentityService } from './service/index.js';

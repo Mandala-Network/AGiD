@@ -36,3 +36,15 @@ export type {
   ConversationManagerConfig,
   ProcessedMessageResult,
 } from './conversation-manager.js';
+
+// MessageBox Gateway - unified entry point for AI communication
+export { MessageBoxGateway, createMessageBoxGateway } from './messagebox-gateway.js';
+export type {
+  ProcessedMessage,
+  ProcessingContext,
+  MessageResponse,
+  GatewayError,
+  GatewayErrorType,
+  MessageBoxGatewayConfig,
+  CreateGatewayConfig,
+} from './messagebox-gateway.js';
