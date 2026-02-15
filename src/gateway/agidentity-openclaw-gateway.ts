@@ -26,10 +26,13 @@
 import type { AgentWallet } from '../wallet/agent-wallet.js';
 import type { ProcessedMessage, MessageResponse } from '../messaging/messagebox-gateway.js';
 import type { ChatMessageEvent } from '../types/openclaw-gateway.js';
+import type { LocalEncryptedVault } from '../vault/local-encrypted-vault.js';
+import type { ShadTempVaultExecutor } from '../shad/shad-temp-executor.js';
 import { MessageBoxGateway, createMessageBoxGateway } from '../messaging/messagebox-gateway.js';
 import { IdentityGate } from '../identity/identity-gate.js';
 import { OpenClawClient, createOpenClawClient } from '../openclaw/index.js';
 import { SignedAuditTrail } from '../audit/signed-audit.js';
+import { AGIdentityMemoryServer, createAGIdentityMemoryServer } from '../memory/agidentity-memory-server.js';
 
 // =============================================================================
 // Types
@@ -55,6 +58,17 @@ export interface AGIdentityOpenClawGatewayConfig {
   audit?: {
     /** Whether to enable audit trail (default: true) */
     enabled?: boolean;
+  };
+  /** Memory configuration for AI long-term memory */
+  memory?: {
+    /** Vault for document storage */
+    vault?: LocalEncryptedVault;
+    /** Whether to auto-retrieve context before OpenClaw (default: true) */
+    autoRetrieve?: boolean;
+    /** Maximum documents to retrieve (default: 3) */
+    retrieveLimit?: number;
+    /** Optional Shad executor for complex tasks */
+    shadExecutor?: ShadTempVaultExecutor;
   };
 }
 
@@ -94,17 +108,40 @@ export interface IdentityContext {
  * 2. IdentityGate (certificate-based identity verification)
  * 3. OpenClaw (AI agent gateway)
  * 4. MPC Wallet (threshold signatures for responses)
+ * 5. Memory Server (optional AI long-term memory with context retrieval)
  *
  * Every message is authenticated before reaching OpenClaw.
  * Every response is signed before delivery.
+ *
+ * @example
+ * ```typescript
+ * const gateway = await createAGIdentityGateway({
+ *   wallet,
+ *   trustedCertifiers: [caPublicKey],
+ *   openclawUrl: 'ws://127.0.0.1:18789',
+ *   memory: {
+ *     vault: await createLocalEncryptedVault({ vaultPath: '~/Documents/Vault', wallet }),
+ *     autoRetrieve: true,
+ *     retrieveLimit: 3,
+ *   },
+ * });
+ * ```
  */
 export class AGIdentityOpenClawGateway {
-  private config: Required<AGIdentityOpenClawGatewayConfig>;
+  private config: AGIdentityOpenClawGatewayConfig & {
+    openclawUrl: string;
+    openclawToken: string;
+    messageBoxes: string[];
+    signResponses: boolean;
+    audit: { enabled: boolean };
+  };
   private wallet: AgentWallet;
   private messageBoxGateway: MessageBoxGateway | null = null;
   private openclawClient: OpenClawClient | null = null;
   private identityGate: IdentityGate | null = null;
   private auditTrail: SignedAuditTrail | null = null;
+  private memoryServer?: AGIdentityMemoryServer;
+  private shadExecutor?: ShadTempVaultExecutor;
   private running = false;
   private agentPublicKey: string | null = null;
 
@@ -155,6 +192,18 @@ export class AGIdentityOpenClawGateway {
     });
     await this.identityGate.initialize();
 
+    // 1.5 Create Memory Server if vault provided
+    if (this.config.memory?.vault) {
+      this.memoryServer = createAGIdentityMemoryServer({
+        vault: this.config.memory.vault,
+      });
+    }
+
+    // Store Shad executor if provided
+    if (this.config.memory?.shadExecutor) {
+      this.shadExecutor = this.config.memory.shadExecutor;
+    }
+
     // 2. Create MessageBoxGateway with message handler
     this.messageBoxGateway = await createMessageBoxGateway({
       wallet: this.wallet,
@@ -194,6 +243,73 @@ export class AGIdentityOpenClawGateway {
   }
 
   /**
+   * Retrieve relevant context from memory for a query
+   */
+  private async retrieveContext(query: string): Promise<string | null> {
+    if (!this.memoryServer) return null;
+
+    try {
+      const response = await this.memoryServer.memory_search(query, this.config.memory?.retrieveLimit ?? 3);
+      const parsed = JSON.parse(response.content[0].text);
+
+      if (parsed.results.length === 0) return null;
+
+      // Fetch content for top results
+      const contextParts: string[] = [];
+      for (const result of parsed.results) {
+        const docResponse = await this.memoryServer.memory_get(result.path);
+        const docParsed = JSON.parse(docResponse.content[0].text);
+        if (docParsed.content) {
+          contextParts.push(`--- ${result.path} ---\n${docParsed.content}`);
+        }
+      }
+
+      return contextParts.length > 0
+        ? `Relevant context from memory:\n\n${contextParts.join('\n\n')}`
+        : null;
+    } catch (error) {
+      console.warn('[AGIdentityGateway] Memory retrieval failed:', error);
+      return null; // Graceful degradation
+    }
+  }
+
+  /**
+   * Check if a message appears to be a complex task requiring Shad
+   */
+  private isComplexTask(content: string): boolean {
+    const complexKeywords = [
+      'analyze', 'research', 'synthesize', 'compare',
+      'across all', 'summarize everything', 'pattern'
+    ];
+    const lower = content.toLowerCase();
+    return complexKeywords.some(kw => lower.includes(kw));
+  }
+
+  /**
+   * Escalate complex task to Shad for deep analysis
+   */
+  private async escalateToShad(task: string): Promise<string | null> {
+    if (!this.shadExecutor) return null;
+
+    try {
+      const result = await this.shadExecutor.execute(task, {
+        strategy: 'research',
+        maxDepth: 3,
+        maxTime: 120,
+      });
+
+      if (result.success) {
+        return result.output;
+      }
+      console.warn('[AGIdentityGateway] Shad execution failed:', result.error);
+      return null;
+    } catch (error) {
+      console.warn('[AGIdentityGateway] Shad escalation failed:', error);
+      return null; // Graceful fallback
+    }
+  }
+
+  /**
    * Handle incoming message from MessageBox
    *
    * Flow:
@@ -230,10 +346,33 @@ export class AGIdentityOpenClawGateway {
     // 2. Build identity context
     const identityContext = this.buildIdentityContext(message);
 
+    // 2.5 Retrieve context from memory
+    let contextPrefix = '';
+    if (this.config.memory?.autoRetrieve !== false && this.memoryServer) {
+      // For complex tasks, try Shad first if available
+      if (this.shadExecutor && this.isComplexTask(content)) {
+        const shadResult = await this.escalateToShad(content);
+        if (shadResult) {
+          contextPrefix = `Research results:\n\n${shadResult}\n\n---\n\nUser message:\n`;
+        }
+      }
+
+      // If no Shad result, use standard memory retrieval
+      if (!contextPrefix) {
+        const retrievedContext = await this.retrieveContext(content);
+        if (retrievedContext) {
+          contextPrefix = retrievedContext + '\n\n---\n\nUser message:\n';
+        }
+      }
+    }
+
+    // Prepend context to message
+    const contentWithContext = contextPrefix + content;
+
     // 3. Send to OpenClaw with identity context
     let aiResponse: string;
     try {
-      aiResponse = await this.sendToOpenClaw(content, identityContext);
+      aiResponse = await this.sendToOpenClaw(contentWithContext, identityContext);
     } catch (error) {
       console.error('[AGIdentityGateway] OpenClaw error:', error);
 
