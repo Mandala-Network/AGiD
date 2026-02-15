@@ -14,6 +14,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { createHash, randomBytes } from 'crypto';
+import { z } from 'zod';
 import type { BRC100Wallet } from '../types/index.js';
 
 /**
@@ -53,6 +54,18 @@ interface EncryptionMeta {
   originalHash: string;
   encryptedAt: number;
 }
+
+/**
+ * Zod schema for validating encryption metadata
+ */
+const EncryptionMetaSchema = z.object({
+  version: z.literal(1),
+  keyId: z.string(),
+  iv: z.string(),
+  originalPath: z.string(),
+  originalHash: z.string(),
+  encryptedAt: z.number(),
+});
 
 /**
  * Local Encrypted Vault
@@ -451,7 +464,8 @@ export class LocalEncryptedVault {
     const metaBuffer = encrypted.slice(4, 4 + metaLength);
     const ciphertext = encrypted.slice(4 + metaLength);
 
-    const meta: EncryptionMeta = JSON.parse(metaBuffer.toString('utf-8'));
+    const metaRaw = JSON.parse(metaBuffer.toString('utf-8'));
+    const meta = EncryptionMetaSchema.parse(metaRaw);
 
     // Decrypt using wallet
     const decrypted = await this.wallet.decrypt({
@@ -467,7 +481,8 @@ export class LocalEncryptedVault {
     try {
       const metaLength = encrypted.readUInt32BE(0);
       const metaBuffer = encrypted.slice(4, 4 + metaLength);
-      return JSON.parse(metaBuffer.toString('utf-8'));
+      const parsed = JSON.parse(metaBuffer.toString('utf-8'));
+      return EncryptionMetaSchema.parse(parsed);
     } catch {
       return null;
     }
