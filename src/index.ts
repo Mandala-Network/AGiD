@@ -124,6 +124,10 @@ export type {
 export { createAGIdentityService } from './service/index.js';
 export type { AGIdentityServiceConfig, AGIdentityService } from './service/index.js';
 
+// OpenClaw Gateway (WebSocket client for OpenClaw AI agent)
+export { OpenClawClient, createOpenClawClient } from './openclaw/index.js';
+export type { OpenClawClientConfig } from './openclaw/index.js';
+
 // Client SDK
 export { AGIDClient, createAGIDClient } from './client/index.js';
 export type {
