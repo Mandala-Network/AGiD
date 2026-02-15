@@ -39,6 +39,16 @@ export type { LocalEncryptedVaultConfig } from './vault/index.js';
 // Shad Integration
 export { EncryptedShadVault } from './shad/encrypted-vault.js';
 export type { EncryptedVaultConfig } from './shad/encrypted-vault.js';
+
+// New: ShadTempVaultExecutor (working implementation with correct CLI flags)
+export { ShadTempVaultExecutor, createShadExecutor } from './shad/index.js';
+export type {
+  ShadTempVaultExecutorConfig,
+  ShadExecuteOptions,
+  ShadAvailability,
+} from './shad/index.js';
+
+// Deprecated: AGIdentityShadBridge (uses non-existent --retriever api)
 export {
   AGIdentityShadBridge,
   createShadBridge,

@@ -48,6 +48,20 @@ export interface ShadBridgeConfig extends ShadConfig {
   userPublicKey?: string;
 }
 
+/**
+ * @deprecated Use ShadTempVaultExecutor instead. This class uses non-existent
+ * Shad CLI flags (--retriever api, --retriever-url) and will not work with
+ * actual Shad installations. Shad only supports: auto, qmd, filesystem retrievers.
+ *
+ * The ShadTempVaultExecutor uses the correct approach:
+ * 1. Decrypt vault to temp directory
+ * 2. Run Shad with --retriever filesystem
+ * 3. Cleanup temp directory in finally block
+ *
+ * Kept for backwards compatibility but will be removed in future versions.
+ *
+ * @see ShadTempVaultExecutor
+ */
 export class AGIdentityShadBridge {
   private localVault?: LocalEncryptedVault;
   private uhrpVault?: EncryptedShadVault;
