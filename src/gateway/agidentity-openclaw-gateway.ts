@@ -217,9 +217,10 @@ export class AGIdentityOpenClawGateway {
       },
     });
 
-    // 3. Create OpenClawClient
+    // 3. Create OpenClawClient (using wallet as device identity)
     try {
       this.openclawClient = await createOpenClawClient({
+        wallet: this.wallet,
         gatewayUrl: this.config.openclawUrl,
         authToken: this.config.openclawToken,
       });
@@ -346,22 +347,35 @@ export class AGIdentityOpenClawGateway {
     // 2. Build identity context
     const identityContext = this.buildIdentityContext(message);
 
-    // 2.5 Retrieve context from memory
-    let contextPrefix = '';
+    // 2.5 Inject agent identity context
+    const network = await this.wallet.getNetwork();
+    const agentIdentityContext = `[AGENT IDENTITY]
+You are an autonomous AI agent with blockchain identity.
+Public Key: ${this.agentPublicKey}
+Network: ${network}
+Capabilities: sign messages, encrypt data, transact on BSV
+
+You can prove your identity by signing data with your wallet key.
+[END AGENT IDENTITY]
+
+`;
+
+    // 2.6 Retrieve context from memory
+    let contextPrefix = agentIdentityContext;
     if (this.config.memory?.autoRetrieve !== false && this.memoryServer) {
       // For complex tasks, try Shad first if available
       if (this.shadExecutor && this.isComplexTask(content)) {
         const shadResult = await this.escalateToShad(content);
         if (shadResult) {
-          contextPrefix = `Research results:\n\n${shadResult}\n\n---\n\nUser message:\n`;
+          contextPrefix += `Research results:\n\n${shadResult}\n\n---\n\nUser message:\n`;
         }
       }
 
       // If no Shad result, use standard memory retrieval
-      if (!contextPrefix) {
+      if (contextPrefix === agentIdentityContext) {
         const retrievedContext = await this.retrieveContext(content);
         if (retrievedContext) {
-          contextPrefix = retrievedContext + '\n\n---\n\nUser message:\n';
+          contextPrefix += retrievedContext + '\n\n---\n\nUser message:\n';
         }
       }
     }
@@ -444,9 +458,10 @@ export class AGIdentityOpenClawGateway {
   private async sendToOpenClaw(content: string, identityContext: IdentityContext): Promise<string> {
     // Ensure OpenClaw is connected
     if (!this.openclawClient || !this.openclawClient.isConnected()) {
-      // Try to reconnect
+      // Try to reconnect (using wallet as device identity)
       try {
         this.openclawClient = await createOpenClawClient({
+          wallet: this.wallet,
           gatewayUrl: this.config.openclawUrl,
           authToken: this.config.openclawToken,
         });
