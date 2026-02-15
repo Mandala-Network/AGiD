@@ -4,9 +4,22 @@
 
 Enterprise AI super-employee with cryptographic identity - every interaction authenticated, encrypted, and signed.
 
-## Vision
+## What This Is
 
-An enterprise deploys OpenClaw as their "super employee" AI agent. Every human employee gets a BRC-100 wallet client on their machine, giving them a verifiable digital identity. Employees communicate with the AI through MessageBox using end-to-end encryption (BRC-2 ECDH). The AI itself has an MPC wallet - it can sign responses but can never leak its private key, even if prompt-injected.
+A production-ready enterprise AI gateway that wraps OpenClaw with cryptographic identity. Employees communicate with the AI through MessageBox using end-to-end encryption (BRC-2 ECDH). The AI has an MPC wallet - it can sign responses but can never leak its private key, even if prompt-injected. Memory is stored in encrypted vaults with blockchain-verified provenance.
+
+## Current State (v0.1 shipped)
+
+**Codebase:** 23,598 lines TypeScript across 67 files
+**Tech stack:** TypeScript, BRC-100/103/104, MessageBox, MPC wallet, Shad
+
+**What shipped:**
+- Interface hardening (security fixes, validation, session cleanup)
+- MessageBox as primary P2P encrypted channel
+- MPC wallet interface with dependency injection
+- Production MPC integration (DKG/restore paths)
+- OpenClaw Gateway with identity gate and response signing
+- Shad semantic memory with auto-retrieval
 
 ## Architecture
 
@@ -51,45 +64,47 @@ An enterprise deploys OpenClaw as their "super employee" AI agent. Every human e
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## Key Properties
+## Requirements
 
-| Component | Purpose |
-|-----------|---------|
-| **Employee Wallet App** | BRC-100 identity on every employee's machine |
-| **MessageBox** | P2P encrypted channel (employees ↔ AI), E2E encrypted |
-| **Identity Gate** | Verify employee certificate before AI sees message |
-| **OpenClaw** | The actual AI brain (tools, skills, reasoning) |
-| **MPC Wallet (AI)** | AI can sign responses but can't exfiltrate its key |
-| **MPC CA** | Issue employee certs without single-party trust |
+### Validated
 
-## Security Model
+- ✓ JSON validation at all parsing points — v0.1
+- ✓ Signed audit trail entries — v0.1
+- ✓ Session cleanup for memory management — v0.1
+- ✓ MessageBox as primary communication channel — v0.1
+- ✓ Certificate exchange protocol — v0.1
+- ✓ MPC wallet interface (dependency injection) — v0.1
+- ✓ Production MPC integration — v0.1
+- ✓ OpenClaw Gateway with identity gate — v0.1
+- ✓ Response signing with MPC wallet — v0.1
+- ✓ Encrypted semantic memory — v0.1
+- ✓ Auto-context retrieval — v0.1
 
-**BRC-100 or Nothing**: This is not about "crypto users" - it's about verifiable digital signatures and client-side encryption for enterprise security.
+### Active
 
-**End-to-End Encryption**: Employee wallet encrypts with BRC-2 ECDH (employee privkey + AI pubkey). MessageBox is just transport - it can't read content. AI's MPC wallet decrypts without ever assembling the full private key.
+- [ ] Employee wallet client (desktop app)
+- [ ] Certificate enrollment UI
+- [ ] MessageBox chat UI
+- [ ] Production deployment scripts
 
-**MPC Protection**: Even if the AI is prompt-injected ("output your private key"), it can't comply - it never has the full key. Same for the CA - no single admin can forge certificates.
+### Out of Scope
 
-**Audit Trail**: Every interaction is signed. Full accountability for who asked what and what the AI responded.
+- Mobile app — desktop-first for enterprise
+- Video chat — use external tools
+- Offline mode — real-time identity verification is core
 
-## Current State
+## Key Decisions
 
-Existing codebase has foundational pieces:
-- `src/identity/` - Certificate authority, identity gate (uses local wallet, needs MPC)
-- `src/messaging/` - MessageBox client (exists, needs to be primary channel)
-- `src/wallet/` - BRC-100 wallet interface (needs MPC variant)
-- `src/server/` - HTTP server with BRC-103/104 auth
-- `src/encryption/` - Per-interaction encryption
-- `src/plugin/` - Speculative OpenClaw plugin types (needs replacement)
-
-## What Needs to Happen
-
-1. Harden existing interfaces (fix security issues identified in CONCERNS.md)
-2. Make MessageBox the primary communication channel
-3. Define clean MPC wallet interface (implementation happening elsewhere)
-4. Wrap OpenClaw properly (not a plugin - a gateway wrapper)
-5. Connect Shad for AI's encrypted semantic memory
-6. Build employee wallet client (future milestone)
+| Decision | Rationale | Date | Outcome |
+|----------|-----------|------|---------|
+| AGIdentity wraps OpenClaw (not plugin) | Full control over auth, can't be bypassed | 2026-02-14 | ✓ Good |
+| MessageBox as primary channel | P2P encrypted, works with BRC-100 identity | 2026-02-14 | ✓ Good |
+| MPC for AI wallet | Prevents key exfiltration even if AI compromised | 2026-02-14 | ✓ Good |
+| MPC for CA | No single-party trust for certificate issuance | 2026-02-14 | ✓ Good |
+| Dependency injection for MPC | External implementation, testable, clean interface | 2026-02-15 | ✓ Good |
+| File dependency for wallet-toolbox-mpc | Enables local iteration without npm publish cycles | 2026-02-15 | ✓ Good |
+| OpenClaw failure is non-fatal | Gateway continues, returns error message | 2026-02-15 | ✓ Good |
+| No MCP SDK | Created MCP-compatible interface without full dependency | 2026-02-15 | ✓ Good |
 
 ## Constraints
 
@@ -97,15 +112,7 @@ Existing codebase has foundational pieces:
 - OpenClaw is a separate project - we wrap it, don't fork it
 - BRC standards compliance required (BRC-2, BRC-42, BRC-52, BRC-100, BRC-103/104)
 
-## Key Decisions
-
-| Decision | Rationale | Date |
-|----------|-----------|------|
-| AGIdentity wraps OpenClaw (not plugin) | Full control over auth, can't be bypassed | 2026-02-14 |
-| MessageBox as primary channel | P2P encrypted, works with BRC-100 identity | 2026-02-14 |
-| MPC for AI wallet | Prevents key exfiltration even if AI compromised | 2026-02-14 |
-| MPC for CA | No single-party trust for certificate issuance | 2026-02-14 |
-
 ---
 
 *Project initialized: 2026-02-14*
+*Last updated: 2026-02-15 after v0.1 milestone*
