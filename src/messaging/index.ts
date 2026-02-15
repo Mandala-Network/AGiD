@@ -14,3 +14,16 @@ export type {
   MessageHandler,
   PaymentHandler,
 } from './message-client.js';
+
+// Gated message handler with identity verification
+export {
+  GatedMessageHandler,
+  CertificateExchangeMessageSchema,
+  CERT_EXCHANGE_MESSAGEBOX,
+} from './gated-message-handler.js';
+export type {
+  GatedMessageHandlerConfig,
+  VerifiedMessage,
+  VerifiedMessageHandler,
+  CertificateExchangeMessage,
+} from './gated-message-handler.js';
