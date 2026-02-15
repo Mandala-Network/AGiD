@@ -110,6 +110,37 @@ export function createSecureAGIdentityPlugin(
       const verifiedSessions = new Map<string, VerifiedSession>();
       const sessionEncryptions = new Map<string, SessionEncryption>();
 
+      // Session cleanup configuration
+      const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Run cleanup every 5 minutes
+
+      /**
+       * Clean up stale sessions to prevent memory leaks
+       */
+      function cleanupStaleSessions(): void {
+        const now = Date.now();
+
+        // Clean verifiedSessions based on verifiedAt timestamp
+        for (const [key, session] of verifiedSessions) {
+          if (now - session.verifiedAt > SESSION_TIMEOUT_MS) {
+            verifiedSessions.delete(key);
+          }
+        }
+
+        // Clean sessionEncryptions - remove if corresponding session is gone
+        for (const key of sessionEncryptions.keys()) {
+          if (!verifiedSessions.has(key)) {
+            sessionEncryptions.delete(key);
+          }
+        }
+      }
+
+      // Start periodic cleanup
+      const cleanupInterval = setInterval(cleanupStaleSessions, CLEANUP_INTERVAL_MS);
+      // Note: If OpenClaw adds plugin unregister hooks, clear this interval there
+      // For now, interval persists for plugin lifetime
+      void cleanupInterval;
+
       // =====================================================================
       // Identity Verification Helpers
       // =====================================================================
