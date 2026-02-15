@@ -58,11 +58,6 @@ export type {
   DecryptedMessage,
 } from './encryption/per-interaction.js';
 
-// Plugin
-export { createAGIdentityPlugin, default as createAGIdentityPluginDefault } from './plugin/agidentity-plugin.js';
-export { createSecureAGIdentityPlugin } from './plugin/secure-plugin.js';
-export type { SecurePluginConfig } from './plugin/secure-plugin.js';
-
 // Team/Group Encryption
 export { TeamVault } from './team/team-vault.js';
 export type { TeamVaultConfig } from './team/team-vault.js';
@@ -165,7 +160,6 @@ import { createAgentWallet } from './wallet/agent-wallet.js';
 import { AGIdentityStorageManager } from './uhrp/storage-manager.js';
 import { EncryptedShadVault } from './shad/encrypted-vault.js';
 import { createShadBridge, AGIdentityShadBridge } from './shad/shad-integration.js';
-import { createAGIdentityPlugin } from './plugin/agidentity-plugin.js';
 import { TeamVault } from './team/team-vault.js';
 
 /**
@@ -234,37 +228,6 @@ export async function createAGIdentity(
     team,
     config
   };
-}
-
-/**
- * Create AGIdentity with OpenClaw integration
- *
- * @example
- * ```typescript
- * import { createAGIdentityWithOpenClaw } from 'agidentity';
- * import { createGateway } from 'openclaw';
- *
- * const { plugin, instance } = await createAGIdentityWithOpenClaw({
- *   storageUrl: 'https://uhrp.example.com',
- *   agentWallet: { type: 'privateKey', privateKeyWif: '...' }
- * });
- *
- * // Use with OpenClaw
- * const gateway = createGateway({
- *   plugins: [plugin]
- * });
- * ```
- */
-export async function createAGIdentityWithOpenClaw(
-  config: AGIdentityConfig
-): Promise<{
-  plugin: ReturnType<typeof createAGIdentityPlugin>;
-  instance: AGIdentityInstance;
-}> {
-  const instance = await createAGIdentity(config);
-  const plugin = createAGIdentityPlugin(config);
-
-  return { plugin, instance };
 }
 
 // Default export
