@@ -316,6 +316,23 @@ export interface SearchResult {
 }
 
 // ============================================================================
+// Agent Identity Types
+// ============================================================================
+
+export interface AgentIdentity {
+  publicKey: string;
+  capabilities: string[];
+  network: 'mainnet' | 'testnet';
+}
+
+export interface IdentityProof {
+  signature: string;
+  publicKey: string;
+  data: string;
+  timestamp: number;
+}
+
+// ============================================================================
 // Authentication Types
 // ============================================================================
 
