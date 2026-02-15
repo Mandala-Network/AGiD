@@ -1,13 +1,6 @@
 /**
- * AGIdentity Memory Module
- *
- * MCP-compatible memory server exposing encrypted vault as AI memory tools.
+ * Memory management for AGIdentity agent
+ * Provides encrypted blockchain-backed storage with cryptographic ownership
  */
 
-export {
-  AGIdentityMemoryServer,
-  createAGIdentityMemoryServer,
-  type AGIdentityMemoryServerConfig,
-  type MCPToolResponse,
-  type MemorySearchResult,
-} from './agidentity-memory-server.js';
+export * from './memory-types.js';
