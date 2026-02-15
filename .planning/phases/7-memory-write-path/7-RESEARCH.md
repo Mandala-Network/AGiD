@@ -69,6 +69,17 @@ npm install @bsv/sdk
 <architecture_patterns>
 ## Architecture Patterns
 
+**Core Principle: PushDrop Tokens for Ownership**
+
+Every memory is a **PushDrop token** (BRC-48):
+- **Structure:** `<uhrpUrl> <tags> <importance> OP_DROP OP_2DROP <publicKey> OP_CHECKSIG`
+- **What it is:** Spendable UTXO that proves agent ownership
+- **Data fields:** UHRP URL (field 1), tags (field 2), importance (field 3)
+- **Ownership lock:** P2PK with agent's public key
+- **Storage:** Wallet basket (`agent-memories`) for easy retrieval
+
+**NOT using OP_RETURN** - OP_RETURN creates unspendable outputs without ownership proof. PushDrop creates spendable tokens the agent owns and can manage.
+
 ### Recommended Project Structure
 ```
 src/
@@ -311,12 +322,12 @@ Problems that have existing solutions in the BSV/AGIdentity ecosystem:
 
 ### Pitfall 1: UHRP Free-Riding Misconception
 **What goes wrong:** Assuming UHRP storage is "free" because blockchain is permanent
-**Why it happens:** Misunderstanding the distinction between on-chain (OP_RETURN metadata) and off-chain (UHRP content storage)
+**Why it happens:** Misunderstanding the distinction between on-chain (PushDrop token with UHRP URL) and off-chain (UHRP content storage)
 **How to avoid:**
-- UHRP content is stored by providers who charge fees
-- Blockchain only stores the content hash and timestamp (via OP_RETURN)
+- UHRP content is stored by providers who charge fees (off-chain storage costs)
+- Blockchain only stores the PushDrop token with UHRP URL (on-chain transaction fees)
 - Set realistic retention periods based on importance
-- Budget for storage renewal costs
+- Budget for both: transaction fees (creating tokens) + storage fees (UHRP provider)
 **Warning signs:** Unexpected file unavailability after expiration, rising storage costs
 
 ### Pitfall 2: Using OP_RETURN Instead of PushDrop
@@ -459,25 +470,30 @@ for (const token of memories) {
 // New schema to be implemented in Phase 7
 interface MemoryMetadata {
   // Identification
-  uhrpUrl: string;              // Content-addressed URL
+  uhrpUrl: string;              // Content-addressed URL (from UHRP upload)
   contentHash: string;          // SHA-256 of encrypted content
 
-  // Blockchain proof
-  blockchainTxId: string;       // OP_RETURN timestamp transaction
+  // PushDrop Token (ownership proof)
+  tokenTxId: string;            // Transaction ID of PushDrop token
+  tokenVout: number;            // Output index in transaction
   blockHeight?: number;         // Confirmation height (async)
 
   // Lifecycle
   createdAt: number;            // Unix timestamp
-  expiresAt: number;            // UHRP expiration
+  expiresAt: number;            // UHRP expiration (provider retention)
   importance: 'high' | 'medium' | 'low';
 
   // Searchability
-  tags: string[];               // User-defined tags
+  tags: string[];               // User-defined tags (also in PushDrop fields)
   summary?: string;             // AI-generated summary
 
   // Encryption
   encryptionKeyId: string;      // BRC-42 keyID
   protocolID: [number, string]; // [2, 'agidentity-memory']
+
+  // Basket organization
+  basket: string;               // 'agent-memories' (for retrieval)
+  labels: string[];             // Labels for filtering
 }
 ```
 
