@@ -59,6 +59,21 @@ vi.mock('../audit/signed-audit.js', () => {
   return { SignedAuditTrail: MockSignedAuditTrail };
 });
 
+// Mock memory/agidentity-memory-server
+vi.mock('../memory/agidentity-memory-server.js', () => {
+  return {
+    createAGIdentityMemoryServer: vi.fn().mockImplementation(() => ({
+      memory_search: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: JSON.stringify({ results: [], count: 0, query: '' }) }],
+      }),
+      memory_get: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: JSON.stringify({ path: '', content: null }) }],
+      }),
+    })),
+    AGIdentityMemoryServer: vi.fn(),
+  };
+});
+
 // Import after mocks are set up
 import { AGIdentityOpenClawGateway, type AGIdentityOpenClawGatewayConfig } from './agidentity-openclaw-gateway.js';
 import { createAGIdentityGateway } from './index.js';
@@ -301,6 +316,87 @@ describe('AGIdentityOpenClawGateway', () => {
 
       // Gateway should still create successfully
       expect(gateway).toBeInstanceOf(AGIdentityOpenClawGateway);
+    });
+  });
+
+  describe('memory integration', () => {
+    it('should initialize without memory config (backward compatible)', async () => {
+      const gateway = new AGIdentityOpenClawGateway(config);
+      await gateway.initialize();
+
+      expect(gateway.isRunning()).toBe(true);
+
+      await gateway.shutdown();
+    });
+
+    it('should initialize with memory config', async () => {
+      const mockVault = {
+        read: vi.fn().mockResolvedValue('test content'),
+        list: vi.fn().mockResolvedValue(['doc1.md']),
+        search: vi.fn().mockResolvedValue([]),
+      };
+
+      const gatewayConfig: AGIdentityOpenClawGatewayConfig = {
+        ...config,
+        memory: {
+          vault: mockVault as unknown as import('../vault/local-encrypted-vault.js').LocalEncryptedVault,
+          autoRetrieve: true,
+          retrieveLimit: 5,
+        },
+      };
+
+      const gateway = new AGIdentityOpenClawGateway(gatewayConfig);
+      await gateway.initialize();
+
+      expect(gateway.isRunning()).toBe(true);
+
+      await gateway.shutdown();
+    });
+
+    it('should initialize with shad executor config', async () => {
+      const mockVault = {
+        read: vi.fn().mockResolvedValue('test content'),
+        list: vi.fn().mockResolvedValue(['doc1.md']),
+        search: vi.fn().mockResolvedValue([]),
+      };
+
+      const mockShadExecutor = {
+        execute: vi.fn().mockResolvedValue({ success: true, output: 'shad result', retrievedDocuments: [] }),
+        checkShadAvailable: vi.fn().mockResolvedValue({ available: true }),
+      };
+
+      const gatewayConfig: AGIdentityOpenClawGatewayConfig = {
+        ...config,
+        memory: {
+          vault: mockVault as unknown as import('../vault/local-encrypted-vault.js').LocalEncryptedVault,
+          shadExecutor: mockShadExecutor as unknown as import('../shad/shad-temp-executor.js').ShadTempVaultExecutor,
+        },
+      };
+
+      const gateway = new AGIdentityOpenClawGateway(gatewayConfig);
+      await gateway.initialize();
+
+      expect(gateway.isRunning()).toBe(true);
+
+      await gateway.shutdown();
+    });
+
+    it('should gracefully handle missing shad executor', async () => {
+      const gatewayConfig: AGIdentityOpenClawGatewayConfig = {
+        ...config,
+        memory: {
+          // No shadExecutor provided
+          autoRetrieve: true,
+        },
+      };
+
+      const gateway = new AGIdentityOpenClawGateway(gatewayConfig);
+      await gateway.initialize();
+
+      // Gateway should work without shadExecutor
+      expect(gateway.isRunning()).toBe(true);
+
+      await gateway.shutdown();
     });
   });
 });
