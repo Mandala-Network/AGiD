@@ -26,7 +26,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 3.1. MPC Production Integration | v0.1 | 1/1 | Complete | 2026-02-15 |
 | 4. OpenClaw Gateway | v0.1 | 3/3 | Complete | 2026-02-15 |
 | 5. Shad Semantic Memory | v0.1 | 3/3 | Complete | 2026-02-15 |
-| 6. Agent Self-Awareness | v1.0 | 0/? | Not started | - |
+| 6. Agent Self-Awareness | v1.0 | 1/1 | Complete | 2026-02-15 |
 | 7. Memory Write Path | v1.0 | 0/? | Not started | - |
 | 8. Tool Registry System | v1.0 | 0/? | Not started | - |
 | 9. Approval Workflow | v1.0 | 0/? | Not started | - |
@@ -37,17 +37,17 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 
 **Milestone Goal:** Transform OpenClaw from a passive text generator into an autonomous blockchain entity with verifiable identity, on-chain memory, and the ability to transact independently (with MPC protection).
 
-### Phase 6: Agent Self-Awareness
+### Phase 6: Agent Self-Awareness ✅
 **Goal**: OpenClaw knows its identity and can prove it to others
 **Depends on**: Phase 5 (Shad Memory)
-**Research**: Unlikely (using existing wallet capabilities)
-**Plans**: TBD
+**Status**: Complete (1/1 plans)
+**Completed**: 2026-02-15
 
 **Deliverables:**
-- Identity tools exposing wallet.getIdentity() and wallet.proveIdentity()
-- Agent context injection (OpenClaw knows its public key)
-- Certificate acquisition workflow for agents
-- Identity proof signatures
+- ✅ Identity tools exposing getIdentity() and proveIdentity()
+- ✅ Agent context injection (OpenClaw knows its public key)
+- ✅ Identity proof signatures using protocolID [2, 'agent-identity-proof']
+- ⏭️ Certificate acquisition workflow for agents (deferred)
 
 ### Phase 7: Memory Write Path
 **Goal**: Agent can autonomously write memories to UHRP blockchain
