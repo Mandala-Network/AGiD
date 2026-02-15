@@ -125,7 +125,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. MessageBox Channel | 3/3 | Complete | 2026-02-15 |
 | 3. MPC Wallet Interface | 1/1 | Complete | 2026-02-15 |
 | 3.1. MPC Production Integration | 1/1 | Complete | 2026-02-15 |
-| 4. OpenClaw Gateway | 0/TBD | Not started | - |
+| 4. OpenClaw Gateway | 1/TBD | In progress | - |
 | 5. Shad Semantic Memory | 0/TBD | Not started | - |
 
 ## Future Milestone: Employee Wallet Client
