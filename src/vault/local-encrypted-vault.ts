@@ -192,8 +192,34 @@ export class LocalEncryptedVault {
       });
 
       return content;
-    } catch {
-      // Not in encrypted store, try original file
+    } catch (error) {
+      // Distinguish error types
+      if (error instanceof Error) {
+        const nodeError = error as NodeJS.ErrnoException;
+
+        // Permission denied - re-throw with context
+        if (nodeError.code === 'EACCES') {
+          throw new Error(`Permission denied reading encrypted file: ${encryptedPath}`);
+        }
+
+        // Decryption errors should propagate (file exists but is corrupted)
+        if (nodeError.code !== 'ENOENT') {
+          // Check for decryption-specific errors
+          if (error.message.includes('decrypt') ||
+              error.message.includes('cipher') ||
+              error.message.includes('Invalid') ||
+              error.name === 'ZodError') {
+            throw new Error(
+              `Decryption failed for ${relativePath}: file may be corrupted or encrypted with different key. ` +
+              `Original error: ${error.message}`
+            );
+          }
+          // Unknown error - re-throw
+          throw error;
+        }
+      }
+
+      // ENOENT or non-Error: Not in encrypted store, try original file
       const originalPath = path.join(this.vaultPath, relativePath);
       try {
         const content = await fs.readFile(originalPath, 'utf-8');
@@ -210,7 +236,20 @@ export class LocalEncryptedVault {
         });
 
         return content;
-      } catch {
+      } catch (origError) {
+        // Distinguish error types for original file
+        if (origError instanceof Error) {
+          const nodeError = origError as NodeJS.ErrnoException;
+          if (nodeError.code === 'EACCES') {
+            throw new Error(`Permission denied reading file: ${originalPath}`);
+          }
+          if (nodeError.code === 'ENOENT') {
+            // File not found in either location - return null
+            return null;
+          }
+          // Unknown error - re-throw
+          throw origError;
+        }
         return null;
       }
     }
