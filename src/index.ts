@@ -128,6 +128,17 @@ export type { AGIdentityServiceConfig, AGIdentityService } from './service/index
 export { OpenClawClient, createOpenClawClient } from './openclaw/index.js';
 export type { OpenClawClientConfig } from './openclaw/index.js';
 
+// AGIdentity OpenClaw Gateway (full integration: MessageBox → Identity → OpenClaw → MPC Sign)
+export {
+  AGIdentityOpenClawGateway,
+  createAGIdentityGateway,
+} from './gateway/index.js';
+export type {
+  AGIdentityOpenClawGatewayConfig,
+  SignedResponse,
+  IdentityContext,
+} from './gateway/index.js';
+
 // Client SDK
 export { AGIDClient, createAGIDClient } from './client/index.js';
 export type {
