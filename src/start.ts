@@ -5,19 +5,24 @@
  * Usage:
  *   npm run gateway
  *
- * Required environment variables:
- *   AGENT_PRIVATE_KEY - 64 hex chars (generate: openssl rand -hex 32)
- *   TRUSTED_CERTIFIERS - Comma-separated CA public keys
+ * MPC Mode (Production - Recommended):
+ *   MPC_COSIGNER_ENDPOINTS=http://cosigner1:3001,http://cosigner2:3002
+ *   MPC_SHARE_SECRET=<encryption-key>
+ *   MPC_SHARE_PATH=./agent-mpc-share.json
  *
- * Optional:
- *   OPENCLAW_GATEWAY_URL - OpenClaw WebSocket URL (default: ws://127.0.0.1:18789)
- *   OPENCLAW_GATEWAY_TOKEN - OpenClaw auth token
- *   MESSAGEBOX_HOST - MessageBox server URL
+ * Local Mode (Development Only):
+ *   AGENT_PRIVATE_KEY=<64-hex-chars>
+ *
+ * Common:
+ *   TRUSTED_CERTIFIERS=<comma-separated-ca-pubkeys>
+ *   OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789 (optional)
  */
 
 import 'dotenv/config';
 import { createAGIdentityGateway } from './gateway/index.js';
 import { createAgentWallet } from './wallet/agent-wallet.js';
+import { createProductionMPCWallet, loadMPCConfigFromEnv } from './wallet/mpc-integration.js';
+import type { AgentWallet } from './wallet/agent-wallet.js';
 
 async function main() {
   console.log('');
@@ -27,42 +32,76 @@ async function main() {
   console.log('╚═══════════════════════════════════════════════════════════╝');
   console.log('');
 
-  // Check required env vars
-  const privateKey = process.env.AGENT_PRIVATE_KEY;
-  if (!privateKey) {
-    console.error('ERROR: AGENT_PRIVATE_KEY not set');
+  // Determine wallet mode
+  const mpcEndpoints = process.env.MPC_COSIGNER_ENDPOINTS;
+  const localPrivateKey = process.env.AGENT_PRIVATE_KEY;
+
+  let wallet: AgentWallet;
+  let identityPublicKey: string;
+
+  if (mpcEndpoints) {
+    // MPC Mode (Production)
+    console.log('Mode: MPC (threshold signatures)');
+    console.log('');
+
+    if (!process.env.MPC_SHARE_SECRET) {
+      console.error('ERROR: MPC_SHARE_SECRET not set');
+      console.error('Generate one with: openssl rand -hex 32');
+      process.exit(1);
+    }
+
+    console.log('Initializing MPC wallet...');
+    const mpcConfig = loadMPCConfigFromEnv();
+    const result = await createProductionMPCWallet(mpcConfig);
+    wallet = result.wallet as unknown as AgentWallet;
+    identityPublicKey = result.collectivePublicKey;
+
+    if (result.isNewWallet) {
+      console.log('DKG complete - new distributed key generated');
+    } else {
+      console.log('Restored from existing key share');
+    }
+  } else if (localPrivateKey) {
+    // Local Mode (Development)
+    console.log('Mode: Local (single key - DEVELOPMENT ONLY)');
+    console.warn('WARNING: Do not use local mode in production!');
+    console.log('');
+
+    console.log('Creating local wallet...');
+    const { wallet: localWallet } = await createAgentWallet({
+      privateKeyHex: localPrivateKey,
+      network: (process.env.AGID_NETWORK as 'mainnet' | 'testnet') || 'mainnet',
+    });
+    wallet = localWallet;
+    const keyResult = await localWallet.getPublicKey({ identityKey: true });
+    identityPublicKey = keyResult.publicKey;
+  } else {
+    console.error('ERROR: No wallet configuration found');
     console.error('');
-    console.error('Generate one with:');
-    console.error('  openssl rand -hex 32');
+    console.error('For production (MPC):');
+    console.error('  MPC_COSIGNER_ENDPOINTS=http://cosigner1:3001,http://cosigner2:3002');
+    console.error('  MPC_SHARE_SECRET=<generate with: openssl rand -hex 32>');
     console.error('');
-    console.error('Then add to .env:');
-    console.error('  AGENT_PRIVATE_KEY=<your-key>');
+    console.error('For development (local key):');
+    console.error('  AGENT_PRIVATE_KEY=<generate with: openssl rand -hex 32>');
     process.exit(1);
   }
 
+  console.log(`Agent Identity: ${identityPublicKey}`);
+  console.log('');
+
+  // Check trusted certifiers
   const trustedCertifiers = process.env.TRUSTED_CERTIFIERS?.split(',').filter(Boolean) || [];
   if (trustedCertifiers.length === 0) {
     console.warn('WARNING: No TRUSTED_CERTIFIERS set - all certificates will be rejected');
-    console.warn('Add comma-separated CA public keys to .env:');
-    console.warn('  TRUSTED_CERTIFIERS=03abc...,03def...');
+    console.warn('Add comma-separated CA public keys to .env');
     console.warn('');
   }
-
-  // Create wallet
-  console.log('Creating agent wallet...');
-  const { wallet } = await createAgentWallet({
-    privateKeyHex: privateKey,
-    network: (process.env.AGID_NETWORK as 'mainnet' | 'testnet') || 'mainnet',
-  });
-
-  const identityKey = await wallet.getPublicKey({ identityKey: true });
-  console.log(`Agent Identity: ${identityKey.publicKey}`);
-  console.log('');
 
   // Create gateway
   console.log('Starting gateway...');
   const gateway = await createAGIdentityGateway({
-    wallet: wallet as any, // AgentWallet implements BRC100Wallet
+    wallet,
     trustedCertifiers,
     openclawUrl: process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789',
     openclawToken: process.env.OPENCLAW_GATEWAY_TOKEN,

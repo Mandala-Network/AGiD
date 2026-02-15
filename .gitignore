@@ -33,3 +33,4 @@ npm-debug.log*
 # AGIdentity specific
 /tmp/
 vault-cache/
+MPC-DEV/

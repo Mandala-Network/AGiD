@@ -21,37 +21,52 @@ npm install
 
 # 2. Configure
 cp .env.example .env
+# Edit .env (see below for MPC vs Local mode)
 
-# 3. Generate a private key and add to .env
-openssl rand -hex 32
-# Edit .env: AGENT_PRIVATE_KEY=<paste-key-here>
-
-# 4. Build and run
+# 3. Build and run
 npm run build
 npm run gateway
 ```
 
-That's it. The gateway is now listening for encrypted messages.
+## Two Modes
 
-## What You Need
+### MPC Mode (Production)
 
-| Requirement | Purpose |
-|------------|---------|
-| Node.js 22+ | Runtime |
-| `.env` with `AGENT_PRIVATE_KEY` | Agent's signing identity |
-| `TRUSTED_CERTIFIERS` in `.env` | CA public keys to trust |
-| OpenClaw (optional) | AI backend |
+The AI uses threshold signatures - it can sign but **cannot leak its private key**, even if prompt-injected.
+
+```bash
+# .env for MPC mode
+MPC_COSIGNER_ENDPOINTS=http://cosigner1:3001,http://cosigner2:3002
+MPC_SHARE_SECRET=<generate: openssl rand -hex 32>
+MPC_SHARE_PATH=./agent-mpc-share.json
+TRUSTED_CERTIFIERS=03abc...,03def...
+```
+
+First run performs DKG (distributed key generation). Subsequent runs restore from the encrypted share.
+
+### Local Mode (Development Only)
+
+Single private key - **do not use in production**.
+
+```bash
+# .env for local mode
+AGENT_PRIVATE_KEY=<generate: openssl rand -hex 32>
+TRUSTED_CERTIFIERS=03abc...,03def...
+```
 
 ## Environment Variables
 
 ```bash
-# Required
-AGENT_PRIVATE_KEY=<64-hex-chars>      # openssl rand -hex 32
+# --- MPC Mode (Production) ---
+MPC_COSIGNER_ENDPOINTS=http://host1:3001,http://host2:3002  # Cosigner URLs
+MPC_SHARE_SECRET=<64-hex-chars>       # Encrypts local key share
+MPC_SHARE_PATH=./agent-mpc-share.json # Where to store share
 
-# Identity (at least one CA)
-TRUSTED_CERTIFIERS=03abc...,03def...  # Comma-separated CA public keys
+# --- Local Mode (Development) ---
+AGENT_PRIVATE_KEY=<64-hex-chars>      # Single key (insecure)
 
-# Optional
+# --- Common ---
+TRUSTED_CERTIFIERS=03abc...,03def...  # CA public keys to trust
 AGID_NETWORK=mainnet                  # or testnet
 OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
 OPENCLAW_GATEWAY_TOKEN=<token>
@@ -139,25 +154,6 @@ npm run cli:info
 
 # Chat with the AI agent
 npm run cli:chat <agent-pubkey>
-```
-
-## MPC Wallet (Production)
-
-For production, use threshold signatures so the AI can never leak its key:
-
-```bash
-# Set MPC cosigner endpoints
-export MPC_COSIGNER_ENDPOINTS="http://cosigner1:3001,http://cosigner2:3002"
-export MPC_SHARE_SECRET="encryption-key-for-share"
-export MPC_SHARE_PATH="./agent-share.json"
-```
-
-```typescript
-import { createProductionMPCWallet } from 'agidentity';
-
-const mpcWallet = await createProductionMPCWallet();
-// First run: DKG generates distributed key
-// Subsequent runs: Restores from share
 ```
 
 ## Project Structure

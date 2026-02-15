@@ -42,7 +42,7 @@ import { AGIdentityMemoryServer, createAGIdentityMemoryServer } from '../memory/
  * Configuration for AGIdentityOpenClawGateway
  */
 export interface AGIdentityOpenClawGatewayConfig {
-  /** Agent wallet for identity and signing (can be MPC) */
+  /** Agent wallet for identity and signing (can be MPC or local) */
   wallet: AgentWallet;
   /** Trusted certificate authorities */
   trustedCertifiers: string[];
