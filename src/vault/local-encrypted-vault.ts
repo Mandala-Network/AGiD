@@ -474,7 +474,7 @@ export class LocalEncryptedVault {
   }
 
   private hashContent(content: string): string {
-    return createHash('sha256').update(content).digest('hex').slice(0, 16);
+    return createHash('sha256').update(content).digest('hex');
   }
 
   private async ensureGitignore(): Promise<void> {
