@@ -27,7 +27,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 4. OpenClaw Gateway | v0.1 | 3/3 | Complete | 2026-02-15 |
 | 5. Shad Semantic Memory | v0.1 | 3/3 | Complete | 2026-02-15 |
 | 6. Agent Self-Awareness | v1.0 | 1/1 | Complete | 2026-02-15 |
-| 7. Memory Write Path | v1.0 | 0/? | Not started | - |
+| 7. Memory Write Path | v1.0 | 1/2 | In progress | - |
 | 8. Tool Registry System | v1.0 | 0/? | Not started | - |
 | 9. Approval Workflow | v1.0 | 0/? | Not started | - |
 
@@ -49,18 +49,15 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 - ✅ Identity proof signatures using protocolID [2, 'agent-identity-proof']
 - ⏭️ Certificate acquisition workflow for agents (deferred)
 
-### Phase 7: Memory Write Path
+### Phase 7: Memory Write Path 🚧
 **Goal**: Agent can autonomously write memories to UHRP blockchain
 **Depends on**: Phase 6
-**Research**: Likely (UHRP write integration)
-**Research topics**: UHRP upload patterns, memory eviction strategy, blockchain timestamping
-**Plans**: TBD
+**Status**: In progress (1/2 plans)
 
 **Deliverables:**
-- Memory write tool (storeMemory)
-- Vault write path: encrypt → upload to UHRP → blockchain proof
-- Write audit trail
-- Memory versioning and garbage collection
+- ✅ Memory write tool (storeMemory with PushDrop tokenization)
+- ✅ Vault write path: encrypt → upload to UHRP → PushDrop ownership token
+- ⏭️ Memory retrieval and lifecycle management (Plan 2)
 
 ### Phase 8: Tool Registry System
 **Goal**: OpenClaw can discover and execute wallet/MetaNet operations
