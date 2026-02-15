@@ -28,7 +28,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 5. Shad Semantic Memory | v0.1 | 3/3 | Complete | 2026-02-15 |
 | 6. Agent Self-Awareness | v1.0 | 1/1 | Complete | 2026-02-15 |
 | 7. Memory Write Path | v1.0 | 2/2 | Complete | 2026-02-15 |
-| 8. Tool Registry System | v1.0 | 1/2 | In progress | - |
+| 8. Tool Registry System | v1.0 | 2/2 | Complete | 2026-02-15 |
 | 9. Approval Workflow | v1.0 | 0/? | Not started | - |
 
 ---
@@ -62,18 +62,18 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 - ✅ Lifecycle management (GC framework with retention policies)
 - ⏳ Age-based GC enforcement (deferred to ISS-001 - needs timestamp field)
 
-### Phase 8: Tool Registry System
+### Phase 8: Tool Registry System ✅
 **Goal**: OpenClaw can discover and execute wallet/MetaNet operations
 **Depends on**: Phase 7
-**Status**: In progress (1/2 plans)
-**Plans**: 2 total
+**Status**: Complete (2/2 plans)
+**Completed**: 2026-02-15
 
 **Deliverables:**
-- Tool registry (discoverable by OpenClaw)
-- Safe execution sandbox
-- Wallet tools: getBalance, createTransaction, createSignature
-- Memory tools: search, store, retrieve
-- Cost tracking and rate limiting
+- ✅ Auth server endpoints for wallet and memory operations
+- ✅ OpenClaw plugin with 4 tools (2 wallet, 2 memory)
+- ✅ TypeBox parameter validation schemas
+- ✅ Tool security (wallet tools require allowlist, disabled in sandbox)
+- ⏭️ Cost tracking and rate limiting (deferred)
 
 ### Phase 9: Approval Workflow
 **Goal**: Human-in-the-loop for sensitive agent operations
