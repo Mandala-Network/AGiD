@@ -9,47 +9,60 @@
 
 Researched how to enable OpenClaw agent to autonomously write encrypted memories to UHRP (Universal Hash-Resolved Protocol) storage on the BSV blockchain. The system must support: encrypt → upload to UHRP → blockchain timestamp → audit trail.
 
-**Critical Finding:** UHRP is a content-addressed storage protocol where files are stored off-chain and referenced via `uhrp://` URLs based on content hashes. The BSV blockchain provides immutable timestamps via OP_RETURN transactions, creating verifiable proof of existence. Content-addressing provides built-in deduplication (identical content = same hash = no duplicate storage).
+**Critical Finding:** UHRP is a content-addressed storage protocol where files are stored off-chain and referenced via `uhrp://` URLs based on content hashes. **Ownership is proven via PushDrop tokens** (not OP_RETURN) - each memory is a spendable UTXO containing UHRP URLs in data fields. Content-addressing provides built-in deduplication (identical content = same hash = no duplicate storage).
 
-**Architecture Discovery:** BSV Overlay Services (BRC-64/65) provide the infrastructure layer. Overlay networks ingest transactions using SPV, maintain valid headers, submit transactions to BSV nodes, and distribute Merkle proofs. This replaces traditional full-node indexing with a distributed, specialized service architecture.
+**Architecture Discovery:** BSV Overlay Services (BRC-64/65) provide the federated UHRP overlay network for retrieval. The **BSV SDK storage utilities** (`storageUploader`/`storageDownloader`) handle UHRP operations. **Wallet basket pattern** enables easy retrieval: PushDrop tokens stored in MPC wallet basket → agent can list its owned memories by querying basket.
 
-**Key Insight:** Memory writes aren't simple file uploads - they're cryptographic workflows:
-1. Derive encryption key (BRC-42 per-counterparty key)
-2. Encrypt memory content (AES-256-GCM via wallet.encrypt)
-3. Upload to UHRP provider (returns uhrp:// URL)
-4. Create blockchain timestamp (OP_RETURN transaction with metadata)
-5. Record audit trail (signed hash chain entry)
+**Key Insight:** Memory writes create **ownership tokens**:
+1. Encrypt memory content (wallet.encrypt - always encrypted for privacy)
+2. Upload to UHRP via `storageUploader` (returns uhrp:// URL)
+3. Create PushDrop token with UHRP URL in data fields
+4. Store token in wallet basket (proves ownership, enables retrieval)
+5. Token is spendable UTXO → agent knows for sure it owns this memory
 
-**Primary recommendation:** Build on existing AGIdentityStorageManager foundation. Add memory-specific wrapper that handles: metadata extraction, automatic versioning (content hashes), garbage collection policies, and audit trail integration. Use wallet-toolbox for all transaction building - never hand-roll UTXO management or script generation.
+**Primary recommendation:** Use BSV SDK patterns throughout:
+- **PushDrop template** for tokenization (not OP_RETURN)
+- **storageUploader/storageDownloader** from ts-sdk storage folder
+- **Wallet basket** for organizing memories by label/category
+- Files always encrypted by agent wallet before upload (privacy by default)
 </research_summary>
 
 <standard_stack>
 ## Standard Stack
 
-### Core (Already Integrated)
+### Core (BSV SDK)
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| @bsv/wallet-toolbox | Latest | BRC-100 wallet operations | Official BSV wallet SDK |
-| AGIdentityStorageManager | Internal | UHRP upload/download | Already implemented |
-| LocalEncryptedVault | Internal | Local encrypted storage | Already implemented |
-| SignedAuditTrail | Internal | Cryptographic audit logs | Already implemented |
+| @bsv/sdk | Latest | BSV TypeScript SDK | Official unified SDK for scalable apps |
+| storageUploader | @bsv/sdk | UHRP upload operations | SDK-provided storage utility |
+| storageDownloader | @bsv/sdk | UHRP download operations | SDK-provided storage utility |
+| PushDrop template | @bsv/sdk | Data tokenization & ownership | BRC-48 standard for spendable data tokens |
+
+### Wallet Infrastructure
+| Library | Version | Purpose | Why Standard |
+|---------|---------|---------|--------------|
+| MPC Agent Wallet | Internal | Agent's blockchain identity | Already implemented (MPC-protected) |
+| Wallet basket | BRC-100 | Token organization & retrieval | Native wallet feature for grouping UTXOs |
 
 ### UHRP Infrastructure
 | Service | Purpose | When to Use |
 |---------|---------|-------------|
-| UHRP storage provider | Off-chain file storage | Every memory write |
-| BSV Overlay Services | Transaction tracking, Merkle proofs | Verify blockchain timestamps |
-| UHRP resolution service | Resolve uhrp:// to HTTP URLs | Every memory read |
+| Federated UHRP overlay | Distributed file storage & retrieval | Every memory read/write |
+| BSV Overlay Services | Transaction tracking, Merkle proofs | Token verification |
 
-### Supporting Libraries (Needed)
+### Supporting (Optional)
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| None required | - | Existing stack is complete | - |
+| LocalEncryptedVault | Internal | Local cache layer | Fast retrieval without UHRP query |
+| SignedAuditTrail | Internal | Audit logging | Compliance requirements |
 
-**Note:** The existing codebase already has all necessary components. Phase 7 is primarily about composition and workflow, not new dependencies.
+**Note:** The architecture shifts from custom AGIdentityStorageManager to **BSV SDK standard patterns**. Use PushDrop tokens for ownership, not OP_RETURN for timestamps.
 
 **Installation:**
-No new packages needed - use existing wallet-toolbox and internal modules.
+```bash
+npm install @bsv/sdk
+# MPC wallet and basket support already integrated
+```
 
 </standard_stack>
 
@@ -71,12 +84,15 @@ src/
     └── signed-audit.ts            # [EXISTING] Audit trails
 ```
 
-### Pattern 1: Memory Write Workflow
-**What:** Atomic operation: encrypt → upload → timestamp → audit
+### Pattern 1: Memory Write Workflow (PushDrop Token)
+**What:** Create ownership token containing UHRP URL, store in wallet basket
 **When to use:** Every autonomous memory write by agent
 **Example:**
 ```typescript
-// High-level workflow (to be implemented)
+// PushDrop-based memory write workflow
+import { storageUploader } from '@bsv/sdk/storage';
+import { PushDrop } from '@bsv/sdk/script/templates';
+
 async function storeMemory(
   wallet: AgentWallet,
   memory: {
@@ -84,58 +100,105 @@ async function storeMemory(
     tags: string[];
     importance: 'high' | 'medium' | 'low';
   }
-): Promise<MemoryReceipt> {
-  // 1. Extract metadata
-  const metadata = {
-    contentHash: await sha256(memory.content),
+): Promise<MemoryToken> {
+  // 1. Encrypt content (ALWAYS encrypted for privacy)
+  const encrypted = await wallet.encrypt({
+    plaintext: Array.from(new TextEncoder().encode(memory.content)),
+    protocolID: [2, 'agidentity-memory'],
+    keyID: `memory-${Date.now()}`,
+  });
+
+  // 2. Upload to UHRP via BSV SDK storage utility
+  const uhrpUrl = await storageUploader({
+    data: new Uint8Array(encrypted.ciphertext),
+    // SDK handles upload to federated overlay network
+  });
+
+  // 3. Create PushDrop token with UHRP URL in data fields
+  const { publicKey } = await wallet.getPublicKey({ identityKey: true });
+
+  const token = await wallet.createAction({
+    description: `Memory: ${memory.tags.join(', ')}`,
+    outputs: [{
+      // PushDrop script: <data1> <data2> <data3> OP_DROP OP_2DROP <pubkey> OP_CHECKSIG
+      lockingScript: new PushDrop().lock({
+        fields: [
+          uhrpUrl,                    // Field 1: UHRP URL
+          memory.tags.join(','),      // Field 2: Tags
+          memory.importance,          // Field 3: Importance level
+        ],
+        ownerPublicKey: publicKey,    // Ownership lock
+      }),
+      satoshis: 1, // Minimum UTXO value
+    }],
+    labels: ['agidentity-memory', memory.importance, ...memory.tags],
+    baskets: ['agent-memories'], // Store in basket for easy retrieval
+  });
+
+  // Token is now a UTXO in wallet basket
+  // Agent can retrieve by querying basket 'agent-memories'
+
+  return {
+    txid: token.txid,
+    uhrpUrl,
     tags: memory.tags,
     importance: memory.importance,
     createdAt: Date.now(),
   };
-
-  // 2. Encrypt content
-  const encrypted = await wallet.encrypt({
-    plaintext: Array.from(new TextEncoder().encode(memory.content)),
-    protocolID: [2, 'agidentity-memory'],
-    keyID: `memory-${metadata.createdAt}`,
-  });
-
-  // 3. Upload to UHRP
-  const storageManager = new AGIdentityStorageManager({ wallet, storageUrl });
-  const document = await storageManager.uploadVaultDocument(
-    agentPublicKey,
-    {
-      filename: `memory-${metadata.createdAt}.enc`,
-      content: new Uint8Array(encrypted.ciphertext),
-      mimeType: 'application/octet-stream',
-    },
-    { retentionDays: 365 } // Policy-driven
-  );
-
-  // 4. Blockchain timestamp (already done by uploadVaultDocument)
-  // Returns document.blockchainTxId
-
-  // 5. Record in audit trail
-  await auditTrail.recordEntry({
-    action: 'memory.write',
-    resourceId: document.uhrpUrl,
-    metadata: {
-      contentHash: metadata.contentHash,
-      tags: metadata.tags,
-      txId: document.blockchainTxId,
-    },
-  });
-
-  return {
-    uhrpUrl: document.uhrpUrl,
-    contentHash: metadata.contentHash,
-    blockchainTxId: document.blockchainTxId,
-    createdAt: metadata.createdAt,
-  };
 }
 ```
 
-### Pattern 2: Content-Addressed Deduplication
+### Pattern 2: Basket Retrieval (Agent Knows What It Owns)
+**What:** Query wallet basket to retrieve all owned memory tokens
+**When to use:** Agent needs to list/search its memories
+**Example:**
+```typescript
+// Retrieve all memory tokens from basket
+import { storageDownloader } from '@bsv/sdk/storage';
+
+async function listMyMemories(
+  wallet: AgentWallet,
+  options?: { tags?: string[]; importance?: string }
+): Promise<Memory[]> {
+  // 1. Query basket for memory tokens
+  const tokens = await wallet.listOutputs({
+    basket: 'agent-memories',
+    labels: options?.tags ? ['agidentity-memory', ...options.tags] : ['agidentity-memory'],
+    spendable: true, // Only unspent (current) memories
+  });
+
+  // 2. Extract UHRP URLs from PushDrop token fields
+  const memories = [];
+  for (const token of tokens) {
+    const pushDrop = PushDrop.fromScript(token.lockingScript);
+    const [uhrpUrl, tagsStr, importance] = pushDrop.fields;
+
+    // 3. Download and decrypt content from UHRP
+    const encryptedData = await storageDownloader({ uhrpUrl });
+    const decrypted = await wallet.decrypt({
+      ciphertext: Array.from(encryptedData),
+      protocolID: [2, 'agidentity-memory'],
+      keyID: token.customInstructions?.keyID, // Stored in token metadata
+    });
+
+    memories.push({
+      txid: token.txid,
+      uhrpUrl,
+      content: Buffer.from(decrypted.plaintext).toString('utf-8'),
+      tags: tagsStr.split(','),
+      importance,
+      createdAt: token.createdAt,
+    });
+  }
+
+  return memories;
+}
+
+// Agent can now confidently answer:
+// "What do I know about X?" → search basket + UHRP retrieval
+```
+
+### Pattern 3: Content-Addressed Deduplication
 **What:** Automatic deduplication via content hashing
 **When to use:** Always - built into UHRP
 **Example:**
@@ -145,16 +208,19 @@ const memory1 = "The capital of France is Paris";
 const memory2 = "The capital of France is Paris"; // Identical
 
 // Both produce the same content hash after encryption with same key
-// Therefore: same uhrpUrl, no duplicate storage cost
+// Therefore: same uhrpUrl
+// But: still creates NEW PushDrop token (proves agent owns it)
+// UHRP storage: deduplicated (no extra storage cost)
+// Basket: two tokens pointing to same UHRP URL (agent chose to store twice)
 
 // Different content → different URL
 const memory3 = "The capital of France is Paris!"; // Different (!)
 // This produces a different hash, different uhrpUrl, new storage
 ```
 
-### Pattern 3: Memory Garbage Collection Policy
-**What:** Time-based + importance-based retention
-**When to use:** Periodic cleanup to manage storage costs
+### Pattern 4: Memory Garbage Collection (Spend Old Tokens)
+**What:** Time-based + importance-based retention by spending tokens
+**When to use:** Periodic cleanup to manage wallet UTXO bloat
 **Example:**
 ```typescript
 // Retention policy based on importance
@@ -164,56 +230,54 @@ const RETENTION_POLICY = {
   low: 90,             // 90 days
 };
 
-async function applyGarbageCollection() {
+async function applyGarbageCollection(wallet: AgentWallet) {
   const now = Date.now();
-  const memories = await vault.list();
+  const memories = await wallet.listOutputs({
+    basket: 'agent-memories',
+    spendable: true,
+  });
 
-  for (const memory of memories) {
-    const metadata = await loadMetadata(memory);
-    const age = (now - metadata.createdAt) / (24 * 60 * 60 * 1000); // days
-    const maxAge = RETENTION_POLICY[metadata.importance];
+  const tokensToSpend = [];
+  for (const token of memories) {
+    const pushDrop = PushDrop.fromScript(token.lockingScript);
+    const [uhrpUrl, tagsStr, importance] = pushDrop.fields;
+
+    const age = (now - token.createdAt) / (24 * 60 * 60 * 1000); // days
+    const maxAge = RETENTION_POLICY[importance as keyof typeof RETENTION_POLICY];
 
     if (age > maxAge) {
-      // Don't delete from UHRP (provider handles expiration)
-      // Just remove from local index
-      await vault.delete(memory.path);
-      await auditTrail.recordEntry({
-        action: 'memory.gc',
-        resourceId: memory.uhrpUrl,
-        metadata: { reason: 'retention-expired', age, maxAge },
-      });
+      tokensToSpend.push(token);
     }
   }
+
+  // Spend expired tokens (removes from basket)
+  if (tokensToSpend.length > 0) {
+    await wallet.createAction({
+      description: 'Memory garbage collection',
+      inputs: tokensToSpend.map(t => ({
+        ...t,
+        unlockingScript: new PushDrop().unlock({
+          // Sign with agent's key to prove ownership
+          signature: await wallet.sign(t.txid),
+        }),
+      })),
+      // No outputs = tokens destroyed (UTXO spent to fees)
+      // UHRP files remain until provider expiration
+    });
+  }
+
+  // Note: UHRP overlay network handles file expiration independently
+  // Agent just manages its ownership tokens
 }
 ```
 
-### Pattern 4: Blockchain Timestamp Format (OP_RETURN)
-**What:** Standard format for memory timestamp transactions
-**When to use:** Every UHRP upload that needs blockchain proof
-**Example:**
-```typescript
-// Already implemented in AGIdentityStorageManager.createBlockchainTimestamp
-// Format stored in OP_RETURN:
-const timestampData = {
-  type: 'agidentity-vault-timestamp',
-  version: 1,
-  uhrpUrl: 'uhrp://abc123...',
-  userPubKeyHash: 'hash of agent public key',
-  filenameHash: 'hash of filename',
-  contentHash: 'sha256 of encrypted content',
-  timestamp: Date.now(),
-};
-
-// Creates OP_FALSE OP_RETURN script with JSON data
-// Transaction is submitted via wallet.createAction
-```
-
 ### Anti-Patterns to Avoid
-- **Writing plaintext to UHRP:** Always encrypt before upload
-- **Hand-rolling transaction building:** Use wallet.createAction, never build scripts manually
-- **Synchronous blockchain verification:** Merkle proofs are async, accept eventual consistency
-- **Assuming instant finality:** Transactions need confirmation time
-- **Forgetting audit trail:** Every write must be logged for compliance
+- **Writing plaintext to UHRP:** Always encrypt before upload (privacy requirement)
+- **Using OP_RETURN for ownership:** Use PushDrop tokens instead (spendable, provable ownership)
+- **Custom UHRP upload logic:** Use BSV SDK `storageUploader`/`storageDownloader`
+- **Hand-rolling PushDrop scripts:** Use PushDrop template from @bsv/sdk
+- **Not storing in basket:** Without basket, agent can't easily retrieve its memories
+- **Forgetting to label tokens:** Labels enable efficient filtering and search
 
 </architecture_patterns>
 
@@ -224,19 +288,20 @@ Problems that have existing solutions in the BSV/AGIdentity ecosystem:
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| UHRP upload/download | Custom HTTP client | AGIdentityStorageManager | Already implemented, handles encryption + blockchain timestamp |
-| Transaction building | Raw script assembly | wallet.createAction | Handles UTXO selection, fee calculation, signing |
+| UHRP upload/download | Custom HTTP client | @bsv/sdk storageUploader/Downloader | SDK handles federated overlay network, failover |
+| PushDrop token creation | Manual script assembly | PushDrop template from @bsv/sdk | BRC-48 compliant, handles locking/unlocking |
+| Transaction building | Raw script/UTXO logic | wallet.createAction | UTXO selection, fee calculation, signing, basket integration |
 | Encryption key derivation | Custom KDF | wallet.encrypt with protocolID | BRC-42 compliant, per-counterparty keys |
-| Blockchain timestamping | Custom OP_RETURN builder | AGIdentityStorageManager.createBlockchainTimestamp | Already correct format |
+| Ownership proof | OP_RETURN timestamps | PushDrop tokens with ownership lock | Spendable, transferable, provable ownership |
+| Token retrieval | Blockchain indexer | wallet.listOutputs with basket filter | Native basket support, efficient filtering |
 | Merkle proof verification | Custom SPV validation | BSV Overlay Services | Distributed, handles chain reorgs |
-| Audit trail signing | Custom hash chain | SignedAuditTrail | Already tamper-evident, anchored to blockchain |
-| Fee estimation | Manual satoshi calculation | wallet fee model | Handles variable size, optimal fee selection |
 | Content hashing | Manual SHA-256 | crypto.subtle.digest | Native, optimized, async |
 
-**Key insight:** The BSV ecosystem has 6+ years of production patterns. AGIdentity already implements the hard parts (encryption, UHRP, audit trails). Phase 7 is about orchestration, not reinvention. Hand-rolling transaction logic leads to:
+**Key insight:** The BSV SDK provides production-ready patterns for tokenization, storage, and ownership. **PushDrop tokens replace OP_RETURN** - they prove ownership via spendable UTXOs, not unspendable timestamp outputs. Hand-rolling token logic leads to:
+- Non-standard token formats (interoperability failures)
 - UTXO management bugs (double-spends, orphaned outputs)
+- Missing basket integration (agent can't find its own memories)
 - Fee calculation errors (underpaid = stuck transactions)
-- Key derivation mistakes (BRC-42 non-compliance)
 - Security vulnerabilities (script injection, signature malleability)
 
 </dont_hand_roll>
@@ -254,15 +319,15 @@ Problems that have existing solutions in the BSV/AGIdentity ecosystem:
 - Budget for storage renewal costs
 **Warning signs:** Unexpected file unavailability after expiration, rising storage costs
 
-### Pitfall 2: Orphaned Blockchain Timestamps
-**What goes wrong:** UHRP upload succeeds but blockchain timestamp fails
-**Why it happens:** Transaction broadcast errors, insufficient fees, network issues
+### Pitfall 2: Using OP_RETURN Instead of PushDrop
+**What goes wrong:** Creating OP_RETURN "timestamp" transactions instead of ownership tokens
+**Why it happens:** Misunderstanding the architecture - OP_RETURN proves existence but not ownership
 **How to avoid:**
-- Check blockchainTxId is present in upload result
-- Implement retry logic for timestamp failures
-- Monitor transaction confirmation status via Overlay Services
-- Store upload metadata even if timestamp fails (can re-timestamp later)
-**Warning signs:** document.blockchainTxId is undefined, audit trail missing txId
+- **Always use PushDrop tokens** for memory storage (not OP_RETURN)
+- PushDrop creates spendable UTXO = provable ownership
+- OP_RETURN creates unspendable output = no ownership proof
+- Agent can't retrieve OP_RETURN data from wallet basket
+**Warning signs:** Can't list memories via wallet.listOutputs, tokens aren't spendable
 
 ### Pitfall 3: Memory Metadata Versioning Conflicts
 **What goes wrong:** Same memory content updated with different metadata, creates version confusion
@@ -284,15 +349,25 @@ Problems that have existing solutions in the BSV/AGIdentity ecosystem:
 - Document key derivation paths in metadata
 **Warning signs:** Old memories inaccessible after key changes
 
-### Pitfall 5: Wallet Compatibility and Network Mismatch
-**What goes wrong:** Writing to mainnet when wallet configured for testnet, or vice versa
-**Why it happens:** Configuration mismatch between AGIdentityStorageManager network and wallet network
+### Pitfall 5: Not Storing Tokens in Basket
+**What goes wrong:** Creating PushDrop tokens but forgetting to specify basket
+**Why it happens:** Assuming tokens are automatically grouped, not understanding basket pattern
 **How to avoid:**
-- Validate wallet.getNetwork() matches storageManager.network before writes
+- **Always specify basket** in wallet.createAction (e.g., baskets: ['agent-memories'])
+- Baskets enable efficient retrieval (wallet.listOutputs({ basket: 'agent-memories' }))
+- Without basket, agent must scan entire UTXO set to find its memories
+- Use consistent basket names across all memory writes
+**Warning signs:** listOutputs returns empty when memories exist, slow retrieval performance
+
+### Pitfall 6: Wallet Compatibility and Network Mismatch
+**What goes wrong:** Writing to mainnet when wallet configured for testnet, or vice versa
+**Why it happens:** Configuration mismatch between storage network and wallet network
+**How to avoid:**
+- Validate wallet.getNetwork() before UHRP uploads
 - Fail fast on network mismatch - don't write to wrong chain
-- Include network in memory metadata for debugging
+- Include network in token labels for debugging
 - Test network switching thoroughly
-**Warning signs:** Transactions not appearing on expected blockchain, Merkle proofs fail validation
+**Warning signs:** Transactions not appearing on expected blockchain, UHRP retrieval fails
 
 </common_pitfalls>
 
@@ -301,81 +376,82 @@ Problems that have existing solutions in the BSV/AGIdentity ecosystem:
 
 Verified patterns from existing AGIdentity codebase:
 
-### Wallet Encryption (BRC-42)
+### Wallet Encryption (Always Before Upload)
 ```typescript
-// Source: src/vault/local-encrypted-vault.ts:474
-const encrypted = await this.wallet.encrypt({
-  plaintext: Array.from(Buffer.from(content, 'utf-8')),
-  protocolID: [2, 'agidentity-vault'],  // Level 2 = per-counterparty
-  keyID: this.keyId,
+// Pattern: Always encrypt before UHRP upload (privacy requirement)
+const encrypted = await wallet.encrypt({
+  plaintext: Array.from(new TextEncoder().encode(memoryContent)),
+  protocolID: [2, 'agidentity-memory'],  // Level 2 = per-counterparty
+  keyID: `memory-${Date.now()}`,
+});
+// Result: encrypted.ciphertext ready for UHRP upload
+```
+
+### UHRP Upload via BSV SDK
+```typescript
+// Source: @bsv/sdk storage utilities
+import { storageUploader } from '@bsv/sdk/storage';
+
+const uhrpUrl = await storageUploader({
+  data: new Uint8Array(encrypted.ciphertext),
+  // SDK handles upload to federated UHRP overlay network
+  // Returns content-addressed URL: uhrp://<sha256-hash>
 });
 ```
 
-### UHRP Upload with Blockchain Timestamp
+### PushDrop Token Creation (Ownership Proof)
 ```typescript
-// Source: src/uhrp/storage-manager.ts:50
-const document = await storageManager.uploadVaultDocument(
-  userPublicKey,
-  {
-    filename: 'memory.enc',
-    content: new Uint8Array(encryptedData),
-    mimeType: 'application/octet-stream',
-  },
-  {
-    retentionDays: 365,
-    skipBlockchainTimestamp: false, // Create OP_RETURN proof
-  }
-);
+// Source: @bsv/sdk PushDrop template (BRC-48)
+import { PushDrop } from '@bsv/sdk/script/templates';
 
-// Returns:
-// {
-//   uhrpUrl: 'uhrp://abc123...',
-//   encryptedContent: Uint8Array,
-//   metadata: { filename, uploadedAt, expiresAt, ... },
-//   blockchainTxId: 'def456...',
-// }
-```
+const { publicKey } = await wallet.getPublicKey({ identityKey: true });
 
-### Blockchain Timestamp via OP_RETURN
-```typescript
-// Source: src/uhrp/storage-manager.ts:330
-const timestampData = {
-  type: 'agidentity-vault-timestamp',
-  version: 1,
-  uhrpUrl,
-  contentHash: bufferToHex(contentHash),
-  timestamp: Date.now(),
-};
-
-const result = await this.wallet.createAction({
-  description: 'AGIdentity Vault Timestamp',
+const token = await wallet.createAction({
+  description: 'Memory: important conversation',
   outputs: [{
-    script: createOpReturnScript(timestampData),
-    satoshis: 0, // OP_RETURN outputs cost 0 satoshis
+    lockingScript: new PushDrop().lock({
+      fields: [
+        uhrpUrl,                   // Field 1: UHRP URL
+        'conversation,important',  // Field 2: Tags (comma-separated)
+        'high',                    // Field 3: Importance level
+      ],
+      ownerPublicKey: publicKey,   // P2PK ownership lock
+    }),
+    satoshis: 1, // Minimum UTXO value (token is spendable)
   }],
-  labels: ['agidentity', 'vault-timestamp', 'uhrp'],
+  labels: ['agidentity-memory', 'high', 'conversation', 'important'],
+  baskets: ['agent-memories'], // Store in basket for retrieval
 });
-// Returns: { txid: '...' }
+
+// Token structure:
+// <uhrpUrl> <tags> <importance> OP_DROP OP_2DROP <pubkey> OP_CHECKSIG
+// This is a UTXO the agent owns and can spend
 ```
 
-### Signed Audit Trail Entry
+### Basket Retrieval (Query My Memories)
 ```typescript
-// Source: src/audit/signed-audit.ts (pattern inferred from structure)
-await auditTrail.recordEntry({
-  action: 'memory.write',
-  resourceId: uhrpUrl,
-  metadata: {
-    contentHash: '...',
-    blockchainTxId: '...',
-    tags: ['important', 'conversation'],
-  },
+// Retrieve owned memory tokens from wallet basket
+const memories = await wallet.listOutputs({
+  basket: 'agent-memories',
+  labels: ['agidentity-memory', 'high'], // Filter by labels
+  spendable: true, // Only unspent tokens
 });
 
-// Creates entry with:
-// - Signature (wallet.createSignature)
-// - Hash chain (links to previous entry)
-// - Timestamp
-// - Optionally anchored to blockchain every N entries
+// Extract UHRP URL from PushDrop fields
+for (const token of memories) {
+  const pushDrop = PushDrop.fromScript(token.lockingScript);
+  const [uhrpUrl, tags, importance] = pushDrop.fields;
+
+  // Download from UHRP and decrypt
+  const encrypted = await storageDownloader({ uhrpUrl });
+  const decrypted = await wallet.decrypt({
+    ciphertext: Array.from(encrypted),
+    protocolID: [2, 'agidentity-memory'],
+    keyID: token.customInstructions?.keyID,
+  });
+
+  console.log('Memory content:', Buffer.from(decrypted.plaintext).toString('utf-8'));
+}
 ```
 
 ### Memory Metadata Schema
@@ -467,11 +543,12 @@ Things that couldn't be fully resolved during research:
 ## Sources
 
 ### Primary (HIGH confidence)
-- [BSV Overlay Services Documentation](https://docs.bsvblockchain.org/network-topology/overlay-services) - Architecture, SPV validation, transaction submission
-- [BSV Transaction Processing](https://docs.bsvblockchain.org/protocol/transaction-lifecycle/transaction-processing) - OP_RETURN patterns
-- [OP_RETURN Documentation](https://docs.bsvblockchain.org/bsv-academy/introduction-to-bitcoin-script/chapter-3-the-opcodes/05-op_return) - Standard format
+- [PushDrop BRC-48 Specification](https://bsv.brc.dev/scripts/0048) - Official PushDrop tokenization standard
+- [BSV TypeScript SDK](https://github.com/bsv-blockchain/ts-sdk) - Unified SDK with storage utilities
+- [Script Templates Documentation](https://docs.bsvblockchain.org/guides/sdks/concepts/templates) - Template architecture, locking/unlocking
+- [BSV Overlay Services Documentation](https://docs.bsvblockchain.org/network-topology/overlay-services) - Federated UHRP overlay network
 - [BSV Fee Model](https://docs.bsvblockchain.org/guides/sdks/concepts/fee) - Transaction fee calculation
-- Internal codebase: `src/uhrp/storage-manager.ts`, `src/audit/signed-audit.ts`, `src/vault/local-encrypted-vault.ts`
+- [BSV Wallet Infrastructure](https://github.com/bsv-blockchain/wallet-infra) - Basket pattern, UTXO management
 
 ### Secondary (MEDIUM confidence)
 - [UHRP Overview](https://bsvblockchain.org/overlay-services-and-the-evolution-of-wallets-advancing-blockchain-applications-with-enhanced-wallet-architectures/) - Verified with overlay services docs
