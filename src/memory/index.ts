@@ -5,3 +5,4 @@
 
 export * from './memory-types.js';
 export { storeMemory } from './memory-writer.js';
+export { listMemories, type Memory } from './memory-reader.js';
