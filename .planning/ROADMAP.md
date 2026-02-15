@@ -28,7 +28,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 5. Shad Semantic Memory | v0.1 | 3/3 | Complete | 2026-02-15 |
 | 6. Agent Self-Awareness | v1.0 | 1/1 | Complete | 2026-02-15 |
 | 7. Memory Write Path | v1.0 | 2/2 | Complete | 2026-02-15 |
-| 8. Tool Registry System | v1.0 | 0/? | Not started | - |
+| 8. Tool Registry System | v1.0 | 1/2 | In progress | - |
 | 9. Approval Workflow | v1.0 | 0/? | Not started | - |
 
 ---
@@ -65,9 +65,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 ### Phase 8: Tool Registry System
 **Goal**: OpenClaw can discover and execute wallet/MetaNet operations
 **Depends on**: Phase 7
-**Research**: Likely (OpenClaw function calling integration)
-**Research topics**: Claude function calling format, tool execution sandbox, rate limiting
-**Plans**: TBD
+**Status**: In progress (1/2 plans)
+**Plans**: 2 total
 
 **Deliverables:**
 - Tool registry (discoverable by OpenClaw)
