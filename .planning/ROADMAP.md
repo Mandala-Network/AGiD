@@ -126,7 +126,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. MPC Wallet Interface | 1/1 | Complete | 2026-02-15 |
 | 3.1. MPC Production Integration | 1/1 | Complete | 2026-02-15 |
 | 4. OpenClaw Gateway | 3/3 | Complete | 2026-02-15 |
-| 5. Shad Semantic Memory | 1/3 | In progress | - |
+| 5. Shad Semantic Memory | 2/3 | In progress | - |
 
 ## Future Milestone: Employee Wallet Client
 
