@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-02-15)
 
 **Core value:** Enterprise AI super-employee with cryptographic identity - every interaction authenticated, encrypted, and signed.
-**Current focus:** v0.1 shipped — planning next milestone
+**Current focus:** Phase 6 — Agent Self-Awareness (v1.0 Autonomous Agent)
 
 ## Current Position
 
-Phase: 5 of 5 (complete)
-Plan: All plans complete
-Status: Milestone v0.1 shipped
-Last activity: 2026-02-15 — v0.1 milestone complete
+Phase: 6 of 9 (Agent Self-Awareness)
+Plan: Ready to plan
+Status: v1.0 milestone started
+Last activity: 2026-02-15 — v1.0 roadmap created (4 phases)
 
-Progress: ██████████ 100%
+Progress: ████████░░ 56% (v0.1 complete, v1.0 started)
 
 ## Performance Metrics
 
@@ -46,19 +46,24 @@ None.
 
 ### Blockers/Concerns
 
-None — milestone shipped.
+None currently.
 
 ### Roadmap Evolution
 
-- Phase 3.1 inserted after Phase 3: MPC Production Integration (URGENT) - connects AGIdentity to real MPC system
+- v0.1 (Phases 1-5): System finalization — SHIPPED
+- v1.0 (Phases 6-9): Autonomous Agent — STARTED
+
+**v1.0 Vision:** Transform OpenClaw from passive text generator into autonomous blockchain entity with verifiable identity, on-chain memory, and independent transaction capability (MPC-protected).
 
 ## Session Continuity
 
 Last session: 2026-02-15
-Stopped at: v0.1 milestone complete
+Stopped at: v1.0 roadmap created
 Resume file: None
 
 ## Next Steps
 
-- `/gsd:discuss-milestone` — define v0.2 Employee Wallet Client
-- `/gsd:new-milestone` — create directly if scope is clear
+**Phase 6: Agent Self-Awareness**
+- `/gsd:plan-phase 6` — create execution plan
+- `/gsd:discuss-phase 6` — gather context first
+- `/gsd:research-phase 6` — unlikely (using existing wallet)
