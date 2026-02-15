@@ -35,6 +35,7 @@
     "@bsv/message-box-client": "^2.0.0",
     "@bsv/sdk": "^2.0.3",
     "@bsv/wallet-toolbox": "^2.0.14",
+    "@bsv/wallet-toolbox-mpc": "file:./MPC-DEV/wallet-toolbox-mpc",
     "commander": "^12.0.0",
     "curvepoint": "github:p2ppsr/curvepoint",
     "dotenv": "^17.3.1",
