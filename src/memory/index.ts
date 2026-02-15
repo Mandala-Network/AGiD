@@ -4,3 +4,4 @@
  */
 
 export * from './memory-types.js';
+export { storeMemory } from './memory-writer.js';
