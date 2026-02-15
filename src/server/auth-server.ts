@@ -569,6 +569,136 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
   });
 
   // =========================================================================
+  // Wallet Endpoints
+  // =========================================================================
+
+  app.get('/wallet/balance', async (req: AuthRequest, res: Response) => {
+    const clientKey = getClientKey(req);
+    if (!clientKey) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    try {
+      const balanceInfo = await config.wallet.getBalanceAndUtxos();
+      updateSession(clientKey);
+      res.json({
+        success: true,
+        satoshis: balanceInfo.total,
+        utxoCount: balanceInfo.utxos.length,
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post('/wallet/create-transaction', async (req: AuthRequest, res: Response) => {
+    const clientKey = getClientKey(req);
+    if (!clientKey) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    const { recipient, satoshis, data } = req.body;
+    if (!recipient || !satoshis) {
+      res.status(400).json({ error: 'Missing recipient or satoshis' });
+      return;
+    }
+
+    if (satoshis <= 0) {
+      res.status(400).json({ error: 'satoshis must be greater than 0' });
+      return;
+    }
+
+    try {
+      const outputs = [{
+        script: recipient,
+        satoshis,
+        description: 'Payment output',
+      }];
+
+      if (data) {
+        outputs.push({
+          script: `OP_FALSE OP_RETURN ${Buffer.from(data).toString('hex')}`,
+          satoshis: 0,
+          description: 'Data output',
+        });
+      }
+
+      const result = await config.wallet.createAction({
+        description: 'Create transaction',
+        outputs,
+      });
+
+      updateSession(clientKey);
+      res.json({
+        success: true,
+        txid: result.txid,
+        rawTx: result.rawTx,
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.post('/wallet/sign-message', async (req: AuthRequest, res: Response) => {
+    const clientKey = getClientKey(req);
+    if (!clientKey) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    const { message, keyId } = req.body;
+    if (!message) {
+      res.status(400).json({ error: 'Missing message' });
+      return;
+    }
+
+    try {
+      const signature = await config.wallet.createSignature({
+        data: Array.from(new TextEncoder().encode(message)),
+        protocolID: [2, 'agidentity-plugin-sign'],
+        keyID: keyId ?? `plugin-sign-${Date.now()}`,
+        counterparty: clientKey,
+      });
+
+      const signatureHex = signature.signature
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      const signerKey = await config.wallet.getPublicKey({ identityKey: true });
+
+      updateSession(clientKey);
+      res.json({
+        success: true,
+        signature: signatureHex,
+        signerPublicKey: signerKey.publicKey,
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  app.get('/wallet/network', async (req: AuthRequest, res: Response) => {
+    const clientKey = getClientKey(req);
+    if (!clientKey) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    try {
+      const network = await config.wallet.getNetwork();
+      updateSession(clientKey);
+      res.json({
+        success: true,
+        network,
+      });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // =========================================================================
   // Health & Status
   // =========================================================================
 
