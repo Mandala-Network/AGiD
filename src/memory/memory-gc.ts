@@ -2,22 +2,21 @@
  * Memory Garbage Collection
  *
  * Implements retention policies based on importance levels.
+ * Uses TAAL ARC API to get block timestamps for age calculation.
  * Spends expired tokens to remove them from wallet basket.
- *
- * LIMITATION: Current implementation cannot enforce time-based retention
- * because creation timestamps are not stored in the PushDrop tokens.
- * This requires storing timestamp as a 4th field in future versions.
- * See ISSUES.md for planned enhancement.
  */
 
 import { PushDrop, LockingScript, Transaction } from '@bsv/sdk';
 import type { AgentWallet } from '../wallet/agent-wallet.js';
 
 /**
+ * ARC API configuration
+ */
+const ARC_API_URL = 'https://api.taal.com/arc/v1';
+const ARC_API_KEY = 'mainnet_93c73fb3c89d5d712d75420adf06162b';
+
+/**
  * Retention policy in days based on importance level
- *
- * NOTE: Currently not enforced due to missing timestamp data.
- * Future enhancement will add timestamp to PushDrop token fields.
  */
 export const RETENTION_POLICY = {
   high: 365 * 3,    // 3 years
@@ -34,17 +33,53 @@ export interface GCStats {
 }
 
 /**
+ * ARC API transaction response
+ */
+interface ARCTransactionResponse {
+  blockTime?: number;
+  blockHash?: string;
+  blockHeight?: number;
+}
+
+/**
+ * Get transaction timestamp from TAAL ARC API
+ */
+async function getTransactionTimestamp(txid: string): Promise<number> {
+  try {
+    const response = await fetch(`${ARC_API_URL}/tx/${txid}`, {
+      headers: {
+        'Authorization': `Bearer ${ARC_API_KEY}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.warn(`ARC API error for ${txid}: ${response.status}`);
+      return Date.now(); // Fallback to current time (won't be GC'd)
+    }
+
+    const data = await response.json() as ARCTransactionResponse;
+
+    // ARC returns blocktime as Unix timestamp (seconds)
+    if (data.blockTime) {
+      return data.blockTime * 1000; // Convert to milliseconds
+    }
+
+    // If not yet mined, use current time (won't be GC'd)
+    return Date.now();
+  } catch (error) {
+    console.warn(`Failed to fetch timestamp for ${txid}:`, error);
+    return Date.now(); // Fallback to current time (won't be GC'd)
+  }
+}
+
+/**
  * Apply garbage collection to memory tokens
  *
- * Queries memory tokens and prepares to spend expired ones based on
- * retention policy. Current implementation returns stats but does not
- * actually spend tokens due to missing timestamp data.
- *
- * LIMITATION: Without creation timestamps in token fields, age-based
- * retention cannot be enforced. All tokens are kept.
+ * Queries memory tokens, fetches timestamps from TAAL ARC API, and spends
+ * expired ones based on retention policy (high=3yr, medium=1yr, low=90d).
  *
  * @param wallet - Agent's BRC-100 wallet
- * @returns Statistics on tokens that would be spent and kept
+ * @returns Statistics on tokens spent and kept
  */
 export async function applyGarbageCollection(
   wallet: AgentWallet
@@ -57,12 +92,13 @@ export async function applyGarbageCollection(
   // 1. Query all memory tokens
   const result = await underlyingWallet.listOutputs({
     basket: 'agent-memories',
-    include: 'locking scripts',
+    include: 'entire transactions', // Include BEEF for spending
     includeCustomInstructions: true,
     limit: 10000, // Get all tokens
   });
 
-  // 2. Check tokens (would check age if timestamp available)
+  // 2. Check age against retention policy
+  const now = Date.now();
   const tokensToSpend: Array<{
     outpoint: string;
     lockingScript: string;
@@ -72,18 +108,51 @@ export async function applyGarbageCollection(
   }> = [];
 
   for (const output of result.outputs) {
-    // Skip if not spendable
-    if (!output.spendable) continue;
+    try {
+      // Skip if not spendable
+      if (!output.spendable) continue;
 
-    // LIMITATION: Cannot calculate age without timestamp
-    // Future implementation would:
-    // 1. Extract importance from PushDrop.decode(lockingScript)
-    // 2. Extract timestamp from 4th PushDrop field
-    // 3. Calculate age: (Date.now() - timestamp) / (24 * 60 * 60 * 1000)
-    // 4. Compare age > RETENTION_POLICY[importance]
-    // 5. If expired: add to tokensToSpend with unlock script
+      // Extract importance from PushDrop fields
+      if (!output.lockingScript) continue;
 
-    // For now, keep all tokens since we can't determine expiration
+      const decoded = PushDrop.decode(LockingScript.fromHex(output.lockingScript), 'before');
+      const [, , importanceBytes] = decoded.fields;
+
+      const importance = new TextDecoder().decode(new Uint8Array(importanceBytes)) as keyof typeof RETENTION_POLICY;
+
+      // Get timestamp from ARC API
+      const txid = output.outpoint.split(':')[0];
+      const createdAt = await getTransactionTimestamp(txid);
+
+      // Calculate age in days
+      const ageMs = now - createdAt;
+      const ageDays = ageMs / (24 * 60 * 60 * 1000);
+
+      // Check if expired based on retention policy
+      const maxAgeDays = RETENTION_POLICY[importance];
+      if (ageDays > maxAgeDays) {
+        // Parse customInstructions to get keyID
+        let keyID = `memory-gc-${output.outpoint}`;
+        if (output.customInstructions) {
+          try {
+            const instructions = JSON.parse(output.customInstructions);
+            keyID = instructions.keyID || keyID;
+          } catch {
+            // Use fallback keyID
+          }
+        }
+
+        tokensToSpend.push({
+          outpoint: output.outpoint,
+          lockingScript: output.lockingScript,
+          satoshis: output.satoshis,
+          protocolID: [2, 'agidentity-memory'],
+          keyID,
+        });
+      }
+    } catch (error) {
+      console.warn(`Failed to process token ${output.outpoint} for GC:`, error);
+    }
   }
 
   // 3. Spend expired tokens if any
