@@ -1,5 +1,6 @@
 import type { OpenClawPluginApi } from 'openclaw/plugin-sdk';
 import { createWalletTools } from './src/wallet-tools.js';
+import { createMemoryTools } from './src/memory-tools.js';
 
 /**
  * AGIdentity OpenClaw Plugin
@@ -24,5 +25,11 @@ export default function register(api: OpenClawPluginApi): void {
     }
   );
 
-  // Memory tools will be added in Task 3
+  // Register memory tools (available by default, safe for general use)
+  api.registerTool(createMemoryTools({ gatewayUrl }), {
+    names: ['agid_store_memory', 'agid_recall_memory'],
+    optional: false,
+  });
+
+  api.logger.info('[AGIdentity] 4 tools registered (2 wallet, 2 memory)');
 }
