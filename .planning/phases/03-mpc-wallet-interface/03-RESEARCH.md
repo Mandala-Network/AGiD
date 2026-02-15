@@ -1,8 +1,8 @@
 # Phase 3: MPC Wallet Interface - Research
 
-**Researched:** 2026-02-14
+**Researched:** 2026-02-14 (Deep dive: 2026-02-15)
 **Domain:** MPC-CMP threshold wallet integration with AGIdentity
-**Confidence:** HIGH
+**Confidence:** HIGH (verified against working source code)
 
 <research_summary>
 ## Summary
@@ -48,12 +48,21 @@ The MPC-DEV repository already provides a complete stack. AGIdentity should **us
 
 **Installation:**
 ```bash
-# Copy MPC-DEV into agidentity or use as submodule
-cp -r MPC-DEV/wallet-toolbox-mpc agidentity/packages/
-cp -r MPC-DEV/mpc-lib agidentity/packages/
+# CRITICAL: The MPC code is inside @bsv/wallet-toolbox, NOT a separate package!
+# The mpc-test-app imports from:
+#   @bsv/wallet-toolbox/out/src/mpc/MPCWallet
+#   @bsv/wallet-toolbox/out/src/mpc/MPCClient
+#   etc.
 
-# Or better: keep MPC-DEV separate and import
-npm link ../MPC-DEV/wallet-toolbox-mpc
+# Standard wallet-toolbox installation:
+npm install @bsv/wallet-toolbox @bsv/sdk
+
+# The MPC modules are at these paths:
+# - @bsv/wallet-toolbox/out/src/mpc/MPCWallet
+# - @bsv/wallet-toolbox/out/src/mpc/MPCClient
+# - @bsv/wallet-toolbox/out/src/mpc/MPCKeyDeriver
+# - @bsv/wallet-toolbox/out/src/mpc/MPCPersistence
+# - @bsv/wallet-toolbox/out/src/mpc/wasm/WasmBridge
 ```
 </standard_stack>
 
@@ -217,6 +226,30 @@ Problems that look simple but have existing solutions in wallet-toolbox-mpc:
 **Why it happens:** JavaScript object references allow mutation of cached metadata
 **How to avoid:** `CosignerStorage.getMetadata()` must return `JSON.parse(JSON.stringify(metadata))`
 **Warning signs:** First derived key signature works, subsequent ones fail with "double adjustment"
+
+### Pitfall 9: Key ID Format Mismatch
+**What goes wrong:** Shares not found during signing despite successful DKG
+**Why it happens:** DKG uses `walletId/keyIndex` (slash), storage uses `walletId:keyIndex` (colon)
+**How to avoid:** Always normalize to colon format via `CosignerStorage.buildKeyId(walletId, keyIndex)`
+**Warning signs:** "No share found for wallet X key Y" errors after DKG completes
+
+### Pitfall 10: Missing Wallet Initialization Sequence
+**What goes wrong:** Derived keys fail to sign, wallet appears corrupted
+**Why it happens:** Loading steps done out of order or skipped
+**How to avoid:** Follow EXACT sequence: share → metadata → auxiliary keys → derivation encryption → derivations
+**Warning signs:** "Key not found", "Cannot decrypt derivation", signing verification fails
+
+### Pitfall 11: SSE Connection Not Closed on Error
+**What goes wrong:** Memory leaks, zombie connections pile up
+**Why it happens:** SSE clients not removed from listener set on disconnect/error
+**How to avoid:** Track connections in a Set, remove on 'close' event, iterate with try/catch
+**Warning signs:** Server memory grows over time, "too many open files" errors
+
+### Pitfall 12: Cosigner Rate Limiting Not Applied
+**What goes wrong:** Denial of service via signing flood
+**Why it happens:** Missing rate limiter middleware on signing routes
+**How to avoid:** Apply `signingRateLimiter` to `/mta-request` endpoint
+**Warning signs:** Single client can exhaust cosigner resources
 </common_pitfalls>
 
 <code_examples>
@@ -224,10 +257,29 @@ Problems that look simple but have existing solutions in wallet-toolbox-mpc:
 
 Verified patterns from MPC-DEV documentation and implementation:
 
+### CRITICAL: Correct Import Paths
+```typescript
+// CORRECT imports from @bsv/wallet-toolbox (verified from mpc-test-app)
+import { MPCWallet } from '@bsv/wallet-toolbox/out/src/mpc/MPCWallet'
+import { MPCClient } from '@bsv/wallet-toolbox/out/src/mpc/MPCClient'
+import { MPCKeyDeriver } from '@bsv/wallet-toolbox/out/src/mpc/MPCKeyDeriver'
+import { MPCPersistence } from '@bsv/wallet-toolbox/out/src/mpc/MPCPersistence'
+import { WasmBridge } from '@bsv/wallet-toolbox/out/src/mpc/wasm/WasmBridge'
+import { decryptShare } from '@bsv/wallet-toolbox/out/src/mpc/utils/shareEncryption'
+import { DerivationEncryption } from '@bsv/wallet-toolbox/out/src/mpc/encryption/DerivationEncryption'
+import type { DKGProgressInfo, MPCKeyId, MPCConfig } from '@bsv/wallet-toolbox/out/src/mpc/types'
+
+// Supporting imports
+import { WalletStorageManager, StorageKnex, Services } from '@bsv/wallet-toolbox'
+import { BigNumber, PublicKey, PrivateKey, P2PKH } from '@bsv/sdk'
+```
+
 ### AGIdentity MPC Wallet Adapter Interface
 ```typescript
 // Proposed: src/wallet/mpc-agent-wallet.ts
-import { MPCWallet, MPCClient, MPCConfig, MPCPersistence } from 'wallet-toolbox-mpc/mpc'
+// CORRECT: Import from @bsv/wallet-toolbox, NOT wallet-toolbox-mpc
+import { MPCWallet } from '@bsv/wallet-toolbox/out/src/mpc/MPCWallet'
+import { MPCClient } from '@bsv/wallet-toolbox/out/src/mpc/MPCClient'
 import type { BRC100Wallet } from '../types/index.js'
 
 export interface MPCAgentWalletConfig {
@@ -687,15 +739,70 @@ What's in MPC-DEV that represents current best practices:
 - **Raw share arithmetic:** Use BigNumber from @bsv/sdk
 </sota_updates>
 
+<mpc_wallet_operations>
+## MPCWallet Available Operations
+
+Verified from mpc-test-app backend - these are all the operations AGIdentity can use:
+
+### Transaction Operations
+| Method | Purpose | Notes |
+|--------|---------|-------|
+| `createAction()` | Create and sign transactions | Handles input selection, signing, broadcast |
+| `internalizeAction()` | Import external transactions | For receiving payments (BRC-42 or direct) |
+| `listOutputs()` | Query spendable UTXOs | Filter by basket, limit |
+| `listActions()` | List transaction history | Pagination with limit/offset |
+
+### Key Operations
+| Method | Purpose | Notes |
+|--------|---------|-------|
+| `getPublicKey()` | Get public key | `identityKey: true` for collective key, or derive with protocolID/keyID |
+| `wallet.keyDeriver.preDeriveKey()` | Pre-derive BRC-42 key | Triggers distributed ECDH |
+| `wallet.keyDeriver.derivePublicKey()` | Get derived public key | After preDeriveKey |
+
+### Cryptographic Operations
+| Method | Purpose | Notes |
+|--------|---------|-------|
+| `encrypt()` | Encrypt with derived key | Uses AES-GCM internally |
+| `decrypt()` | Decrypt with derived key | Counterparty must match |
+| `createHmac()` | Create HMAC | For message authentication |
+| `verifyHmac()` | Verify HMAC | Returns `{ valid: boolean }` |
+| `createSignature()` | MPC distributed signing | **Uses signing lock** |
+| `verifySignature()` | Verify signature | Local verification |
+
+### Certificate Operations
+| Method | Purpose | Notes |
+|--------|---------|-------|
+| `acquireCertificate()` | Acquire certificate | Direct protocol with keyring decryption |
+| `listCertificates()` | List acquired certificates | Filter by certifiers/types |
+
+### Backup Operations
+| Method | Purpose | Notes |
+|--------|---------|-------|
+| `createBackup()` | Create full backup bundle | Returns JSON string |
+| `MPCWallet.validateBackup()` | Validate backup (static) | Pre-restore validation |
+| `MPCWallet.restoreFromBackup()` | Restore from backup (static) | Atomic restore |
+
+### Event Handling
+| Method | Purpose | Notes |
+|--------|---------|-------|
+| `onSigningEvent('round-started', cb)` | Signing progress | For UI feedback |
+| `onSigningEvent('signature-ready', cb)` | Signing complete | Final signature |
+| `onSigningEvent('error', cb)` | Signing error | With round context |
+</mpc_wallet_operations>
+
 <open_questions>
 ## Open Questions
 
 Things that couldn't be fully resolved during research:
 
 1. **Cosigner Deployment for AI Use Case**
-   - What we know: MPC-DEV has cosigner-server implementation in TypeScript
+   - What we know: MPC-DEV has cosigner-server implementation in TypeScript; mpc-test-app spawns them as child processes for dev
    - What's unclear: Where should AI agent cosigners be deployed? Same infrastructure or separate?
-   - Recommendation: Start with 2 cosigners on separate infrastructure; enterprise can add more
+   - **RESOLVED via deep dive:** For development/demo, use mpc-test-app pattern (child processes on ports 8081, 8082). For production, deploy cosigners as separate services with:
+     - Independent infrastructure (different cloud providers recommended)
+     - Rate limiting on signing routes (`signingRateLimiter` middleware)
+     - JWT authentication between user and cosigners
+     - File-based persistence for shares/metadata/auxiliary keys
 
 2. **Share Password Management for AI Agent**
    - What we know: MPCWallet.create() requires `userPassword` for share encryption
@@ -754,12 +861,22 @@ Things that couldn't be fully resolved during research:
 - Pitfalls: HIGH - documented in code comments and debug guides
 - Code examples: HIGH - adapted from working implementation
 
-**Research date:** 2026-02-14
-**Valid until:** 2026-03-14 (30 days - MPC-DEV is stable, versioned in repo)
+**Research date:** 2026-02-14 (initial), 2026-02-15 (deep dive)
+**Valid until:** 2026-03-15 (30 days - MPC-DEV is stable, versioned in repo)
+
+**Deep dive verification:**
+- ✅ Read all backend source files (server.ts, setup.ts, transaction.ts, crypto-ops.ts)
+- ✅ Read all cosigner source files (server.ts, signing.ts, keygen.ts, derive.ts, CosignerStorage.ts)
+- ✅ Read cosigner manager (manager.ts, config.ts)
+- ✅ Verified import paths are `@bsv/wallet-toolbox/out/src/mpc/*`
+- ✅ Verified signing lock pattern implementation
+- ✅ Verified derivation offset adjustment in Round 1 (not Round 3)
+- ✅ Verified CosignerStorage deep copy pattern
+- ✅ Verified key ID normalization (slash → colon)
 </metadata>
 
 ---
 
 *Phase: 03-mpc-wallet-interface*
-*Research completed: 2026-02-14*
+*Research completed: 2026-02-14 (initial), 2026-02-15 (deep dive)*
 *Ready for planning: yes*
