@@ -11,6 +11,7 @@
  * - ECDH shared secret + HMAC derivation
  */
 
+import { z } from 'zod';
 import type { BRC100Wallet } from '../types/index.js';
 
 export interface InteractionContext {
@@ -33,6 +34,17 @@ export interface DecryptedMessage {
   keyId: string;
   verified: boolean;
 }
+
+/**
+ * Zod schema for validating signed envelope data
+ */
+const SignedEnvelopeDataSchema = z.object({
+  keyId: z.string(),
+  sessionId: z.string(),
+  messageIndex: z.number(),
+  timestamp: z.number(),
+  ciphertextHash: z.string(),
+});
 
 export class PerInteractionEncryption {
   private wallet: BRC100Wallet;
@@ -210,7 +222,8 @@ export class PerInteractionEncryption {
     });
 
     // Verify ciphertext hash matches
-    const parsedData = JSON.parse(envelope.signedData);
+    const parsedDataRaw = JSON.parse(envelope.signedData);
+    const parsedData = SignedEnvelopeDataSchema.parse(parsedDataRaw);
     const actualHash = await this.hashData(envelope.encrypted.ciphertext);
 
     const hashValid = parsedData.ciphertextHash === actualHash;
