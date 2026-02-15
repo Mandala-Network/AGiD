@@ -5,8 +5,8 @@
  * encryption contexts, and UHRP storage types.
  */
 
-// Re-export OpenClaw plugin types
-export * from './openclaw-plugin.js';
+// Re-export OpenClaw Gateway types
+export * from './openclaw-gateway.js';
 
 // ============================================================================
 // Wallet Types (BRC-100 Compatible)
