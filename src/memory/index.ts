@@ -6,6 +6,7 @@
 
 export {
   AGIdentityMemoryServer,
+  createAGIdentityMemoryServer,
   type AGIdentityMemoryServerConfig,
   type MCPToolResponse,
   type MemorySearchResult,

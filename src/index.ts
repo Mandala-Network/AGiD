@@ -166,6 +166,17 @@ export type {
 export { getConfig, loadConfig, resetConfig, getUhrpResolver, validateConfig } from './config/index.js';
 export type { AGIdentityEnvConfig } from './config/index.js';
 
+// Memory Server (MCP-compatible AI memory tools)
+export {
+  AGIdentityMemoryServer,
+  createAGIdentityMemoryServer,
+} from './memory/index.js';
+export type {
+  AGIdentityMemoryServerConfig,
+  MCPToolResponse,
+  MemorySearchResult,
+} from './memory/index.js';
+
 // ============================================================================
 // Convenience Factory Functions
 // ============================================================================

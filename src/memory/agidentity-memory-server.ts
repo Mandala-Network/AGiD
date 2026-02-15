@@ -236,3 +236,31 @@ export class AGIdentityMemoryServer {
     }
   }
 }
+
+/**
+ * Create an AGIdentityMemoryServer instance
+ *
+ * Factory function for creating memory server with the specified vault.
+ *
+ * @param config - Server configuration
+ * @returns Configured AGIdentityMemoryServer instance
+ *
+ * @example
+ * ```typescript
+ * // With LocalEncryptedVault
+ * const server = createAGIdentityMemoryServer({
+ *   vault: localVault,
+ * });
+ *
+ * // With EncryptedShadVault
+ * const server = createAGIdentityMemoryServer({
+ *   vault: shadVault,
+ *   userPublicKey: '03abc...',
+ * });
+ * ```
+ */
+export function createAGIdentityMemoryServer(
+  config: AGIdentityMemoryServerConfig
+): AGIdentityMemoryServer {
+  return new AGIdentityMemoryServer(config);
+}
