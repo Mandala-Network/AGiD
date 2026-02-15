@@ -852,6 +852,8 @@ export class SecureTeamVault {
       }
     }
 
+    const failures: Array<{ path: string; error: Error }> = [];
+
     for (const doc of teamDocs) {
       const fullCiphertext = [...doc.header, ...doc.encryptedContent];
 
@@ -866,8 +868,19 @@ export class SecureTeamVault {
         doc.header = updatedHeader;
         this.documents.set(`${teamId}:${doc.path}`, doc);
       } catch (error) {
-        console.warn(`Could not add participant to document ${doc.path}`);
+        failures.push({
+          path: doc.path,
+          error: error instanceof Error ? error : new Error(String(error))
+        });
       }
+    }
+
+    if (failures.length > 0) {
+      const failedPaths = failures.map(f => f.path).join(', ');
+      throw new Error(
+        `Failed to add participant to ${failures.length} document(s): ${failedPaths}. ` +
+        `First error: ${failures[0].error.message}`
+      );
     }
   }
 
@@ -885,6 +898,8 @@ export class SecureTeamVault {
       }
     }
 
+    const failures: Array<{ path: string; error: Error }> = [];
+
     for (const doc of teamDocs) {
       const fullCiphertext = [...doc.header, ...doc.encryptedContent];
 
@@ -897,8 +912,19 @@ export class SecureTeamVault {
         doc.header = updatedHeader;
         this.documents.set(`${teamId}:${doc.path}`, doc);
       } catch (error) {
-        console.warn(`Could not remove participant from document ${doc.path}`);
+        failures.push({
+          path: doc.path,
+          error: error instanceof Error ? error : new Error(String(error))
+        });
       }
+    }
+
+    if (failures.length > 0) {
+      const failedPaths = failures.map(f => f.path).join(', ');
+      throw new Error(
+        `Failed to remove participant from ${failures.length} document(s): ${failedPaths}. ` +
+        `First error: ${failures[0].error.message}`
+      );
     }
   }
 }
