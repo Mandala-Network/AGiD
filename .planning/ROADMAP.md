@@ -105,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Interface Hardening | 2/4 | In progress | - |
+| 1. Interface Hardening | 3/4 | In progress | - |
 | 2. MessageBox Channel | 0/TBD | Not started | - |
 | 3. MPC Wallet Interface | 0/TBD | Not started | - |
 | 4. OpenClaw Gateway | 0/TBD | Not started | - |
