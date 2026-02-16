@@ -48,3 +48,14 @@ website/
 # SQLite databases
 *.sqlite
 *.sqlite-*
+
+# Build output
+dist/
+
+# Runtime data  
+data/
+logs/
+*.pid
+
+# Test artifacts
+.agid-demo/
