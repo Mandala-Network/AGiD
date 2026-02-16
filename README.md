@@ -11,6 +11,27 @@ Employee (BRC-100 Wallet) ──► MessageBox (E2E Encrypted) ──► AGIdent
                                                          (signs, can't leak keys)
 ```
 
+## 📁 Repository Structure
+
+**Reorganized into intuitive layers:**
+
+```
+src/
+├── 01-core/        # Core (wallet, identity, config)
+├── 02-storage/     # Storage (vault, uhrp, memory)
+├── 03-gateway/     # Gateway (main system)
+├── 04-integrations/# External services
+├── 05-interfaces/  # Access methods (HTTP, CLI, SDK)
+├── 06-tools/       # ⭐ OpenClaw AI Tools (AI-callable)
+└── 07-shared/      # Shared utilities
+```
+
+**Key insight:** Only `06-tools/` contains OpenClaw tools. Everything else is infrastructure.
+
+See `src/README.md` for full architecture guide.
+
+---
+
 ## Quick Start
 
 ```bash
