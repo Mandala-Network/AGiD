@@ -243,7 +243,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
   });
 
-  app.get('/vault/read/*', async (req: AuthRequest, res: Response) => {
+  app.get(/^\/vault\/read\/(.+)$/, async (req: AuthRequest, res: Response) => {
     const clientKey = getClientKey(req);
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
@@ -262,7 +262,8 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const content = await config.vault!.readDocument(clientKey, getParam(req.params.path));
+      const path = getParam(req.params[0]); // First regex capture group
+      const content = await config.vault!.readDocument(clientKey, path);
       updateSession(clientKey);
       if (content === null) {
         res.status(404).json({ error: 'Document not found' });
@@ -330,7 +331,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
   });
 
-  app.get('/vault/proof/*', async (req: AuthRequest, res: Response) => {
+  app.get(/^\/vault\/proof\/(.+)$/, async (req: AuthRequest, res: Response) => {
     const clientKey = getClientKey(req);
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
@@ -504,7 +505,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
   });
 
-  app.get('/team/:teamId/document/*', async (req: AuthRequest, res: Response) => {
+  app.get(/^\/team\/([^\/]+)\/document\/(.+)$/, async (req: AuthRequest, res: Response) => {
     const clientKey = getClientKey(req);
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
@@ -512,10 +513,9 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const content = await config.teamVault!.readDocumentText(
-        getParam(req.params.teamId),
-        getParam(req.params.path)
-      );
+      const teamId = getParam(req.params[0]); // First regex capture group
+      const path = getParam(req.params[1]); // Second regex capture group
+      const content = await config.teamVault!.readDocumentText(teamId, path);
       updateSession(clientKey);
       res.json({ success: true, content });
     } catch (error) {
@@ -648,7 +648,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
   });
 
-  app.get('/memory/get/*', async (req: AuthRequest, res: Response) => {
+  app.get(/^\/memory\/get\/(.+)$/, async (req: AuthRequest, res: Response) => {
     const clientKey = getClientKey(req);
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
@@ -812,6 +812,208 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // =========================================================================
+  // Universal API - Framework-Agnostic Endpoints
+  // =========================================================================
+  // These endpoints provide simple HTTP access to AGIdentity capabilities
+  // for ANY agent framework (OpenClaw, ZeroClaw, PicoClaw, custom agents, etc.)
+
+  /**
+   * GET /api/identity
+   * Get agent's cryptographic identity and status
+   * Public endpoint - no authentication required
+   */
+  app.get('/api/identity', async (_req: AuthRequest, res: Response) => {
+    try {
+      const identity = await config.wallet.getPublicKey({ identityKey: true });
+      const balance = await config.wallet.getBalanceAndUtxos();
+      const network = await config.wallet.getNetwork();
+
+      res.json({
+        success: true,
+        publicKey: identity.publicKey,
+        network,
+        balance: balance.total,
+        utxos: balance.utxos?.length || 0,
+        status: 'active',
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  /**
+   * POST /api/sign
+   * Sign a message with agent's private key
+   * Body: { message: string, protocol?: string }
+   */
+  app.post('/api/sign', async (req: AuthRequest, res: Response) => {
+    try {
+      const { message, protocol = 'agent message' } = req.body;
+
+      if (!message) {
+        res.status(400).json({ success: false, error: 'Missing message parameter' });
+        return;
+      }
+
+      // Convert message to byte array
+      const data = Array.from(Buffer.from(message, 'utf8'));
+
+      // Create signature
+      const result = await config.wallet.createSignature({
+        data,
+        protocolID: [0, protocol],
+        keyID: '1',
+        counterparty: 'self'
+      });
+
+      // Convert signature to hex
+      const signatureHex = Buffer.from(result.signature).toString('hex');
+
+      res.json({
+        success: true,
+        message,
+        signature: signatureHex,
+        protocol,
+        signed: true,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  /**
+   * POST /api/encrypt
+   * Encrypt data for secure storage or communication
+   * Body: { data: string, protocol?: string, keyId?: string, counterparty?: string }
+   */
+  app.post('/api/encrypt', async (req: AuthRequest, res: Response) => {
+    try {
+      const {
+        data,
+        protocol = 'agent memory',
+        keyId = 'default',
+        counterparty = 'self'
+      } = req.body;
+
+      if (!data) {
+        res.status(400).json({ success: false, error: 'Missing data parameter' });
+        return;
+      }
+
+      // Convert data to byte array
+      const plaintext = Array.from(Buffer.from(data, 'utf8'));
+
+      // Encrypt
+      const result = await config.wallet.encrypt({
+        plaintext,
+        protocolID: [0, protocol],
+        keyID: keyId,
+        counterparty
+      });
+
+      // Convert ciphertext to hex
+      const ciphertextHex = Buffer.from(result.ciphertext as number[]).toString('hex');
+
+      res.json({
+        success: true,
+        ciphertext: ciphertextHex,
+        encrypted: true,
+        protocol,
+        keyId,
+        counterparty,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  /**
+   * POST /api/decrypt
+   * Decrypt previously encrypted data
+   * Body: { ciphertext: string (hex), protocol?: string, keyId?: string, counterparty?: string }
+   */
+  app.post('/api/decrypt', async (req: AuthRequest, res: Response) => {
+    try {
+      const {
+        ciphertext,
+        protocol = 'agent memory',
+        keyId = 'default',
+        counterparty = 'self'
+      } = req.body;
+
+      if (!ciphertext) {
+        res.status(400).json({ success: false, error: 'Missing ciphertext parameter' });
+        return;
+      }
+
+      // Convert hex ciphertext to byte array
+      const ciphertextBytes = Array.from(Buffer.from(ciphertext, 'hex'));
+
+      // Decrypt
+      const result = await config.wallet.decrypt({
+        ciphertext: ciphertextBytes,
+        protocolID: [0, protocol],
+        keyID: keyId,
+        counterparty
+      });
+
+      // Convert plaintext bytes to string
+      const plaintextStr = Buffer.from(result.plaintext as number[]).toString('utf8');
+
+      res.json({
+        success: true,
+        plaintext: plaintextStr,
+        decrypted: true,
+        protocol,
+        keyId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  /**
+   * GET /api/balance
+   * Check BSV wallet balance
+   * Public endpoint - no authentication required
+   */
+  app.get('/api/balance', async (_req: AuthRequest, res: Response) => {
+    try {
+      const balance = await config.wallet.getBalanceAndUtxos();
+
+      res.json({
+        success: true,
+        balance: balance.total,
+        satoshis: balance.total,
+        utxos: balance.utxos?.length || 0,
+        network: await config.wallet.getNetwork(),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   });
 
