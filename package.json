@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "@bsv/auth-express-middleware": "^2.0.2",
-    "@bsv/message-box-client": "^2.0.0",
+    "@bsv/message-box-client": "file:message-box-client",
     "@bsv/sdk": "^2.0.3",
     "@bsv/wallet-toolbox": "^2.0.14",
     "@bsv/wallet-toolbox-mpc": "file:./MPC-DEV/wallet-toolbox-mpc",

@@ -1018,6 +1018,86 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
   });
 
   // =========================================================================
+  // Onchain Memory (PushDrop Tokens)
+  // =========================================================================
+
+  /**
+   * POST /api/create-memory
+   * Create an onchain memory token using PushDrop
+   * Requires wallet to have funds for transaction
+   */
+  app.post('/api/create-memory', async (_req: AuthRequest, res: Response) => {
+    try {
+      const { content, tags } = _req.body;
+
+      if (!content) {
+        res.status(400).json({ success: false, error: 'Missing content parameter' });
+        return;
+      }
+
+      // Import PushDrop
+      const { PushDrop, Utils } = await import('@bsv/sdk');
+
+      // Prepare fields
+      const fields = [
+        content,
+        JSON.stringify(tags || []),
+        new Date().toISOString()
+      ];
+
+      const fieldArrays: number[][] = fields.map(f => Utils.toArray(f, 'utf8'));
+
+      // Get underlying wallet
+      const underlyingWallet = config.wallet.getUnderlyingWallet();
+      if (!underlyingWallet) {
+        res.status(500).json({ success: false, error: 'Wallet not available' });
+        return;
+      }
+
+      // Create PushDrop
+      const pushDrop = new PushDrop(underlyingWallet);
+
+      // Generate locking script
+      const lockingScript = await pushDrop.lock(
+        fieldArrays,
+        [2, 'agent memory'],
+        `mem-${Date.now()}`,
+        'self',
+        true,
+        true
+      );
+
+      // Create transaction
+      const result = await underlyingWallet.createAction({
+        description: 'Create onchain memory',
+        outputs: [{
+          lockingScript: lockingScript.toHex(),
+          satoshis: 1,
+          outputDescription: 'Memory token',
+          basket: 'memories',
+        }],
+        options: {
+          acceptDelayedBroadcast: false,
+        }
+      });
+
+      res.json({
+        success: true,
+        txid: result.txid,
+        content: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
+        blockchain: await config.wallet.getNetwork(),
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // =========================================================================
   // Health & Status
   // =========================================================================
 

@@ -121,11 +121,22 @@ export class AGIDMessageClient {
     const enableLogging = config.enableLogging ?? envConfig.messageBoxLogging;
 
     // MessageBoxClient auto-encrypts messages using BRC-2 ECDH
+    // With MPC support for threshold signature wallets
     this.messageClient = new MessageBoxClient({
       host: messageBoxHost,
       walletClient: underlyingWallet,
       enableLogging,
       networkPreset: config.networkPreset ?? 'mainnet',
+      // MPC options for threshold wallet support
+      mpcOptions: {
+        onSigningProgress: (info) => {
+          if (enableLogging) console.log('[MessageBox MPC]', info);
+        },
+        onSigningError: (error) => {
+          console.error('[MessageBox MPC Error]', error);
+        },
+        preDerivationTimeout: 30000
+      }
     });
 
     this.payClient = new PeerPayClient({
