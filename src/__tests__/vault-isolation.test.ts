@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { EncryptedShadVault } from '../shad/encrypted-vault.js';
-import { AGIdentityStorageManager } from '../uhrp/storage-manager.js';
+import { EncryptedShadVault } from '../04-integrations/shad/encrypted-vault.js';
+import { AGIdentityStorageManager } from '../02-storage/uhrp/storage-manager.js';
 import { MockSecureWallet, bytesToHex, randomBytes } from './test-utils.js';
 
 // Mock storage provider for testing

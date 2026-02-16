@@ -19,13 +19,13 @@
  */
 
 import 'dotenv/config';
-import { createAGIdentityGateway } from './gateway/index.js';
-import { createAgentWallet } from './wallet/agent-wallet.js';
-import { createProductionMPCWallet, loadMPCConfigFromEnv } from './wallet/mpc-integration.js';
-import { createAGIDServer } from './server/auth-server.js';
-import { IdentityGate } from './identity/identity-gate.js';
-import type { AgentWallet } from './wallet/agent-wallet.js';
-import type { AGIDServer } from './server/auth-server.js';
+import { createAGIdentityGateway } from './03-gateway/gateway/index.js';
+import { createAgentWallet } from './01-core/wallet/agent-wallet.js';
+import { createProductionMPCWallet, loadMPCConfigFromEnv } from './01-core/wallet/mpc-integration.js';
+import { createAGIDServer } from './05-interfaces/server/auth-server.js';
+import { IdentityGate } from './01-core/identity/identity-gate.js';
+import type { AgentWallet } from './01-core/wallet/agent-wallet.js';
+import type { AGIDServer } from './05-interfaces/server/auth-server.js';
 
 async function main() {
   console.log('');

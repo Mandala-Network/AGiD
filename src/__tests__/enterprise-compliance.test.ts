@@ -19,9 +19,9 @@ import {
 import {
   PerInteractionEncryption,
   SessionEncryption,
-} from '../encryption/per-interaction.js';
-import { SessionManager } from '../auth/session-manager.js';
-import { SignedAuditTrail } from '../audit/signed-audit.js';
+} from '../03-gateway/encryption/per-interaction.js';
+import { SessionManager } from '../03-gateway/auth/session-manager.js';
+import { SignedAuditTrail } from '../07-shared/audit/signed-audit.js';
 
 describe('Enterprise Security Compliance', () => {
   describe('End-to-End Encryption Flow', () => {

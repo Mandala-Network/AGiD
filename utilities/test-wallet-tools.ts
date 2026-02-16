@@ -13,7 +13,7 @@ import {
   encryptTool,
   decryptTool,
   checkBalanceTool
-} from './dist/tools/wallet-tools.js'
+} from '../dist/06-tools/tools/wallet-tools.js'
 
 console.log('\n' + '='.repeat(70))
 console.log('🧪 Testing AGIdentity Wallet Tools for OpenClaw')

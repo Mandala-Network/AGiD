@@ -11,42 +11,42 @@
  */
 
 // Core types
-export * from './types/index.js';
+export * from './07-shared/types/index.js';
 
 // Wallet
-export { AgentWallet, createAgentWallet } from './wallet/agent-wallet.js';
-export type { AgentWalletConfig, WalletBalanceInfo } from './wallet/agent-wallet.js';
+export { AgentWallet, createAgentWallet } from './01-core/wallet/agent-wallet.js';
+export type { AgentWalletConfig, WalletBalanceInfo } from './01-core/wallet/agent-wallet.js';
 export {
   MPCAgentWallet,
   createMPCAgentWallet,
-} from './wallet/mpc-agent-wallet.js';
+} from './01-core/wallet/mpc-agent-wallet.js';
 export type {
   MPCAgentWalletConfig,
   IMPCWallet,
   MPCWalletFactory,
   DKGProgressInfo,
   MPCKeyId,
-} from './wallet/mpc-agent-wallet.js';
+} from './01-core/wallet/mpc-agent-wallet.js';
 
 // UHRP Storage
-export { AGIdentityStorageManager } from './uhrp/storage-manager.js';
-export type { StorageManagerConfig, UploadOptions } from './uhrp/storage-manager.js';
+export { AGIdentityStorageManager } from './02-storage/uhrp/storage-manager.js';
+export type { StorageManagerConfig, UploadOptions } from './02-storage/uhrp/storage-manager.js';
 
 // Local Encrypted Vault (fast, for Shad)
-export { LocalEncryptedVault, createLocalEncryptedVault } from './vault/index.js';
-export type { LocalEncryptedVaultConfig } from './vault/index.js';
+export { LocalEncryptedVault, createLocalEncryptedVault } from './02-storage/vault/index.js';
+export type { LocalEncryptedVaultConfig } from './02-storage/vault/index.js';
 
 // Shad Integration
-export { EncryptedShadVault } from './shad/encrypted-vault.js';
-export type { EncryptedVaultConfig } from './shad/encrypted-vault.js';
+export { EncryptedShadVault } from './04-integrations/shad/encrypted-vault.js';
+export type { EncryptedVaultConfig } from './04-integrations/shad/encrypted-vault.js';
 
 // New: ShadTempVaultExecutor (working implementation with correct CLI flags)
-export { ShadTempVaultExecutor, createShadExecutor } from './shad/index.js';
+export { ShadTempVaultExecutor, createShadExecutor } from './04-integrations/shad/index.js';
 export type {
   ShadTempVaultExecutorConfig,
   ShadExecuteOptions,
   ShadAvailability,
-} from './shad/index.js';
+} from './04-integrations/shad/index.js';
 
 // Deprecated: AGIdentityShadBridge (uses non-existent --retriever api)
 export {
@@ -54,29 +54,29 @@ export {
   createShadBridge,
   createShadBridgeWithLocalVault,
   createShadBridgeWithUHRP,
-} from './shad/shad-integration.js';
-export type { ShadBridgeConfig } from './shad/shad-integration.js';
+} from './04-integrations/shad/shad-integration.js';
+export type { ShadBridgeConfig } from './04-integrations/shad/shad-integration.js';
 
 // Encryption
 export {
   PerInteractionEncryption,
   SessionEncryption,
-} from './encryption/per-interaction.js';
+} from './03-gateway/encryption/per-interaction.js';
 export type {
   InteractionContext,
   EncryptedMessage,
   DecryptedMessage,
-} from './encryption/per-interaction.js';
+} from './03-gateway/encryption/per-interaction.js';
 
 // Team/Group Encryption
-export { TeamVault } from './team/team-vault.js';
-export type { TeamVaultConfig } from './team/team-vault.js';
-export { SecureTeamVault } from './team/secure-team-vault.js';
+export { TeamVault } from './04-integrations/team/team-vault.js';
+export type { TeamVaultConfig } from './04-integrations/team/team-vault.js';
+export { SecureTeamVault } from './04-integrations/team/secure-team-vault.js';
 export type {
   SecureTeamVaultConfig,
   CertifiedTeamMember,
   CertifiedTeamConfig,
-} from './team/secure-team-vault.js';
+} from './04-integrations/team/secure-team-vault.js';
 
 // Identity & Certificates (BRC-52/53)
 export {
@@ -87,7 +87,7 @@ export {
   LocalRevocationChecker,
   gatedOperation,
   gatedOperationByKey,
-} from './identity/index.js';
+} from './01-core/identity/index.js';
 export type {
   CertificateAuthorityConfig,
   CertificateVerifierConfig,
@@ -100,14 +100,14 @@ export type {
   IdentityVerificationResult,
   CertificateIssuer,
   RevocationChecker,
-} from './identity/index.js';
+} from './01-core/identity/index.js';
 
 // Server (BRC-103/104 Auth)
-export { createAGIDServer } from './server/index.js';
-export type { AGIDServerConfig, AGIDServer } from './server/index.js';
+export { createAGIDServer } from './05-interfaces/server/index.js';
+export type { AGIDServerConfig, AGIDServer } from './05-interfaces/server/index.js';
 
 // Messaging (MessageBox Client)
-export { AGIDMessageClient, createMessageClient } from './messaging/index.js';
+export { AGIDMessageClient, createMessageClient } from './03-gateway/messaging/index.js';
 export type {
   AGIDMessageConfig,
   AGIDMessage,
@@ -116,10 +116,10 @@ export type {
   AGIDQuote,
   MessageHandler,
   PaymentHandler,
-} from './messaging/index.js';
+} from './03-gateway/messaging/index.js';
 
 // MessageBox Gateway (unified AI communication entry point)
-export { MessageBoxGateway, createMessageBoxGateway } from './messaging/index.js';
+export { MessageBoxGateway, createMessageBoxGateway } from './03-gateway/messaging/index.js';
 export type {
   ProcessedMessage,
   ProcessingContext,
@@ -128,29 +128,29 @@ export type {
   GatewayErrorType,
   MessageBoxGatewayConfig,
   CreateGatewayConfig,
-} from './messaging/index.js';
+} from './03-gateway/messaging/index.js';
 
 // Unified Service
-export { createAGIdentityService } from './service/index.js';
-export type { AGIdentityServiceConfig, AGIdentityService } from './service/index.js';
+export { createAGIdentityService } from './05-interfaces/service/index.js';
+export type { AGIdentityServiceConfig, AGIdentityService } from './05-interfaces/service/index.js';
 
 // OpenClaw Gateway (WebSocket client for OpenClaw AI agent)
-export { OpenClawClient, createOpenClawClient } from './openclaw/index.js';
-export type { OpenClawClientConfig } from './openclaw/index.js';
+export { OpenClawClient, createOpenClawClient } from './04-integrations/openclaw/index.js';
+export type { OpenClawClientConfig } from './04-integrations/openclaw/index.js';
 
 // AGIdentity OpenClaw Gateway (full integration: MessageBox → Identity → OpenClaw → MPC Sign)
 export {
   AGIdentityOpenClawGateway,
   createAGIdentityGateway,
-} from './gateway/index.js';
+} from './03-gateway/gateway/index.js';
 export type {
   AGIdentityOpenClawGatewayConfig,
   SignedResponse,
   IdentityContext,
-} from './gateway/index.js';
+} from './03-gateway/gateway/index.js';
 
 // Client SDK
-export { AGIDClient, createAGIDClient } from './client/index.js';
+export { AGIDClient, createAGIDClient } from './05-interfaces/client/index.js';
 export type {
   AGIDClientConfig,
   APIResponse,
@@ -170,14 +170,14 @@ export type {
   VerificationResult,
   HealthStatus,
   SessionStatus,
-} from './client/index.js';
+} from './05-interfaces/client/index.js';
 
 // Configuration
-export { getConfig, loadConfig, resetConfig, getUhrpResolver, validateConfig } from './config/index.js';
-export type { AGIdentityEnvConfig } from './config/index.js';
+export { getConfig, loadConfig, resetConfig, getUhrpResolver, validateConfig } from './01-core/config/index.js';
+export type { AGIdentityEnvConfig } from './01-core/config/index.js';
 
 // Memory (core types and storage - server exports in future plan)
-export type { MemoryInput, MemoryToken } from './memory/index.js';
+export type { MemoryInput, MemoryToken } from './02-storage/memory/index.js';
 
 // TODO: Memory Server exports (planned for future):
 // - AGIdentityMemoryServer, createAGIdentityMemoryServer
@@ -187,12 +187,12 @@ export type { MemoryInput, MemoryToken } from './memory/index.js';
 // Convenience Factory Functions
 // ============================================================================
 
-import type { AGIdentityConfig, BRC100Wallet } from './types/index.js';
-import { createAgentWallet } from './wallet/agent-wallet.js';
-import { AGIdentityStorageManager } from './uhrp/storage-manager.js';
-import { EncryptedShadVault } from './shad/encrypted-vault.js';
-import { createShadBridge, AGIdentityShadBridge } from './shad/shad-integration.js';
-import { TeamVault } from './team/team-vault.js';
+import type { AGIdentityConfig, BRC100Wallet } from './07-shared/types/index.js';
+import { createAgentWallet } from './01-core/wallet/agent-wallet.js';
+import { AGIdentityStorageManager } from './02-storage/uhrp/storage-manager.js';
+import { EncryptedShadVault } from './04-integrations/shad/encrypted-vault.js';
+import { createShadBridge, AGIdentityShadBridge } from './04-integrations/shad/shad-integration.js';
+import { TeamVault } from './04-integrations/team/team-vault.js';
 
 /**
  * AGIdentity instance with all components initialized

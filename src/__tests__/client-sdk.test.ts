@@ -5,10 +5,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { AGIDClient, createAGIDClient } from '../client/agidentity-client.js';
+import { AGIDClient, createAGIDClient } from '../05-interfaces/client/agidentity-client.js';
 import { MockSecureWallet } from './test-utils.js';
-import type { AgentWallet } from '../wallet/agent-wallet.js';
-import type { BRC100Wallet } from '../types/index.js';
+import type { AgentWallet } from '../01-core/wallet/agent-wallet.js';
+import type { BRC100Wallet } from '../07-shared/types/index.js';
 
 /**
  * Create a mock AgentWallet for testing

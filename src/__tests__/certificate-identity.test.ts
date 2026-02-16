@@ -10,11 +10,11 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CertificateAuthority } from '../identity/certificate-authority.js';
-import { CertificateVerifier } from '../identity/certificate-verifier.js';
-import { SecureTeamVault } from '../team/secure-team-vault.js';
+import { CertificateAuthority } from '../01-core/identity/certificate-authority.js';
+import { CertificateVerifier } from '../01-core/identity/certificate-verifier.js';
+import { SecureTeamVault } from '../04-integrations/team/secure-team-vault.js';
 import { MockSecureWallet, randomBytes } from './test-utils.js';
-import type { Certificate } from '../types/index.js';
+import type { Certificate } from '../07-shared/types/index.js';
 
 describe('Certificate Authority', () => {
   let adminWallet: MockSecureWallet;

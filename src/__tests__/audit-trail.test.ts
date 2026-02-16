@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SignedAuditTrail } from '../audit/signed-audit.js';
+import { SignedAuditTrail } from '../07-shared/audit/signed-audit.js';
 import { MockSecureWallet, bytesToHex } from './test-utils.js';
 
 describe('Signed Audit Trail', () => {

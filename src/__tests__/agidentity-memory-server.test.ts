@@ -10,8 +10,8 @@ import {
   AGIdentityMemoryServer,
   createAGIdentityMemoryServer,
   type MCPToolResponse,
-} from '../memory/agidentity-memory-server.js';
-import type { VaultProof } from '../types/index.js';
+} from '../02-storage/memory/agidentity-memory-server.js';
+import type { VaultProof } from '../07-shared/types/index.js';
 
 // ===========================================================================
 // Mock Vault Implementations

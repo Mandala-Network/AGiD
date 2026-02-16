@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SessionManager } from '../auth/session-manager.js';
+import { SessionManager } from '../03-gateway/auth/session-manager.js';
 import { MockSecureWallet, sleep } from './test-utils.js';
 
 describe('Session Security', () => {

@@ -28,7 +28,7 @@ import type {
   AcquireCertificateResult,
   ListCertificatesArgs,
   ListCertificatesResult,
-} from '../types/index.js';
+} from '../07-shared/types/index.js';
 
 /**
  * Cryptographically secure mock wallet for testing
