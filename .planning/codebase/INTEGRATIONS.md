@@ -1,122 +1,137 @@
 # External Integrations
 
-**Analysis Date:** 2026-02-14
+**Analysis Date:** 2026-02-15
 
 ## APIs & External Services
 
-**BSV Blockchain Services:**
-- MessageBox (Babbage Systems) - Async agent-to-agent messaging with BRC-2 ECDH encryption
-  - SDK/Client: @bsv/message-box-client 2.0.0 (`src/messaging/message-client.ts`)
-  - Auth: BRC-103/104 mutual authentication
-  - Host: MESSAGEBOX_HOST env var (default: https://messagebox.babbage.systems)
+**OpenClaw Gateway (AI Agent Integration):**
+- WebSocket-based AI agent communication protocol
+  - SDK/Client: WebSocket via `ws` package, custom client in `src/openclaw/openclaw-client.ts`
+  - Auth: Token-based authentication in `OPENCLAW_GATEWAY_TOKEN` env var
+  - Connection: `OPENCLAW_GATEWAY_URL` configurable WebSocket endpoint
+  - Features: Automatic reconnection, request/response pattern, timeout handling
+  - Files: `src/openclaw/openclaw-client.ts`, `src/gateway/agidentity-openclaw-gateway.ts`, `src/types/openclaw-gateway.ts`
 
-**UHRP Storage:**
-- Cloud encrypted document storage with blockchain timestamps
-  - Integration: Custom AGIdentityStorageManager (`src/uhrp/storage-manager.ts`)
-  - Auth: Wallet-based signing
-  - Mainnet: UHRP_MAINNET_RESOLVER (default: https://uhrp.network/resolve)
-  - Testnet: UHRP_TESTNET_RESOLVER (default: https://testnet.uhrp.network/resolve)
-  - Upload URL: UHRP_STORAGE_URL env var (required for production)
+**MessageBox (P2P Encrypted Messaging):**
+- Distributed messaging protocol for agent-to-agent communication
+  - SDK/Client: @bsv/message-box-client 2.0.0
+  - Auth: BRC-42 encrypted messaging with per-counterparty keys
+  - Configuration: `MESSAGEBOX_HOST` (default: https://messagebox.babbage.systems)
+  - Files: `src/messaging/messagebox-gateway.ts`, `src/messaging/message-client.ts`, `src/messaging/gated-message-handler.ts`
+  - Features: Certificate exchange, identity-gated messages, payment handling
 
-**External APIs:**
-- None currently integrated (no Stripe, SendGrid, etc.)
+**Shad (Shannon's Daemon - AI Research Tool):**
+- Python-based AI research daemon for complex analysis tasks
+  - Integration method: Process spawning via Node.js `child_process`
+  - Config: `SHAD_PATH`, `SHAD_PYTHON_PATH`, `SHAD_STRATEGY`, `SHAD_MAX_*` limits
+  - Files: `src/shad/shad-integration.ts`, `src/shad/shad-temp-executor.ts`, `src/shad/encrypted-vault.ts`
+  - Protocol: JSON exchange via stdout/stderr
+  - Strategies: software, research, analysis, planning
+  - Features: Encrypted vault access, temporary decryption for execution
 
 ## Data Storage
 
-**Databases:**
-- SQLite - Wallet key management and UTXO tracking
-  - Connection: AGENT_WALLET_PATH env var (default: ./agent-wallet.sqlite)
-  - Client: @bsv/wallet-toolbox Setup.createWalletSQLite()
-  - Migrations: Managed by wallet-toolbox
+**UHRP Storage (Universal Hash Resolution Protocol):**
+- Distributed encrypted storage with blockchain timestamping
+  - Connection: `UHRP_STORAGE_URL` (default: https://go-uhrp.b1nary.cloud)
+  - Client: Custom implementation in `src/uhrp/storage-manager.ts`
+  - Features: Document encryption with BRC-42 keys, blockchain timestamp transactions, SHA-256 integrity verification
+  - Files: `src/uhrp/storage-manager.ts`, `src/vault/index.ts`
 
-**File Storage:**
-- Local encrypted vault - Fast document cache
-  - Path: OBSIDIAN_VAULT_PATH env var (e.g., ~/Documents/ObsidianVault)
-  - Encryption: AES-256-GCM via BRC-42 derived keys
-  - Storage: .agid/ subdirectory for encrypted files
+**Local Encrypted Vault:**
+- File-based encrypted storage for fast local access
+  - Location: Configurable directory (default: `.agid/`)
+  - Encryption: AES-256-GCM with per-interaction keys
+  - Files: `src/vault/local-encrypted-vault.ts`
 
-**Caching:**
-- In-memory Map for document cache (`src/vault/local-encrypted-vault.ts`)
-- VAULT_CACHE_DIR for temporary decrypted documents (default: /tmp/agidentity-vault-cache)
+**Obsidian Vault Integration (Optional):**
+- Second Brain integration for existing Obsidian notes
+  - Config: `OBSIDIAN_VAULT_PATH`
+  - Purpose: Use Obsidian vault as AI agent context source
+
+**BSV Blockchain Network:**
+- Immutable recording and validation layer
+  - Networks: mainnet or testnet (via `AGID_NETWORK` env var)
+  - Features: Transaction creation/signing, OP_RETURN data encoding, UTXO management, certificate acquisition
+  - Files: `src/wallet/agent-wallet.ts`, `src/wallet/mpc-integration.ts`, `src/uhrp/storage-manager.ts`
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- BRC-103/104 Mutual Authentication - Bidirectional signing
-  - Implementation: @bsv/auth-express-middleware (`src/server/auth-server.ts`)
-  - Token storage: Session-based with public key mapping
-  - Session management: SessionManager class (`src/auth/session-manager.ts`)
+- BRC-103/104 Mutual Authentication
+  - Implementation: @bsv/auth-express-middleware 2.0.2
+  - Token storage: Session-based with JWT
+  - Session management: Server-side tracking in `src/auth/`
+  - Files: `src/server/auth-server.ts`
 
-**Certificate System:**
-- BRC-52/53 certificate format and revocation
-  - Trusted certifiers: TRUSTED_CERTIFIERS env var (comma-separated public keys)
-  - Requirement: REQUIRE_CERTIFICATES env var (default: true)
-  - Verification: IdentityGate (`src/identity/identity-gate.ts`)
+**Certificate Authorities (PKI):**
+- Digital identity verification system
+  - Config: `TRUSTED_CERTIFIERS` (comma-separated public keys)
+  - Integration: Via @bsv/wallet-toolbox certificate APIs
+  - Files: `src/identity/certificate-authority.ts`, `src/identity/certificate-verifier.ts`, `src/identity/identity-gate.ts`
+  - Purpose: Verify sender identity before processing messages
+
+**MPC (Multi-Party Computation) Signing:**
+- Threshold signature scheme for distributed key management
+  - Config: `MPC_COSIGNER_ENDPOINTS`, `MPC_SHARE_SECRET`, `MPC_SHARE_PATH`
+  - Package: @bsv/wallet-toolbox-mpc (local dev version)
+  - Files: `src/wallet/mpc-agent-wallet.ts`, `src/wallet/mpc-integration.ts`
+  - Purpose: Production-grade signing without single key exposure
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None (console logging only)
+- Not configured (console-based logging only)
+  - Current: console.log/warn/error throughout codebase
+  - Files: `src/gateway/agidentity-openclaw-gateway.ts`, `src/start.ts`, `src/vault/local-encrypted-vault.ts`
 
 **Analytics:**
 - None
 
 **Logs:**
-- Console output with configurable levels
-  - AGID_SERVER_LOGGING env var
-  - AGID_SERVER_LOG_LEVEL env var
-  - MESSAGEBOX_LOGGING env var
+- Console output to stdout/stderr
+  - No structured logging framework
+  - Logs directory exists but not integrated (untracked in git)
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Not specified (designed for self-hosting)
-- Deployment: npm package distribution
+- Not configured (manual deployment)
+  - Shell scripts exist: `deploy-mpc.sh`, `stop-mpc.sh`, `test-agent.sh` (untracked)
 
 **CI Pipeline:**
-- Not detected (no .github/workflows)
+- Not configured
+  - Tests run locally via `npm test`
 
 ## Environment Configuration
 
 **Development:**
-- Required env vars: AGENT_PRIVATE_KEY (64-char hex)
-- Network: AGID_NETWORK (mainnet/testnet)
-- Secrets location: `.env.local` (gitignored)
-- Reference: `.env.example` with all options documented
+- Required env vars: See `.env.example` for full list
+  - Core: `AGENT_PRIVATE_KEY`, `AGID_NETWORK`
+  - Optional: `OPENCLAW_GATEWAY_URL`, `MESSAGEBOX_HOST`, `SHAD_PATH`
+- Secrets location: `.env` file (gitignored)
+- Mock/stub services: Testnet mode for BSV blockchain
 
 **Staging:**
-- Use testnet: AGID_NETWORK=testnet
-- Separate wallet: Different AGENT_WALLET_PATH
+- Not configured
 
 **Production:**
-- Secrets management: Environment variables
-- Required: UHRP_STORAGE_URL (your provider)
-- Optional: SHAD_PATH, OBSIDIAN_VAULT_PATH
+- MPC mode enabled via environment variables
+- Separate configuration for cosigner endpoints
+- Testnet or mainnet blockchain selection
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None (all interactions via authenticated HTTP)
+- None
 
 **Outgoing:**
-- MessageBox notifications (P2P messaging)
-  - Delivery via MessageBoxClient (`src/messaging/message-client.ts`)
-  - Encryption: Automatic BRC-2 ECDH
-
-## Shad AI Integration (Optional)
-
-**Shad (Shannon's Daemon):**
-- Type: Local Python-based retrieval augmented module (RLM)
-  - Invocation: child_process.spawn() (`src/shad/shad-integration.ts`)
-  - Command: `python3 -m shad.cli run`
-  - Config:
-    - SHAD_PATH (default: ~/.shad)
-    - SHAD_PYTHON_PATH (default: python3)
-    - SHAD_STRATEGY (software/research/analysis/planning)
-    - SHAD_MAX_DEPTH, SHAD_MAX_NODES, SHAD_MAX_TIME
-  - Integration: Secure HTTP server on random port with /search, /read, /verify, /list endpoints
+- MessageBox message delivery
+  - Endpoint: Configured MessageBox host
+  - Verification: BRC-42 signature validation
+  - Events: Encrypted message delivery, certificate exchange
 
 ---
 
-*Integration audit: 2026-02-14*
+*Integration audit: 2026-02-15*
 *Update when adding/removing external services*

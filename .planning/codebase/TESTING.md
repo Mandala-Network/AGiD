@@ -1,6 +1,6 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-02-14
+**Analysis Date:** 2026-02-15
 
 ## Test Framework
 
@@ -10,275 +10,300 @@
 
 **Assertion Library:**
 - Vitest built-in expect
-- Matchers: toBe, toEqual, toThrow, toMatchObject, toBeDefined
+- Matchers: toBe, toEqual, toThrow, toMatchObject, toHaveBeenCalled
 
 **Run Commands:**
 ```bash
 npm test                              # Run all tests
 npm run test:watch                    # Watch mode (vitest)
-npm test -- path/to/file.test.ts     # Single file
-# Coverage not configured as npm script
+vitest run                            # Direct vitest invocation
 ```
 
 ## Test File Organization
 
 **Location:**
-- `src/__tests__/` directory (co-located with source)
-- Not alongside individual source files
+Two patterns observed:
+
+1. **Co-located tests** (unit tests for specific modules):
+   - `src/openclaw/openclaw-client.test.ts` - 23 tests
+   - `src/wallet/mpc-integration.test.ts` - 20 tests
+   - `src/shad/shad-temp-executor.test.ts` - 9 tests
+   - `src/gateway/agidentity-openclaw-gateway.test.ts`
+
+2. **Centralized tests** (integration/security tests):
+   - `src/__tests__/agidentity-memory-server.test.ts`
+   - `src/__tests__/certificate-identity.test.ts`
+   - `src/__tests__/per-interaction-encryption.test.ts` - 26 tests
+   - `src/__tests__/vault-isolation.test.ts`
+   - `src/__tests__/team-vault.test.ts`
+   - `src/__tests__/client-sdk.test.ts`
+   - `src/__tests__/session-security.test.ts`
+   - `src/__tests__/cryptographic-security.test.ts` - 22 tests
+   - `src/__tests__/audit-trail.test.ts`
+   - `src/__tests__/enterprise-compliance.test.ts` - 18 tests
+   - `src/__tests__/test-utils.ts` - Shared test utilities
 
 **Naming:**
-- `*.test.ts` suffix for all test files
-- Descriptive names: `session-security.test.ts`, `team-vault.test.ts`
+- `*.test.ts` for all test files
+- Descriptive names matching the module under test
 
 **Structure:**
 ```
 src/
-├── __tests__/
-│   ├── test-utils.ts                    # Shared utilities
-│   ├── audit-trail.test.ts              # 25 tests
-│   ├── certificate-identity.test.ts     # 29 tests
-│   ├── client-sdk.test.ts               # 25 tests
-│   ├── cryptographic-security.test.ts   # 22 tests
-│   ├── enterprise-compliance.test.ts    # 18 tests
-│   ├── per-interaction-encryption.test.ts # 26 tests
-│   ├── session-security.test.ts         # 28 tests
-│   ├── team-vault.test.ts               # 44 tests
-│   └── vault-isolation.test.ts          # 18 tests
-├── wallet/
-│   └── agent-wallet.ts
-└── ...
+  openclaw/
+    openclaw-client.ts
+    openclaw-client.test.ts
+  wallet/
+    agent-wallet.ts
+    mpc-integration.test.ts
+  __tests__/
+    certificate-identity.test.ts
+    vault-isolation.test.ts
+    test-utils.ts
 ```
 
 ## Test Structure
 
 **Suite Organization:**
 ```typescript
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SessionManager } from '../auth/session-manager.js';
-import { MockSecureWallet, sleep } from './test-utils.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-describe('Session Security', () => {
-  let wallet: MockSecureWallet;
-  let sessionManager: SessionManager;
+describe('OpenClawClient', () => {
+  let originalEnv: NodeJS.ProcessEnv
 
   beforeEach(() => {
-    wallet = new MockSecureWallet();
-    sessionManager = new SessionManager({
-      wallet,
-      maxSessionDurationMs: 1000,
-      timingAnomalyThresholdMs: 100,
-      cleanupIntervalMs: 500
-    });
-  });
+    originalEnv = { ...process.env }
+    vi.clearAllMocks()
+  })
 
   afterEach(() => {
-    sessionManager.stop();
-  });
+    process.env = originalEnv
+  })
 
-  describe('Session Creation', () => {
-    it('should create sessions with unique IDs', async () => {
-      const session1 = await sessionManager.createSession('user-1');
-      const session2 = await sessionManager.createSession('user-2');
+  describe('Constructor', () => {
+    it('should construct with default config', () => {
+      // test
+    })
+  })
 
-      expect(session1.sessionId).toBeDefined();
-      expect(session1.sessionId).not.toBe(session2.sessionId);
-    });
-  });
-});
+  describe('Connection', () => {
+    it('should connect and complete handshake', async () => {
+      // test
+    })
+  })
+})
 ```
 
 **Patterns:**
-- Nested describe blocks for feature grouping
-- beforeEach for per-test setup
-- afterEach for cleanup (stop timers, clear state)
-- Arrange-Act-Assert pattern in test bodies
-- One assertion focus per test (multiple expects OK)
+- Nested describe blocks group tests by functionality
+- beforeEach for per-test setup (clear mocks, reset state)
+- afterEach to restore environment, clean up mocks
+- Explicit arrange/act/assert structure in complex tests
+- One assertion focus per test (but multiple expects allowed)
+
+**Globals:**
+- Vitest globals enabled (no need to import describe/it/expect)
+- Configuration: `globals: true` in `vitest.config.ts`
 
 ## Mocking
 
 **Framework:**
 - Vitest built-in mocking (vi)
-- Module mocking via vi.mock() at top of file
+- Module mocking via vi.mock() at top of test file
 
-**Patterns:**
+**Mock WebSocket Pattern:**
 ```typescript
-import { vi } from 'vitest';
+vi.mock('ws', () => {
+  class MockWebSocket extends EventEmitter {
+    static OPEN = 1
+    static CLOSED = 3
+    sentMessages: string[] = []
 
-// Spy on methods
-const spy = vi.spyOn(wallet, 'encrypt');
-expect(spy).toHaveBeenCalledWith(expectedArgs);
+    simulateMessage(data: object) { }
+    simulateHelloOk(sessionId: string) { }
+  }
+  return { default: MockWebSocket, WebSocket: MockWebSocket }
+})
+```
 
-// Mock return values
-vi.mocked(wallet.getPublicKey).mockResolvedValue({ publicKey: '...' });
-
-// Fake timers for timing tests
-vi.useFakeTimers();
-vi.advanceTimersByTime(1000);
-vi.useRealTimers();
+**Mock Usage in Tests:**
+```typescript
+const mockFn = vi.mocked(externalFunction)
+mockFn.mockReturnValue('mocked result')
+mockFn.mockResolvedValue({ data: 'test' })
+expect(mockFn).toHaveBeenCalledWith('expected arg')
 ```
 
 **What to Mock:**
-- External service calls (MessageBox, UHRP)
+- WebSocket connections (ws module)
+- External API calls
 - File system operations
-- Time/dates (vi.useFakeTimers)
-- Random values for deterministic tests
+- Environment variables (process.env)
+- Child process execution
+- Time/dates (vi.useFakeTimers if needed)
 
 **What NOT to Mock:**
-- Cryptographic operations (use real crypto in tests)
 - Internal pure functions
-- The MockSecureWallet uses real Web Crypto API
+- Type definitions
+- Simple utilities
+- Cryptographic operations (use real Web Crypto in tests via MockSecureWallet)
 
 ## Fixtures and Factories
 
 **Test Data:**
 ```typescript
-// src/__tests__/test-utils.ts
-
-export class MockSecureWallet implements BRC100Wallet {
-  // Full implementation with real crypto
-  async getPublicKey(): Promise<{ publicKey: string }> { ... }
-  async encrypt(args: EncryptArgs): Promise<EncryptResult> { ... }
-  async decrypt(args: DecryptArgs): Promise<DecryptResult> { ... }
-  // ... all BRC100Wallet methods
+// Factory pattern in test-utils.ts
+class MockSecureWallet implements BRC100Wallet {
+  // Full implementation with real Web Crypto operations
 }
 
-export function createDeterministicWallet(seed: string): MockSecureWallet {
-  // Reproducible wallet from seed
+class MockLocalEncryptedVault {
+  // Local vault mock
 }
 
-export function randomBytes(length: number): Uint8Array {
-  return crypto.getRandomValues(new Uint8Array(length));
+class MockStorageProvider {
+  // UHRP storage simulation
 }
 
-export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// Helper functions
+function bytesToHex(bytes: Uint8Array): string { }
+function randomBytes(length: number): Uint8Array { }
+```
+
+**Setup Helpers:**
+```typescript
+async function setupConnectedClient(): Promise<OpenClawClient> {
+  const client = new OpenClawClient({ gatewayUrl: 'ws://test:123' })
+  // ... setup steps
+  return client
 }
 ```
 
 **Location:**
-- `src/__tests__/test-utils.ts` for shared utilities
-- Factory functions defined in test file when simple
+- `src/__tests__/test-utils.ts` - Shared mock implementations and helpers
+- Factory functions in test files for simple cases
+- Inline test data when appropriate
 
 ## Coverage
 
 **Requirements:**
 - No enforced coverage target
-- 235 tests across 9 categories
+- Coverage tracked for awareness
+- Focus on security-critical paths (cryptography, vault isolation, authentication)
 
 **Configuration:**
-```typescript
-// vitest.config.ts
-coverage: {
-  provider: 'v8',
-  reporter: ['text', 'html', 'lcov'],
-}
-```
+- Provider: v8 (built-in with Vitest)
+- Reporters: text, html, lcov
+- Excludes: node_modules, dist, **/*.test.ts, test-utils.ts
 
 **View Coverage:**
 ```bash
-npx vitest run --coverage
-open coverage/index.html
+npm run test:coverage           # If configured
+vitest run --coverage           # Direct vitest command
 ```
+
+**Coverage Gaps Identified:**
+- Only 15 test files for 64+ source files (~23% file coverage)
+- Missing tests: `src/wallet/agent-wallet.ts`, `src/config/index.ts`, `src/cli/`, `src/audit/signed-audit.ts`, `src/uhrp/storage-manager.ts`
+- See CONCERNS.md for full details
 
 ## Test Types
 
 **Unit Tests:**
-- Test single class/function in isolation
-- Mock external dependencies
-- Fast: each test <100ms
-- Examples: SessionManager methods, encryption operations
-
-**Security Tests:**
-- Timing anomaly detection (Edwin-style)
-- Replay attack prevention
-- Signature verification
-- Encryption/decryption roundtrips
-- Access control enforcement
-- Examples: `session-security.test.ts`, `cryptographic-security.test.ts`
+- Test single module in isolation
+- Mock all external dependencies
+- Fast execution (<100ms per test)
+- Examples: `openclaw-client.test.ts`, `mpc-integration.test.ts`, `shad-temp-executor.test.ts`
 
 **Integration Tests:**
-- Multi-component interactions
-- End-to-end workflows within test boundaries
-- Examples: `team-vault.test.ts` (vault + encryption + roles)
+- Test multiple modules together
+- Mock only external boundaries (network, filesystem)
+- Examples: `certificate-identity.test.ts`, `vault-isolation.test.ts`, `team-vault.test.ts`
+
+**Security Tests:**
+- Focused on cryptographic correctness and isolation
+- Examples: `cryptographic-security.test.ts` (22 tests), `per-interaction-encryption.test.ts` (26 tests)
+- Validate encryption, signatures, certificate verification
+
+**Compliance Tests:**
+- Enterprise audit and compliance requirements
+- Example: `enterprise-compliance.test.ts` (18 tests)
 
 **E2E Tests:**
 - Not currently implemented
-- Server endpoints tested indirectly via unit tests
 
 ## Common Patterns
 
 **Async Testing:**
 ```typescript
 it('should handle async operation', async () => {
-  const result = await asyncFunction();
-  expect(result).toBe('expected');
-});
+  const result = await asyncFunction()
+  expect(result).toBe('expected')
+})
 ```
 
 **Error Testing:**
 ```typescript
 it('should throw on invalid input', () => {
-  expect(() => functionCall()).toThrow('error message');
-});
+  expect(() => parse(null)).toThrow('Cannot parse null')
+})
 
 // Async error
 it('should reject on failure', async () => {
-  await expect(asyncCall()).rejects.toThrow('error message');
-});
+  await expect(asyncCall()).rejects.toThrow('error message')
+})
 ```
 
-**Timing Tests:**
+**WebSocket Testing:**
 ```typescript
-it('should detect timing anomalies', async () => {
-  const session = await sessionManager.createSession('user');
+it('should connect and complete handshake', async () => {
+  const client = new OpenClawClient({ gatewayUrl: 'ws://test:123' })
+  const connectPromise = client.connect()
 
-  await sleep(200); // Exceed threshold
+  await new Promise(resolve => setTimeout(resolve, 10))
+  const ws = getMockWebSocket(client)
+  ws.simulateHelloOk('session-123')
 
-  const result = await sessionManager.verifySession(session.sessionId);
-  expect(result.timingAnomaly).toBe(true);
-});
+  await connectPromise
+  expect(client.isConnected()).toBe(true)
+})
 ```
 
-**Cryptographic Roundtrip:**
-```typescript
-it('should encrypt and decrypt successfully', async () => {
-  const plaintext = 'secret message';
-
-  const encrypted = await encryption.encrypt({
-    plaintext: new TextEncoder().encode(plaintext),
-    counterparty: recipientKey
-  });
-
-  const decrypted = await encryption.decrypt({
-    ciphertext: encrypted.ciphertext,
-    keyId: encrypted.keyId
-  });
-
-  expect(new TextDecoder().decode(decrypted.plaintext)).toBe(plaintext);
-});
-```
+**Timeout/Timing:**
+- Test timeout: 30 seconds (testTimeout: 30000 in config)
+- Hook timeout: 10 seconds (hookTimeout: 10000)
+- Short timeouts in tests: requestTimeout: 50 for fast failure
 
 **Snapshot Testing:**
 - Not used in this codebase
-- Prefer explicit assertions for clarity
+- Prefer explicit assertions
 
-## Test Categories Summary
+## Test Configuration
 
-| Test File | Tests | Coverage Area |
-|-----------|-------|--------------|
-| `client-sdk.test.ts` | 25 | HTTP client, auth, batching |
-| `per-interaction-encryption.test.ts` | 26 | PFS, unique keys, envelopes |
-| `cryptographic-security.test.ts` | 22 | Key derivation, signatures |
-| `certificate-identity.test.ts` | 29 | Certificates, verification, revocation |
-| `team-vault.test.ts` | 44 | Group encryption, RBAC |
-| `vault-isolation.test.ts` | 18 | Per-user encryption, isolation |
-| `enterprise-compliance.test.ts` | 18 | Attack vectors, performance |
-| `audit-trail.test.ts` | 25 | Hash chains, tamper detection |
-| `session-security.test.ts` | 28 | Timing anomaly, expiration, replay |
+**vitest.config.ts:**
+```typescript
+{
+  test: {
+    globals: true,
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
+    exclude: ['node_modules', 'dist'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'lcov']
+    },
+    testTimeout: 30000,
+    hookTimeout: 10000
+  }
+}
+```
 
-**Total: 235 tests**
+**TypeScript:**
+- Tests use same tsconfig.json as source
+- Test files excluded from build output
+- Type checking in tests enforced
 
 ---
 
-*Testing analysis: 2026-02-14*
+*Testing analysis: 2026-02-15*
 *Update when test patterns change*

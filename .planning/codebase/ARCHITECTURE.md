@@ -1,182 +1,209 @@
 # Architecture
 
-**Analysis Date:** 2026-02-14
+**Analysis Date:** 2026-02-15
 
 ## Pattern Overview
 
-**Overall:** Layered/Modular Service Architecture with Plugin System
+**Overall:** Modular Layered Architecture with Plugin System
 
 **Key Characteristics:**
-- Plugin-based design for OpenClaw integration
-- BSV blockchain-backed identity and storage
-- Multi-layer encryption (per-interaction, team, vault)
-- Service-oriented with clean module boundaries
-- Factory pattern for component initialization
+- Service-oriented composition wrapping OpenClaw (AI agent framework)
+- Cryptographic foundation layer with blockchain-backed identity
+- Multi-tiered encrypted storage (local + distributed)
+- Plugin architecture for AI agent integration
+- Clear separation between cryptography, storage, messaging, and application layers
 
 ## Layers
 
-**Entry & Factory Layer:**
-- Purpose: Unified initialization and component orchestration
-- Contains: `createAGIdentity()`, `createAGIdentityWithOpenClaw()` factory functions
-- Location: `src/index.ts`
-- Depends on: All component layers
-- Used by: External consumers, OpenClaw gateway
+**Wallet & Cryptography Layer:**
+- Purpose: BRC-100 compatible wallet for agent identity and signing
+- Contains: `AgentWallet`, `MPCAgentWallet`, `PerInteractionEncryption`, `SessionEncryption`
+- Location: `src/wallet/`, `src/encryption/`
+- Depends on: @bsv/wallet-toolbox, cryptographic primitives
+- Used by: All layers requiring signing, encryption, or identity operations
 
-**Core Component Layer:**
-- Purpose: Primary features (wallet, storage, vault, messaging)
-- Contains: AgentWallet, StorageManager, EncryptedVault, MessageClient
-- Location: `src/wallet/`, `src/uhrp/`, `src/vault/`, `src/shad/`, `src/messaging/`
-- Depends on: Configuration, Types
-- Used by: Service layer, Plugin layer
+**Identity & Verification Layer:**
+- Purpose: Cryptographic identity verification using BRC-52/53 certificates
+- Contains: `IdentityGate`, `CertificateAuthority`, `CertificateVerifier`
+- Location: `src/identity/`
+- Depends on: Wallet layer for certificate operations
+- Used by: Server, messaging, gateway (gates all operations)
 
-**Encryption & Security Layer:**
-- Purpose: Cryptographic operations and access control
-- Contains: SessionEncryption, IdentityGate, CertificateAuthority, SignedAuditTrail
-- Location: `src/encryption/`, `src/identity/`, `src/audit/`
-- Depends on: Wallet (BRC100Wallet interface)
-- Used by: All components requiring encryption/auth
+**Storage & Vault Layer:**
+- Purpose: Multi-tiered encrypted storage with blockchain timestamps
+- Contains: `AGIdentityStorageManager` (UHRP), `LocalEncryptedVault`, `EncryptedShadVault`
+- Location: `src/vault/`, `src/uhrp/`, `src/shad/`
+- Depends on: Wallet layer for encryption keys, BSV blockchain for timestamps
+- Used by: Memory layer, gateway, CLI tools
 
-**Team Collaboration Layer:**
-- Purpose: Group encryption and role-based access
-- Contains: TeamVault, SecureTeamVault (CurvePoint integration)
-- Location: `src/team/`
-- Depends on: Wallet, Encryption
-- Used by: Multi-user document access
+**Memory & Reasoning Layer:**
+- Purpose: AI agent long-term memory with encryption and garbage collection
+- Contains: `AGIdentityMemoryServer`, `MemoryWriter`, `MemoryReader`, `MemoryGarbageCollector`
+- Location: `src/memory/`
+- Depends on: Vault layer for storage, encryption layer
+- Used by: OpenClaw gateway for context injection
 
-**API & Server Layer:**
-- Purpose: HTTP endpoints with mutual authentication
-- Contains: Express app, auth middleware, session management
-- Location: `src/server/`, `src/auth/`, `src/client/`
-- Depends on: Identity, Wallet, Vault components
-- Used by: External HTTP clients
+**Communication Layer:**
+- Purpose: P2P messaging and AI agent communication
+- Contains: `MessageBoxGateway`, `AGIDMessageClient`, `GatedMessageHandler`, `OpenClawClient`
+- Location: `src/messaging/`, `src/openclaw/`
+- Depends on: Identity layer for verification, encryption layer
+- Used by: Gateway, service facade
 
-**Plugin & Integration Layer:**
-- Purpose: OpenClaw tool registration and context management
-- Contains: AGIdentityPlugin, SecurePlugin
-- Location: `src/plugin/`
-- Depends on: All core components
-- Used by: OpenClaw gateway
+**Server & API Layer:**
+- Purpose: HTTP API with BRC-103/104 mutual authentication
+- Contains: `AGIDServer`, `AGIDClient`
+- Location: `src/server/`, `src/client/`
+- Depends on: Identity layer for auth, vault layer for operations
+- Used by: External clients, tools
+
+**Service Integration Layer:**
+- Purpose: Unified composition of all components
+- Contains: `AGIdentityService`, `AGIdentityOpenClawGateway`
+- Location: `src/service/`, `src/gateway/`
+- Depends on: All layers
+- Used by: Entry points (start.ts, CLI)
+
+**Configuration & Bootstrap Layer:**
+- Purpose: Centralized environment-based configuration loading
+- Contains: `loadConfig()`, `getConfig()`, `validateConfig()`
+- Location: `src/config/`
+- Depends on: Environment variables, dotenv
+- Used by: All layers for initialization
+
+**CLI & Tools Layer:**
+- Purpose: Command-line interface and self-awareness tools for agents
+- Contains: CLI commands (info, chat), identity tools
+- Location: `src/cli/`, `src/tools/`
+- Depends on: Service layer
+- Used by: End users, agents
 
 ## Data Flow
 
-**HTTP Request Lifecycle:**
+**Incoming Message Flow (MessageBox → OpenClaw):**
 
-1. Request arrives at Express server (`src/server/auth-server.ts`)
-2. Auth middleware validates BRC-103/104 mutual auth signature
-3. IdentityGate verifies certificates if required (`src/identity/identity-gate.ts`)
-4. SessionManager tracks session context (`src/auth/session-manager.ts`)
-5. Tool execution with per-interaction encryption (`src/encryption/per-interaction.ts`)
-6. Operation dispatched to appropriate component (vault, storage, team)
-7. Audit trail entry created (signed, blockchain-anchored)
-8. Response returned with auth signature
+1. User sends encrypted message via MessageBox
+2. `MessageBoxGateway.processMessage()` receives and routes
+3. `GatedMessageHandler.verifyIdentity()` checks sender certificates
+4. `ConversationManager.trackContext()` manages session threading
+5. `AGIdentityOpenClawGateway.forward()` prepares for AI processing
+6. `OpenClawClient.sendChat()` forwards to AI agent
+7. `AGIdentityMemoryServer.retrieve()` optionally injects vault context
+8. OpenClaw executes (with wallet available for signing operations)
+9. `SignedAuditTrail.record()` logs interaction
+10. Response encrypted with `PerInteractionEncryption`
+11. Encrypted response returned to user
 
-**Per-Message Encryption Flow:**
-1. Derive unique key from session + message index + timestamp (BRC-42/43)
-2. Encrypt plaintext with user's counterparty key
-3. Include keyId and metadata in envelope
-4. On decrypt: verify signature, check timing anomalies
+**Document Upload/Storage Flow:**
 
-**Vault Sync Flow:**
-1. Walk local file system or Obsidian vault
-2. Encrypt each document with derived key (AES-256-GCM)
-3. Upload to UHRP (gets immutable hash)
-4. Create blockchain timestamp transaction
-5. Store vault index (encrypted) back to UHRP
-6. Maintain local cache for fast Shad access
+1. Document received (plaintext)
+2. `PerInteractionEncryption.encryptMessage()` with unique key per interaction
+3. `AGIdentityStorageManager.uploadVaultDocument()`:
+   - Derive BRC-42 encryption key (level 2 per-counterparty)
+   - Encrypt with AES-256-GCM
+   - Calculate SHA-256 content hash
+   - Upload to UHRP provider
+   - Create blockchain timestamp transaction
+4. Returns `UHRPDocument` with hash (uhrp://...) and onchain proof
+
+**Agent Identity & Signing Flow:**
+
+1. Tool execution request received
+2. `IdentityGate.verifyIdentity()` checks caller certificates
+3. `AgentWallet.createSignature()` or `MPCAgentWallet.createSignature()`:
+   - If MPC mode: Threshold signature across cosigners
+   - If local mode: Single key signature
+4. Signed transaction/message returned
 
 **State Management:**
-- File-based: Vault documents in local filesystem
-- SQLite: Wallet keys and UTXO tracking
-- In-memory: Session state, document cache
-- Blockchain: Timestamps, revocation outpoints
+- Stateless for HTTP requests (session tracking via JWT)
+- Stateful for WebSocket connections (OpenClawClient maintains connection)
+- Persistent state in encrypted vaults (local or UHRP)
+- In-memory caching for certificates and conversation context
 
 ## Key Abstractions
 
 **BRC100Wallet Interface:**
-- Purpose: Unified interface for all cryptographic operations
-- Examples: `AgentWallet` wrapping @bsv/wallet-toolbox (`src/wallet/agent-wallet.ts`)
-- Pattern: Interface with full crypto suite (encrypt, decrypt, sign, verify, HMAC)
+- Purpose: Standardized wallet operations across implementations
+- Examples: `src/wallet/agent-wallet.ts`, `src/wallet/mpc-agent-wallet.ts`
+- Pattern: Interface implementation with local or distributed backing
+- Methods: getPublicKey, encrypt/decrypt, createSignature, createAction, certificate management
 
-**Storage Manager:**
-- Purpose: UHRP protocol integration for cloud storage
-- Examples: `AGIdentityStorageManager` (`src/uhrp/storage-manager.ts`)
-- Pattern: Upload/download with encryption and blockchain timestamps
+**Vault Abstraction:**
+- Purpose: Pluggable storage backends with encryption
+- Examples: `src/vault/local-encrypted-vault.ts`, `src/shad/encrypted-vault.ts`
+- Pattern: Common interface for encrypt, decrypt, read, write, search, list
 
-**Encrypted Vault:**
-- Purpose: Document management with encryption
-- Examples: `LocalEncryptedVault` (fast cache), `EncryptedShadVault` (UHRP-backed)
-- Pattern: Per-document encryption with BRC-42 derived keys
+**Service Composition Pattern:**
+- Purpose: Single entry point for all AGIdentity functionality
+- Example: `AGIdentityService` in `src/service/agidentity-service.ts`
+- Pattern: Facade composing wallet, storage, vault, encryption, identity gate, server, messaging
 
-**Identity Gate:**
-- Purpose: Central access control and verification
-- Examples: `IdentityGate`, `CertificateAuthority`, `CertificateVerifier` (`src/identity/`)
-- Pattern: Certificate-based with blockchain revocation
+**Message Gateway Pattern:**
+- Purpose: Route and process messages with identity verification
+- Example: `MessageBoxGateway` → `VerifiedMessage` → `MessageResponse`
+- Pattern: Pipeline with identity gating and encryption
 
-**Session Encryption:**
-- Purpose: Perfect Forward Secrecy per interaction
-- Examples: `SessionEncryption`, `PerInteractionEncryption` (`src/encryption/per-interaction.ts`)
-- Pattern: Unique keyId per message (Edwin-style security)
+**Encryption Strategy Pattern:**
+- Purpose: Multiple encryption approaches for different use cases
+- Examples: `PerInteractionEncryption` (PFS), `SessionEncryption`, `LocalEncryptedVault` (at-rest)
+- Pattern: Strategy pattern for swappable encryption methods
 
 ## Entry Points
 
-**Library Entry:**
+**Main Module Export (`src/index.ts`):**
 - Location: `src/index.ts`
-- Triggers: `import { createAGIdentity } from 'agidentity'`
-- Responsibilities: Export all public APIs, factory functions
+- Triggers: Import by external code
+- Responsibilities: Export `createAGIdentity(config)` factory, individual component exports, plugin export
 
-**Plugin Entry:**
-- Location: `src/plugin/agidentity-plugin.ts`
-- Triggers: OpenClaw gateway plugin registration
-- Responsibilities: Tool registration, context management
+**Gateway/Server Entry (`src/start.ts`):**
+- Location: `src/start.ts`
+- Triggers: `npm run gateway` or `npm run start`
+- Responsibilities: Initialize wallet (MPC or local), start MessageBox gateway, start HTTP server, handle graceful shutdown
 
-**Service Entry:**
-- Location: `src/service/agidentity-service.ts`
-- Triggers: `createAGIdentityService()` factory
-- Responsibilities: Initialize all components, return unified service
+**CLI Entry (`src/cli/index.ts`):**
+- Location: `src/cli/index.ts` (executable: `bin/agid` in package.json)
+- Triggers: User runs `agid <command>`
+- Responsibilities: Parse CLI arguments, execute commands (info, chat), display results
 
-**Server Entry:**
+**HTTP API Entry (`src/server/auth-server.ts`):**
 - Location: `src/server/auth-server.ts`
-- Triggers: `createAGIDServer()` factory
-- Responsibilities: Express app with BRC-103/104 authentication
-
-**Client Entry:**
-- Location: `src/client/agidentity-client.ts`
-- Triggers: `createAGIDClient()` factory
-- Responsibilities: Authenticated HTTP requests to AGIdentity servers
+- Triggers: HTTP requests on port 3000 (configurable)
+- Responsibilities: BRC-103/104 authentication, vault operations, certificate management
 
 ## Error Handling
 
-**Strategy:** Throw exceptions, catch at boundaries, log with context
+**Strategy:** Throw exceptions, catch at boundaries, log and respond appropriately
 
 **Patterns:**
 - Services throw Error with descriptive messages
-- HTTP endpoints catch, return structured error responses
-- Validation errors fail fast before operations
-- Audit trail records operation failures
+- HTTP handlers catch at route level, return appropriate status codes
+- WebSocket clients handle connection errors with reconnection logic
+- Validation errors fail fast with clear error messages
 
 ## Cross-Cutting Concerns
 
 **Logging:**
-- Console.log/console.error for output
-- Configurable via AGID_SERVER_LOG_LEVEL
-- Context included where relevant
+- Console.log for normal output
+- Console.error/warn for errors and warnings
+- No structured logging framework (identified in CONCERNS.md)
 
 **Validation:**
-- Zod schemas available (underutilized)
-- Manual validation in handlers
-- Certificate verification via IdentityGate
+- Zod schemas for configuration validation (`src/config/index.ts`)
+- Runtime type checking at API boundaries
+- Certificate verification before processing
 
 **Authentication:**
-- BRC-103/104 mutual auth on all HTTP endpoints
-- Certificate verification optional but recommended
-- Session tracking with timing anomaly detection
+- BRC-103/104 mutual authentication middleware
+- JWT session tracking (`src/auth/`)
+- Certificate-based identity verification
 
 **Encryption:**
-- Per-document: BRC-42 key derivation
-- Per-interaction: Unique keyId (PFS)
-- Team: CurvePoint group encryption
+- Per-interaction encryption with Perfect Forward Secrecy
+- BRC-42 key derivation for counterparty encryption
+- AES-256-GCM for at-rest encryption
 
 ---
 
-*Architecture analysis: 2026-02-14*
+*Architecture analysis: 2026-02-15*
 *Update when major patterns change*

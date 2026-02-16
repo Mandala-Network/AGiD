@@ -1,186 +1,212 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-02-14
+**Analysis Date:** 2026-02-15
 
 ## Naming Patterns
 
 **Files:**
-- kebab-case for all files: `agent-wallet.ts`, `session-manager.ts`, `per-interaction.ts`
-- *.test.ts for test files in `__tests__/`
+- kebab-case for all TypeScript files (openclaw-client.ts, agent-wallet.ts, memory-writer.ts)
+- *.test.ts for test files alongside source
 - index.ts for barrel exports
 
 **Functions:**
-- camelCase for all functions: `createSession()`, `verifySignature()`, `uploadDocument()`
-- Factory functions: `create*()` prefix: `createAGIdentity()`, `createAgentWallet()`
-- Handlers: `handle*` prefix where applicable
+- camelCase for all functions
+- Factory functions: create* prefix (createAgentWallet, createOpenClawClient, createAGIdentity)
+- Getters: get* prefix (getPublicKey, getConfig, getSessionId)
+- Checkers: is* prefix (isConnected, isAuthenticated)
+- No special prefix for async functions
 
 **Variables:**
-- camelCase for variables: `sessionId`, `userPublicKey`, `vaultIndex`
-- UPPER_SNAKE_CASE for constants: Not commonly used (prefer const objects)
-- No underscore prefix for private members (use `private` keyword)
+- camelCase for variables
+- UPPER_SNAKE_CASE for constants (limited use - mostly interface defaults)
+- Private members: marked with `private` keyword (not underscore prefix)
 
 **Types:**
-- PascalCase for interfaces: `BRC100Wallet`, `SessionManagerConfig`, `VaultIndex`
-- PascalCase for type aliases: `TeamRole`, `SecurityLevel`, `ShadStrategy`
-- No I prefix for interfaces: `BRC100Wallet` not `IBRC100Wallet`
-- Suffix patterns: `*Config`, `*Result`, `*Entry`, `*Options`
+- PascalCase for interfaces and type aliases (no I prefix)
+- Interface names: descriptive without prefix (BRC100Wallet, not IBrc100Wallet)
+- Config types: *Config suffix (OpenClawClientConfig, AGIdentityEnvConfig)
+- Method parameter types: *Args suffix (GetPublicKeyArgs)
+- Method result types: *Result suffix (GetPublicKeyResult)
+- Type aliases: PascalCase (same as interfaces)
+
+**Classes:**
+- PascalCase for all class names
+- Descriptive names without abbreviations where possible
+- Examples: OpenClawClient, AgentWallet, MPCAgentWallet, EncryptedShadVault
 
 ## Code Style
 
 **Formatting:**
-- Prettier 3.4.0 with default config
-- 2 space indentation
-- Single quotes for strings
-- Semicolons required
-- ~100 character line length
+- Tool: Prettier 3.4.0 (npm run format)
+- Indentation: 2 spaces
+- Line length: ~100-120 characters
+- Quotes: Single quotes for strings
+- Semicolons: Omitted (modern ES module style)
+- Trailing commas: ES5-compatible
 
 **Linting:**
-- ESLint 9.0.0
-- TypeScript strict mode enabled
-- Run: `npm run lint`
+- Tool: ESLint 9.0.0 (npm run lint)
+- Runs on: src/ directory
+- Configuration: Inline or flat config (no .eslintrc found)
 
 **TypeScript:**
-- Strict mode with `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`
-- ES2022 target, NodeNext module system
-- Declaration maps enabled for debugging
+- Strict mode enabled (`tsconfig.json`)
+- Target: ES2022
+- Module: NodeNext (ES modules)
+- All strict flags enabled: noUnusedLocals, noUnusedParameters, noImplicitReturns, noFallthroughCasesInSwitch
 
 ## Import Organization
 
 **Order:**
-1. External packages (vitest, express, @bsv/*)
-2. Internal modules (relative imports)
-3. Type imports (import type {})
+1. External packages (ws, express, commander, etc.)
+2. Internal modules from @bsv/* packages
+3. Relative imports (., ..)
+4. Type imports (import type {...})
 
 **Grouping:**
-- No explicit blank lines between groups (Prettier handles)
-- ESM imports with .js extensions for compiled output
+- Blank lines between import groups
+- No specific alphabetical sorting enforced
+- Type imports separated when possible
 
 **Path Aliases:**
-- None configured (relative imports used)
+- No path aliases configured
+- All imports use relative paths (./file.js) or package names
+
+**Module Extensions:**
+- .js extensions in import statements (TypeScript ES module requirement)
+- Example: `import { OpenClawClient } from './index.js'`
 
 ## Error Handling
 
 **Patterns:**
-- Throw errors, catch at boundaries (HTTP handlers, main functions)
-- Descriptive error messages with context
+- Throw errors with descriptive messages
+- Catch at boundaries (route handlers, main functions, entry points)
 - Async functions use try/catch, no .catch() chains
+- Error messages include context
 
 **Error Types:**
-- Standard Error class (no custom error classes observed)
-- Include operation context in message
-- Log before throwing where appropriate
+- Standard Error class for most cases
+- Descriptive error messages
+- Error cause chaining where appropriate: `new Error('Failed to X', { cause: originalError })`
+
+**Logging:**
+- Log errors with console.error before throwing (in some cases)
+- No structured error handling framework
+
+**Issue Identified:** Inconsistent error handling - some code uses `String(error)` which loses error details (see CONCERNS.md)
 
 ## Logging
 
 **Framework:**
-- Console.log/console.error (no structured logging library)
-- Configurable via AGID_SERVER_LOG_LEVEL
+- Console.log/warn/error throughout codebase
+- No structured logging library
 
 **Patterns:**
-- Log at service boundaries
-- Include context: `logger.info(\`Agent identity: ${publicKey.slice(0, 16)}...\`)`
-- No console.log in production-critical paths (use configurable logging)
+- console.log for informational messages
+- console.error for errors
+- console.warn for warnings
+- Logging at service boundaries and important state transitions
+
+**Locations:**
+- `src/start.ts` - Startup logging
+- `src/gateway/agidentity-openclaw-gateway.ts` - Error and warning logging
+- `src/vault/local-encrypted-vault.ts` - Debug logging
+
+**Issue Identified:** No log levels, no way to suppress in production (see CONCERNS.md)
 
 ## Comments
 
 **When to Comment:**
+- JSDoc blocks for public APIs (classes, exported functions)
 - Explain why, not what
-- Document business logic, security implications
-- Algorithm explanations for complex operations
+- Document complex business logic
+- Note security considerations
+- Mark section dividers in large files
 
 **JSDoc/TSDoc:**
-- Required for all public APIs and factory functions
-- Use @param, @returns, @example tags
-- Module-level comments with purpose description
+- Required for public API classes and methods
+- Includes @example blocks for complex APIs
+- @param and @returns tags for method signatures
+- Module-level documentation at top of files
 
-**Section Separators:**
+**Example:**
 ```typescript
-// =========================================================================
-// Private Helper Methods
-// =========================================================================
+/**
+ * OpenClaw Gateway WebSocket Client
+ *
+ * Provides secure communication with OpenClaw Gateway...
+ *
+ * @example
+ * ```typescript
+ * const client = await createOpenClawClient({...});
+ * ```
+ */
+```
+
+**Section Dividers:**
+```typescript
+// ==========================================================================
+// Private Methods
+// ==========================================================================
 ```
 
 **TODO Comments:**
 - Format: `// TODO: description`
-- Not linked to issues (no consistent pattern)
+- Example in `src/index.ts`: Future Memory Server exports documented
 
 ## Function Design
 
 **Size:**
-- Keep functions focused (no explicit line limit)
+- Keep functions focused and reasonable length
+- Large files identified in CONCERNS.md (>600 lines)
 - Extract helpers for complex logic
 
 **Parameters:**
-- Use config objects for 3+ parameters: `function create(config: CreateConfig)`
-- Destructure in implementation where helpful
+- Config objects preferred for multiple parameters
+- Destructuring in parameter list common
+- Type safety via TypeScript interfaces
 
 **Return Values:**
 - Explicit return statements
 - Return early for guard clauses
-- Async functions return Promise<T>
+- Async functions return Promises
+- Use typed return values
 
 ## Module Design
 
 **Exports:**
 - Named exports preferred
-- Barrel exports via index.ts
-- Main entry re-exports all public APIs
+- Default exports rare (mainly for main module entry)
+- Public API exported from index.ts barrel files
+- Factory functions for complex object creation
 
 **Barrel Files:**
-- index.ts in each module directory
-- Export public API only
-- `export * from './component.js'` pattern
+- index.ts re-exports public API for each module
+- Keeps internal helpers private
+- Examples: `src/wallet/index.ts`, `src/openclaw/index.ts`
 
-**Example:**
-```typescript
-// src/auth/index.ts
-export { SessionManager } from './session-manager.js';
-export type { SessionManagerConfig, AuthSession } from './session-manager.js';
-```
+**Module Boundaries:**
+- Vertical slice per feature (wallet, vault, identity)
+- Clear separation of concerns
+- Shared types in `src/types/`
+- Cross-cutting concerns (config, encryption) as separate modules
 
-## Async/Await
+## Type Safety
 
-**Patterns:**
-- All async operations use async/await
-- No raw Promise chains (.then/.catch)
-- Proper error handling with try/catch
+**TypeScript Usage:**
+- Strict mode enabled
+- Explicit types for function parameters and returns
+- Interface definitions for all public APIs
+- Type inference used for obvious cases
 
-## Configuration
+**Issue Identified:** 26+ instances of `as any` and `as unknown` type assertions bypass type safety (see CONCERNS.md for details)
 
-**Pattern:**
-- Config interfaces per module: `SessionManagerConfig`, `VaultConfig`
-- Factory functions accept config with sensible defaults
-- Nullish coalescing for defaults: `config.timeout ?? 30000`
-
-## Class Structure
-
-**Private State:**
-- Use `private` keyword for encapsulation
-- Map-based storage for collections
-- Cleanup in lifecycle methods (stop(), destroy())
-
-**Organization:**
-```typescript
-class MyClass {
-  // Private fields
-  private config: Config;
-  private state: Map<string, Value>;
-
-  // Constructor
-  constructor(config: Config) { ... }
-
-  // Public methods
-  async publicMethod(): Promise<Result> { ... }
-
-  // =========================================================================
-  // Private Helper Methods
-  // =========================================================================
-
-  private helperMethod(): void { ... }
-}
-```
+**Recommendations:**
+- Avoid type assertions where possible
+- Use proper type definitions instead of `any`
+- Document reasons for necessary type assertions
 
 ---
 
-*Convention analysis: 2026-02-14*
+*Convention analysis: 2026-02-15*
 *Update when patterns change*
