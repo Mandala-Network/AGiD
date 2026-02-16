@@ -303,6 +303,16 @@ export class MPCAgentWallet implements BRC100Wallet {
     }
   }
 
+  /**
+   * Get the underlying MPC wallet instance
+   *
+   * For compatibility with messaging and other services that expect
+   * access to the underlying wallet implementation.
+   */
+  getUnderlyingWallet(): IMPCWallet | null {
+    return this.mpcWallet
+  }
+
   // ============================================================================
   // BRC-100 Interface Implementation
   // ============================================================================

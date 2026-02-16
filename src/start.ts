@@ -22,7 +22,10 @@ import 'dotenv/config';
 import { createAGIdentityGateway } from './gateway/index.js';
 import { createAgentWallet } from './wallet/agent-wallet.js';
 import { createProductionMPCWallet, loadMPCConfigFromEnv } from './wallet/mpc-integration.js';
+import { createAGIDServer } from './server/auth-server.js';
+import { IdentityGate } from './identity/identity-gate.js';
 import type { AgentWallet } from './wallet/agent-wallet.js';
+import type { AGIDServer } from './server/auth-server.js';
 
 async function main() {
   console.log('');
@@ -98,23 +101,64 @@ async function main() {
     console.warn('');
   }
 
-  // Create gateway
-  console.log('Starting gateway...');
-  const gateway = await createAGIdentityGateway({
+  // Create gateway (optional - for MessageBox)
+  console.log('Starting MessageBox gateway...');
+  let gateway = null;
+  try {
+    gateway = await createAGIdentityGateway({
+      wallet,
+      trustedCertifiers,
+      openclawUrl: process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789',
+      openclawToken: process.env.OPENCLAW_GATEWAY_TOKEN,
+      signResponses: true,
+      audit: { enabled: true },
+    });
+    console.log('✅ MessageBox gateway initialized');
+  } catch (error) {
+    console.warn('⚠️  MessageBox gateway failed to start:', error instanceof Error ? error.message : error);
+    console.warn('   Continuing without MessageBox (HTTP API will still work)');
+  }
+
+  // Start HTTP API server for AI tools
+  console.log('Starting HTTP API server for AI tools...');
+  const identityGate = new IdentityGate({
     wallet,
     trustedCertifiers,
-    openclawUrl: process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789',
-    openclawToken: process.env.OPENCLAW_GATEWAY_TOKEN,
-    signResponses: true,
-    audit: { enabled: true },
   });
+
+  let httpServer: AGIDServer | null = null;
+  try {
+    httpServer = await createAGIDServer({
+      wallet,
+      identityGate,
+      port: parseInt(process.env.AUTH_SERVER_PORT || '3000'),
+      trustedCertifiers,
+      allowUnauthenticated: true, // Allow OpenClaw plugin without BRC-103
+      enableLogging: true,
+      logLevel: 'info',
+    });
+
+    await httpServer.start();
+    console.log('✅ HTTP API server running on http://localhost:' + (process.env.AUTH_SERVER_PORT || '3000'));
+  } catch (error) {
+    console.warn('⚠️  HTTP API server failed to start:', error);
+    console.warn('   AI tools will not be available.');
+  }
 
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
   console.log('Gateway running!');
   console.log('');
-  console.log('Listening for encrypted messages on MessageBox.');
-  console.log('All responses are signed with the agent wallet.');
+  if (gateway) {
+    console.log('✅ MessageBox: Listening for encrypted messages');
+  } else {
+    console.log('❌ MessageBox: Not running (insufficient funds)');
+  }
+  if (httpServer) {
+    console.log('✅ HTTP API: AI tools available on port ' + (process.env.AUTH_SERVER_PORT || '3000'));
+  } else {
+    console.log('❌ HTTP API: Not running');
+  }
   console.log('');
   console.log('Press Ctrl+C to stop.');
   console.log('═══════════════════════════════════════════════════════════');
@@ -124,7 +168,12 @@ async function main() {
   const shutdown = async () => {
     console.log('');
     console.log('Shutting down...');
-    await gateway.shutdown();
+    if (httpServer) {
+      await httpServer.stop();
+    }
+    if (gateway) {
+      await gateway.shutdown();
+    }
     console.log('Goodbye!');
     process.exit(0);
   };

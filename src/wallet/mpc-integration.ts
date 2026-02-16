@@ -8,9 +8,11 @@
  * @see .planning/phases/3.1-mpc-production-integration/3.1-RESEARCH.md for architecture
  */
 
-import { Knex, knex as createKnex } from 'knex'
-import { StorageKnex } from '@bsv/wallet-toolbox'
-import type { Chain } from '@bsv/wallet-toolbox'
+import jwt from 'jsonwebtoken'
+import knexLib from 'knex'
+import type { Knex } from 'knex'
+
+const createKnex = knexLib
 
 // Import MPC modules from wallet-toolbox-mpc
 import {
@@ -25,9 +27,13 @@ import type {
   MPCParty,
   MPCKeyId,
 } from '@bsv/wallet-toolbox-mpc/out/src/mpc/types.js'
+import type { Chain } from '@bsv/wallet-toolbox-mpc/out/src/sdk/types.js'
 import { decryptShare } from '@bsv/wallet-toolbox-mpc/out/src/mpc/utils/shareEncryption.js'
 import { DerivationEncryption } from '@bsv/wallet-toolbox-mpc/out/src/mpc/encryption/DerivationEncryption.js'
 import { KnexMigrations } from '@bsv/wallet-toolbox-mpc/out/src/storage/schema/KnexMigrations.js'
+import { WalletStorageManager } from '@bsv/wallet-toolbox-mpc/out/src/storage/WalletStorageManager.js'
+import { StorageKnex } from '@bsv/wallet-toolbox-mpc/out/src/storage/StorageKnex.js'
+import { MPCAgentWallet } from './mpc-agent-wallet.js'
 
 // Re-export for consumer convenience
 export type { DKGProgressInfo }
@@ -58,8 +64,10 @@ export interface ProductionMPCConfig {
  * Result of creating a production MPC wallet
  */
 export interface ProductionMPCWalletResult {
-  /** The initialized MPCWallet */
-  wallet: MPCWallet
+  /** The initialized MPCWallet wrapped in MPCAgentWallet */
+  wallet: any // MPCAgentWallet (using any to avoid circular dependency)
+  /** The raw MPCWallet instance */
+  rawWallet: MPCWallet
   /** True if a new wallet was created via DKG, false if restored from existing share */
   isNewWallet: boolean
   /** The collective public key (identity key) of the wallet */
@@ -123,17 +131,15 @@ export function loadMPCConfigFromEnv(): ProductionMPCConfig {
  * @param partyId - The party ID (default: '1' for user)
  * @returns Base64-encoded JWT-like token
  */
-function generateAuthToken(_jwtSecret: string, walletId: string, partyId: string = '1'): string {
-  // Create a simple token structure
-  // TODO: In production, use proper JWT signing with jwtSecret via jsonwebtoken library
+function generateAuthToken(jwtSecret: string, walletId: string, partyId: string = '1'): string {
+  // Create properly signed JWT for cosigner authentication
   const payload = {
     clientId: `wallet-${walletId}`,
     partyId,
     userId: walletId,
-    exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour expiry
-    iat: Math.floor(Date.now() / 1000),
   }
-  return Buffer.from(JSON.stringify(payload)).toString('base64')
+  // Sign with jsonwebtoken library (expires in 1 hour)
+  return jwt.sign(payload, jwtSecret, { expiresIn: '1h' })
 }
 
 /**
@@ -345,28 +351,40 @@ async function restoreExistingWallet(
     feeModel: { model: 'sat/kb', value: 100 },
   })
 
-  // Authenticate storage with collective public key
   await storageKnex.makeAvailable()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(storageKnex as any)._authId = {
-    identityKey: storedShare.collectivePublicKey,
-  }
+
+  // Wrap in WalletStorageManager with collective public key as identity
+  const storageManager = new WalletStorageManager(storedShare.collectivePublicKey, storageKnex)
+  await storageManager.makeAvailable()
 
   // ============================================================================
   // 6. Create and return MPCWallet
   // ============================================================================
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const wallet = new MPCWallet({
+  const rawWallet = new MPCWallet({
     chain,
     keyDeriver,
-    storage: storageKnex as any,
+    storage: storageManager,
     mpcClient,
     persistence,
   })
 
+  // Wrap in MPCAgentWallet for compatibility
+  const agentWallet = new MPCAgentWallet({
+    walletId: config.walletId,
+    cosignerEndpoints: config.cosignerEndpoints,
+    shareSecret: config.shareSecret,
+    jwtSecret: config.jwtSecret,
+    network: config.network,
+    storagePath: config.storagePath,
+    mpcWallet: rawWallet as any,
+  })
+  await agentWallet.initialize()
+
   return {
-    wallet,
+    wallet: agentWallet,
+    rawWallet,
     isNewWallet: false,
     collectivePublicKey: storedShare.collectivePublicKey,
   }
@@ -408,7 +426,7 @@ async function createNewWallet(
   const mpcClient = new MPCClient(mpcConfig)
 
   // ============================================================================
-  // 2. Create storage manager
+  // 2. Create storage manager with WalletStorageManager
   // ============================================================================
 
   const storageKnex = new StorageKnex({
@@ -420,19 +438,24 @@ async function createNewWallet(
 
   await storageKnex.makeAvailable()
 
+  // Create WalletStorageManager wrapping StorageKnex
+  // Use walletId as temporary identityKey (will be updated after DKG)
+  const storageManager = new WalletStorageManager(config.walletId, storageKnex)
+  await storageManager.makeAvailable()
+
   // ============================================================================
   // 3. Create wallet via DKG
   // ============================================================================
 
   // MPCWallet.create() handles the full DKG protocol
-  const wallet = await MPCWallet.create({
+  const rawWallet = await MPCWallet.create({
     userId: 1, // User ID for persistence
     walletId: config.walletId,
     cosigners: config.cosignerEndpoints.map((endpoint, i) => ({
       id: `cosigner${i + 1}`,
       endpoint,
     })),
-    storage: storageKnex as unknown as Parameters<typeof MPCWallet.create>[0]['storage'],
+    storage: storageManager,
     mpcClient,
     authToken: generateAuthToken(config.jwtSecret, config.walletId),
     userPassword: config.shareSecret,
@@ -442,10 +465,29 @@ async function createNewWallet(
   })
 
   // Get collective public key from the created wallet
-  const collectivePublicKey = wallet.identityKey
+  const collectivePublicKey = rawWallet.identityKey
+
+  // Update storage manager with actual collective public key
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(storageManager as any)._authId = {
+    identityKey: collectivePublicKey,
+  }
+
+  // Wrap in MPCAgentWallet for compatibility
+  const agentWallet = new MPCAgentWallet({
+    walletId: config.walletId,
+    cosignerEndpoints: config.cosignerEndpoints,
+    shareSecret: config.shareSecret,
+    jwtSecret: config.jwtSecret,
+    network: config.network,
+    storagePath: config.storagePath,
+    mpcWallet: rawWallet as any,
+  })
+  await agentWallet.initialize()
 
   return {
-    wallet,
+    wallet: agentWallet,
+    rawWallet,
     isNewWallet: true,
     collectivePublicKey,
   }

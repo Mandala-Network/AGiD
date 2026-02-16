@@ -7,6 +7,7 @@
 
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
+import type { AgentWallet } from '../wallet/agent-wallet.js';
 import type {
   OpenClawRequest,
   OpenClawResponse,
@@ -17,13 +18,14 @@ import type {
   ChatMessageEvent,
   ConnectParams,
   HelloOkEvent,
-  ConnectChallengeEvent,
 } from '../types/index.js';
 
 /**
  * Configuration for OpenClawClient
  */
 export interface OpenClawClientConfig extends OpenClawGatewayConfig {
+  /** Agent wallet for device identity (optional - uses wallet key as device key) */
+  wallet?: AgentWallet;
   /** Timeout for requests in ms (default: 30000) */
   requestTimeout?: number;
 }
@@ -77,6 +79,7 @@ interface ResolvedOpenClawClientConfig {
  */
 export class OpenClawClient extends EventEmitter {
   private config: ResolvedOpenClawClientConfig;
+  private wallet: AgentWallet | null = null;
   private ws: WebSocket | null = null;
   private connected = false;
   private connecting = false;
@@ -90,6 +93,9 @@ export class OpenClawClient extends EventEmitter {
 
   constructor(config: OpenClawClientConfig = {}) {
     super();
+
+    // Store wallet for device identity
+    this.wallet = config.wallet ?? null;
 
     // Apply defaults with environment variable support
     const defaultReconnect = {
@@ -150,8 +156,13 @@ export class OpenClawClient extends EventEmitter {
           }
         }, this.config.requestTimeout);
 
-        this.ws.on('open', () => {
-          // Wait for challenge event
+        this.ws.on('open', async () => {
+          // Send connect request immediately (OpenClaw v3 protocol)
+          try {
+            await this.sendConnectRequest();
+          } catch (err) {
+            this.emit('error', new Error(`Failed to send connect request: ${err}`));
+          }
         });
 
         this.ws.on('message', async (data: WebSocket.Data) => {
@@ -333,10 +344,9 @@ export class OpenClawClient extends EventEmitter {
   ): Promise<void> {
     switch (event.event) {
       case 'connect.challenge': {
-        // Respond to challenge with connect request
-        const challengeEvent = event as unknown as ConnectChallengeEvent;
-        const nonce = challengeEvent.payload.nonce;
-        await this.sendConnectRequest(nonce);
+        // Legacy protocol - OpenClaw v3 doesn't use challenge-response
+        // Keeping for backwards compatibility
+        await this.sendConnectRequest();
         break;
       }
 
@@ -407,31 +417,68 @@ export class OpenClawClient extends EventEmitter {
     }
   }
 
-  private async sendConnectRequest(nonce: string): Promise<void> {
+  private async sendConnectRequest(): Promise<void> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not open');
     }
 
+    const signedAt = Date.now();
+    const instanceId = `agidentity-${signedAt}`;
+
     const connectParams: ConnectParams = {
+      minProtocol: 3,
+      maxProtocol: 3,
+      client: {
+        id: 'cli',
+        version: '0.1.0',
+        platform: process.platform,
+        mode: 'cli',
+        instanceId,
+      },
       auth: {
         token: this.config.authToken || undefined,
       },
-      deviceId: `agidentity-${Date.now()}`,
-      role: 'operator',
-      caps: ['chat'],
+      caps: [],
     };
 
-    // For challenge-response, we include nonce in params
-    const params = {
-      ...connectParams,
-      nonce,
-    };
+    // If wallet is available, use it for device identity
+    if (this.wallet) {
+      try {
+        // Get wallet's identity public key
+        const { publicKey } = await this.wallet.getPublicKey({ identityKey: true });
+
+        // Create message to sign: deviceId + timestamp
+        const messageToSign = `${instanceId}:${signedAt}`;
+
+        // Sign with wallet (data must be number[] or Uint8Array)
+        const messageBytes = Array.from(Buffer.from(messageToSign, 'utf8'));
+        const signatureResult = await this.wallet.createSignature({
+          data: messageBytes,
+          protocolID: [2, 'openclaw device identity'],
+          keyID: '1',
+        });
+
+        // Convert signature from number[] to hex string
+        const signatureHex = Buffer.from(signatureResult.signature).toString('hex');
+
+        // Add device identity to connect params
+        connectParams.device = {
+          id: instanceId,
+          publicKey,
+          signature: signatureHex,
+          signedAt,
+        };
+      } catch (err) {
+        // Log warning but continue - OpenClaw might allow connection without device
+        console.warn('[OpenClaw] Failed to create device signature:', err);
+      }
+    }
 
     const request: OpenClawRequest = {
       type: 'req',
       id: this.generateRequestId(),
       method: 'connect',
-      params: params as unknown as Record<string, unknown>,
+      params: connectParams as unknown as Record<string, unknown>,
     };
 
     this.ws.send(JSON.stringify(request));

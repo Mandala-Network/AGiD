@@ -128,6 +128,12 @@ export interface CreateActionArgs {
   labels?: string[];
   lockTime?: number;
   version?: number;
+  options?: {
+    acceptDelayedBroadcast?: boolean;
+    trustSelf?: 'known';
+    randomizeOutputs?: boolean;
+    [key: string]: unknown;
+  };
 }
 
 export interface TransactionOutput {

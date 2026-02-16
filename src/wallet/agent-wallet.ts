@@ -248,6 +248,7 @@ export class AgentWallet implements BRC100Wallet {
       labels: args.labels,
       lockTime: args.lockTime,
       version: args.version,
+      options: args.options,
     });
 
     let rawTx: number[] | undefined;

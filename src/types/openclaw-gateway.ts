@@ -34,13 +34,32 @@ export type OpenClawMessage = OpenClawRequest | OpenClawResponse | OpenClawEvent
 
 // Connection handshake types
 export interface ConnectParams {
+  minProtocol: number;
+  maxProtocol: number;
+  client: {
+    id: 'gateway-client' | 'cli' | 'test' | string;
+    displayName?: string;
+    version: string;
+    platform: string;
+    deviceFamily?: string;
+    modelIdentifier?: string;
+    mode: 'cli' | 'node' | 'test' | 'webchat' | 'ui' | 'backend' | 'probe';
+    instanceId?: string;
+  };
   auth?: {
     token?: string;
     password?: string;
   };
-  deviceId?: string;
-  role?: 'operator' | 'node';
+  device?: {
+    id: string;
+    publicKey: string;
+    signature: string;
+    signedAt: number;
+    nonce?: string;
+  };
+  role?: string;
   caps?: string[];
+  scopes?: string[];
 }
 
 export interface ConnectChallengeEvent {

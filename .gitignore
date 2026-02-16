@@ -34,3 +34,17 @@ npm-debug.log*
 /tmp/
 vault-cache/
 MPC-DEV/
+
+# Backup files
+*.bak
+*.bak2
+*.bak3
+
+# Runtime data
+data/
+logs/
+website/
+
+# SQLite databases
+*.sqlite
+*.sqlite-*

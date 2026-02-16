@@ -15,9 +15,7 @@ export interface AGIdentityEnvConfig {
   walletPath: string;
 
   // UHRP Storage
-  uhrpStorageUrl?: string;
-  uhrpMainnetResolver: string;
-  uhrpTestnetResolver: string;
+  uhrpStorageUrl: string;
 
   // Obsidian Vault (Local Encrypted)
   obsidianVaultPath?: string;
@@ -92,10 +90,8 @@ export function loadConfig(): AGIdentityEnvConfig {
     network: (env.AGID_NETWORK === 'testnet' ? 'testnet' : 'mainnet'),
     walletPath: env.AGENT_WALLET_PATH ?? './agent-wallet.sqlite',
 
-    // UHRP Storage
-    uhrpStorageUrl: env.UHRP_STORAGE_URL,
-    uhrpMainnetResolver: env.UHRP_MAINNET_RESOLVER ?? 'https://uhrp.network/resolve',
-    uhrpTestnetResolver: env.UHRP_TESTNET_RESOLVER ?? 'https://testnet.uhrp.network/resolve',
+    // UHRP Storage (upload endpoint - downloads use overlay lookup resolver automatically)
+    uhrpStorageUrl: env.UHRP_STORAGE_URL ?? 'https://go-uhrp.b1nary.cloud',
 
     // Obsidian Vault (Local Encrypted)
     obsidianVaultPath: env.OBSIDIAN_VAULT_PATH,
@@ -157,11 +153,13 @@ export function resetConfig(): void {
 }
 
 /**
- * Get UHRP resolver URL based on network
+ * Get UHRP storage URL (same for uploads and downloads - overlay handles resolution)
+ * @deprecated Use getConfig().uhrpStorageUrl directly
  */
-export function getUhrpResolver(network: 'mainnet' | 'testnet'): string {
+export function getUhrpResolver(_network: 'mainnet' | 'testnet'): string {
   const config = getConfig();
-  return network === 'testnet' ? config.uhrpTestnetResolver : config.uhrpMainnetResolver;
+  // UHRP storage URL handles both uploads and lookups via overlay network
+  return config.uhrpStorageUrl;
 }
 
 /**

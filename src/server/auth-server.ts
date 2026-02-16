@@ -20,8 +20,8 @@ import { getConfig } from '../config/index.js';
 export interface AGIDServerConfig {
   wallet: AgentWallet;
   identityGate: IdentityGate;
-  vault: EncryptedShadVault;
-  teamVault: TeamVault;
+  vault?: EncryptedShadVault;
+  teamVault?: TeamVault;
   memoryServer?: AGIdentityMemoryServer;
   port?: number;
   trustedCertifiers: string[];
@@ -185,6 +185,11 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
       return;
     }
 
+    if (!config.vault) {
+      res.status(503).json({ error: 'Vault not configured' });
+      return;
+    }
+
     const session = activeSessions.get(clientKey);
     if (!session) {
       res.status(403).json({ error: 'Session not registered. Call /identity/register first.' });
@@ -193,7 +198,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
 
     try {
       const vaultId = `vault-${clientKey.slice(0, 16)}-${Date.now().toString(36)}`;
-      await config.vault.initializeVault(clientKey, vaultId);
+      await config.vault!.initializeVault(clientKey, vaultId);
 
       session.vaultInitialized = true;
       session.vaultId = vaultId;
@@ -212,6 +217,11 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
       return;
     }
 
+    if (!config.vault) {
+      res.status(503).json({ error: 'Vault not configured' });
+      return;
+    }
+
     const session = activeSessions.get(clientKey);
     if (!session?.vaultInitialized) {
       res.status(403).json({ error: 'Vault not initialized' });
@@ -225,7 +235,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const entry = await config.vault.uploadDocument(clientKey, path, content);
+      const entry = await config.vault!.uploadDocument(clientKey, path, content);
       updateSession(clientKey);
       res.json({ success: true, path: entry.path, uhrpUrl: entry.uhrpUrl });
     } catch (error) {
@@ -233,10 +243,15 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
   });
 
-  app.get('/vault/read/:path(*)', async (req: AuthRequest, res: Response) => {
+  app.get('/vault/read/*', async (req: AuthRequest, res: Response) => {
     const clientKey = getClientKey(req);
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+
+    if (!config.vault) {
+      res.status(503).json({ error: 'Vault not configured' });
       return;
     }
 
@@ -247,7 +262,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const content = await config.vault.readDocument(clientKey, getParam(req.params.path));
+      const content = await config.vault!.readDocument(clientKey, getParam(req.params.path));
       updateSession(clientKey);
       if (content === null) {
         res.status(404).json({ error: 'Document not found' });
@@ -266,13 +281,18 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
       return;
     }
 
+    if (!config.vault) {
+      res.status(503).json({ error: 'Vault not configured' });
+      return;
+    }
+
     const session = activeSessions.get(clientKey);
     if (!session?.vaultInitialized) {
       res.status(403).json({ error: 'Vault not initialized' });
       return;
     }
 
-    const docs = config.vault.listDocuments();
+    const docs = config.vault!.listDocuments();
     updateSession(clientKey);
     res.json({ success: true, documents: docs });
   });
@@ -282,6 +302,11 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
       return;
+
+    if (!config.vault) {
+      res.status(503).json({ error: 'Vault not configured' });
+      return;
+    }
     }
 
     const session = activeSessions.get(clientKey);
@@ -297,7 +322,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const results = await config.vault.searchDocuments(clientKey, query, { limit: limit ?? 10 });
+      const results = await config.vault!.searchDocuments(clientKey, query, { limit: limit ?? 10 });
       updateSession(clientKey);
       res.json({ success: true, results });
     } catch (error) {
@@ -305,7 +330,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
   });
 
-  app.get('/vault/proof/:path(*)', async (req: AuthRequest, res: Response) => {
+  app.get('/vault/proof/*', async (req: AuthRequest, res: Response) => {
     const clientKey = getClientKey(req);
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
@@ -313,7 +338,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const proof = await config.vault.getVaultProof(getParam(req.params.path));
+      const proof = await config.vault!.getVaultProof(req.params[0] || req.path.replace('/vault/proof/', ''));
       updateSession(clientKey);
       res.json({ success: true, proof });
     } catch (error) {
@@ -330,6 +355,11 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
       return;
+
+    if (!config.teamVault) {
+      res.status(503).json({ error: 'Team vault not configured' });
+      return;
+    }
     }
 
     const { name, settings } = req.body;
@@ -339,7 +369,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const result = await config.teamVault.createTeam(name, clientKey, settings);
+      const result = await config.teamVault!.createTeam(name, clientKey, settings);
       updateSession(clientKey);
       res.json({
         success: true,
@@ -360,7 +390,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const team = await config.teamVault.getTeam(getParam(req.params.teamId));
+      const team = await config.teamVault!.getTeam(getParam(req.params.teamId));
       if (!team) {
         res.status(404).json({ error: 'Team not found' });
         return;
@@ -377,6 +407,11 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
       return;
+
+    if (!config.teamVault) {
+      res.status(503).json({ error: 'Team vault not configured' });
+      return;
+    }
     }
 
     const { memberPublicKey, role, metadata } = req.body;
@@ -386,7 +421,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const result = await config.teamVault.addMember(
+      const result = await config.teamVault!.addMember(
         getParam(req.params.teamId),
         memberPublicKey,
         role,
@@ -408,7 +443,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const result = await config.teamVault.removeMember(
+      const result = await config.teamVault!.removeMember(
         getParam(req.params.teamId),
         getParam(req.params.memberKey),
         clientKey
@@ -428,7 +463,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const result = await config.teamVault.checkAccess(getParam(req.params.teamId), clientKey);
+      const result = await config.teamVault!.checkAccess(getParam(req.params.teamId), clientKey);
       updateSession(clientKey);
       res.json(result);
     } catch (error) {
@@ -441,6 +476,11 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
       return;
+
+    if (!config.teamVault) {
+      res.status(503).json({ error: 'Team vault not configured' });
+      return;
+    }
     }
 
     const { path, content, metadata } = req.body;
@@ -450,7 +490,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const doc = await config.teamVault.storeDocument(
+      const doc = await config.teamVault!.storeDocument(
         getParam(req.params.teamId),
         path,
         content,
@@ -464,7 +504,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
   });
 
-  app.get('/team/:teamId/document/:path(*)', async (req: AuthRequest, res: Response) => {
+  app.get('/team/:teamId/document/*', async (req: AuthRequest, res: Response) => {
     const clientKey = getClientKey(req);
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
@@ -472,7 +512,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const content = await config.teamVault.readDocumentText(
+      const content = await config.teamVault!.readDocumentText(
         getParam(req.params.teamId),
         getParam(req.params.path)
       );
@@ -491,7 +531,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const documents = await config.teamVault.listDocuments(getParam(req.params.teamId));
+      const documents = await config.teamVault!.listDocuments(getParam(req.params.teamId));
       updateSession(clientKey);
       res.json({ success: true, documents });
     } catch (error) {
@@ -608,7 +648,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
   });
 
-  app.get('/memory/get/:path(*)', async (req: AuthRequest, res: Response) => {
+  app.get('/memory/get/*', async (req: AuthRequest, res: Response) => {
     const clientKey = getClientKey(req);
     if (!clientKey) {
       res.status(401).json({ error: 'Authentication required' });
@@ -621,7 +661,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     }
 
     try {
-      const path = getParam(req.params.path);
+      const path = req.params[0] || req.path.replace('/vault/read/', '');
       const response = await config.memoryServer.memory_get(path);
       const data = JSON.parse(response.content[0].text);
 
@@ -702,6 +742,9 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
       const result = await config.wallet.createAction({
         description: 'Create transaction',
         outputs,
+        options: {
+          acceptDelayedBroadcast: false, // Force immediate broadcast to blockchain
+        },
       });
 
       updateSession(clientKey);
