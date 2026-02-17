@@ -6,14 +6,24 @@
  */
 
 import { MessageBoxClient, PeerPayClient } from '@bsv/message-box-client';
-import type { AgentWallet } from '../../01-core/wallet/agent-wallet.js';
+import type { BRC100Wallet } from '../../07-shared/types/index.js';
 import { getConfig } from '../../01-core/config/index.js';
+
+/**
+ * Wallet type that supports underlying wallet access for MessageBox
+ */
+type MessageBoxWallet = BRC100Wallet & {
+  getUnderlyingWallet?: () => any;
+  getUnderlyingMPCWallet?: () => any;
+  getMessageBoxClient?: () => MessageBoxClient | null;
+  getPeerPayClient?: () => PeerPayClient | null;
+};
 
 /**
  * Configuration for the message client
  */
 export interface AGIDMessageConfig {
-  wallet: AgentWallet;
+  wallet: MessageBoxWallet;
   messageBoxHost?: string;
   enableLogging?: boolean;
   networkPreset?: 'local' | 'mainnet' | 'testnet';
@@ -101,7 +111,7 @@ export type PaymentHandler = (payment: AGIDPayment) => Promise<boolean>;
 export class AGIDMessageClient {
   private messageClient: MessageBoxClient;
   private payClient: PeerPayClient;
-  private wallet: AgentWallet;
+  private wallet: MessageBoxWallet;
   private identityKey: string | null = null;
   private messageHandlers = new Map<string, MessageHandler>();
   private paymentHandler: PaymentHandler | null = null;
@@ -110,7 +120,18 @@ export class AGIDMessageClient {
   constructor(config: AGIDMessageConfig) {
     this.wallet = config.wallet;
 
-    const underlyingWallet = config.wallet.getUnderlyingWallet();
+    // Prefer wallet's built-in MessageBox/PeerPay clients (from initializeMessageBox())
+    const builtInMB = config.wallet.getMessageBoxClient?.();
+    const builtInPP = config.wallet.getPeerPayClient?.();
+
+    if (builtInMB && builtInPP) {
+      this.messageClient = builtInMB;
+      this.payClient = builtInPP;
+      return;
+    }
+
+    // Fall back to creating new clients from underlying wallet
+    const underlyingWallet = config.wallet.getUnderlyingWallet?.() ?? config.wallet.getUnderlyingMPCWallet?.();
     if (!underlyingWallet) {
       throw new Error('Wallet not initialized');
     }
@@ -129,10 +150,10 @@ export class AGIDMessageClient {
       networkPreset: config.networkPreset ?? 'mainnet',
       // MPC options for threshold wallet support
       mpcOptions: {
-        onSigningProgress: (info) => {
+        onSigningProgress: (info: unknown) => {
           if (enableLogging) console.log('[MessageBox MPC]', info);
         },
-        onSigningError: (error) => {
+        onSigningError: (error: unknown) => {
           console.error('[MessageBox MPC Error]', error);
         },
         preDerivationTimeout: 30000

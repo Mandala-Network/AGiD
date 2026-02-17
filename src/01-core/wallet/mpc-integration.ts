@@ -29,7 +29,6 @@ import type {
 } from '@bsv/wallet-toolbox-mpc/out/src/mpc/types.js'
 import type { Chain } from '@bsv/wallet-toolbox-mpc/out/src/sdk/types.js'
 import { decryptShare } from '@bsv/wallet-toolbox-mpc/out/src/mpc/utils/shareEncryption.js'
-import { DerivationEncryption } from '@bsv/wallet-toolbox-mpc/out/src/mpc/encryption/DerivationEncryption.js'
 import { KnexMigrations } from '@bsv/wallet-toolbox-mpc/out/src/storage/schema/KnexMigrations.js'
 import { WalletStorageManager } from '@bsv/wallet-toolbox-mpc/out/src/storage/WalletStorageManager.js'
 import { StorageKnex } from '@bsv/wallet-toolbox-mpc/out/src/storage/StorageKnex.js'
@@ -243,31 +242,8 @@ async function restoreExistingWallet(
   const keyIndex = storedShare.keyIndex
 
   // ============================================================================
-  // 1. Verify password before decryption
+  // 1. Verify password (implicit via decryptShare below)
   // ============================================================================
-
-  // Check if derivation encryption salts exist (indicates password verification available)
-  const shareRecord = await knexInstance('mpc_shares')
-    .where({ walletId: config.walletId, keyIndex })
-    .select('derivationEncSalt', 'derivationHmacSalt', 'passwordVerification')
-    .first()
-
-  if (shareRecord?.passwordVerification && shareRecord?.derivationEncSalt && shareRecord?.derivationHmacSalt) {
-    const encSalt = Buffer.from(shareRecord.derivationEncSalt, 'hex')
-    const hmacSalt = Buffer.from(shareRecord.derivationHmacSalt, 'hex')
-    const passwordCorrect = DerivationEncryption.verifyPassword(
-      shareRecord.passwordVerification,
-      config.shareSecret,
-      encSalt,
-      hmacSalt
-    )
-    if (!passwordCorrect) {
-      throw new Error(
-        'Invalid password for wallet restoration. ' +
-        'The provided MPC_SHARE_SECRET does not match the password used to encrypt the wallet.'
-      )
-    }
-  }
 
   // ============================================================================
   // 2. Decrypt share
@@ -322,14 +298,9 @@ async function restoreExistingWallet(
   // 4. Initialize derivation encryption if salts exist
   // ============================================================================
 
-  if (shareRecord?.derivationEncSalt && shareRecord?.derivationHmacSalt) {
-    const derivationEncryption = new DerivationEncryption(
-      config.shareSecret,
-      Buffer.from(shareRecord.derivationEncSalt, 'hex'),
-      Buffer.from(shareRecord.derivationHmacSalt, 'hex')
-    )
-    persistence.setEncryption(derivationEncryption)
-  }
+  // Note: DerivationEncryption for cached key derivations is not yet available
+  // in this version of wallet-toolbox-mpc. Derivations are stored unencrypted
+  // in the local SQLite database (which should be access-controlled at OS level).
 
   // ============================================================================
   // 5. Create key deriver and storage

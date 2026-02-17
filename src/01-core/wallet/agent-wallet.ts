@@ -8,6 +8,7 @@
 import { PrivateKey } from '@bsv/sdk';
 import { Setup, Wallet } from '@bsv/wallet-toolbox';
 import type { Chain } from '@bsv/wallet-toolbox';
+import { MessageBoxClient, PeerPayClient } from '@bsv/message-box-client';
 import type {
   BRC100Wallet,
   GetPublicKeyArgs,
@@ -67,6 +68,10 @@ export class AgentWallet implements BRC100Wallet {
   private initialized = false;
   private identityPublicKey: string | null = null;
   private chain: Chain;
+
+  // MessageBox + PeerPay clients
+  private messageBoxClient: MessageBoxClient | null = null;
+  private peerPayClient: PeerPayClient | null = null;
 
   constructor(config: AgentWalletConfig) {
     this.config = config;
@@ -309,6 +314,57 @@ export class AgentWallet implements BRC100Wallet {
 
   async isAuthenticated(): Promise<boolean> {
     return this.initialized;
+  }
+
+  // =========================================================================
+  // MessageBox + PeerPay Integration
+  // =========================================================================
+
+  async initializeMessageBox(host: string = 'https://messagebox.babbage.systems'): Promise<void> {
+    await this.ensureInitialized();
+
+    this.messageBoxClient = new MessageBoxClient({
+      walletClient: this.wallet as any,
+      host,
+      enableLogging: false,
+      networkPreset: 'mainnet',
+    });
+
+    await this.messageBoxClient.init();
+
+    this.peerPayClient = new PeerPayClient({
+      walletClient: this.wallet as any,
+      messageBoxHost: host,
+      enableLogging: false,
+    });
+  }
+
+  getMessageBoxClient(): MessageBoxClient | null {
+    return this.messageBoxClient;
+  }
+
+  getPeerPayClient(): PeerPayClient | null {
+    return this.peerPayClient;
+  }
+
+  async sendMessage(args: { recipient: string; messageBox: string; body: string }): Promise<any> {
+    if (!this.messageBoxClient) throw new Error('MessageBox not initialized');
+    return this.messageBoxClient.sendMessage(args);
+  }
+
+  async listMessages(args: { messageBox: string }): Promise<any[]> {
+    if (!this.messageBoxClient) throw new Error('MessageBox not initialized');
+    return this.messageBoxClient.listMessages(args);
+  }
+
+  async acknowledgeMessages(args: { messageIds: string[] }): Promise<void> {
+    if (!this.messageBoxClient) throw new Error('MessageBox not initialized');
+    await this.messageBoxClient.acknowledgeMessage(args);
+  }
+
+  async sendPayment(args: { recipient: string; amount: number }): Promise<void> {
+    if (!this.peerPayClient) throw new Error('PeerPay not initialized');
+    await this.peerPayClient.sendPayment(args);
   }
 
   async destroy(): Promise<void> {

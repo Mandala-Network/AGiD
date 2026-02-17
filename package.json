@@ -33,10 +33,10 @@
   },
   "dependencies": {
     "@bsv/auth-express-middleware": "^2.0.2",
-    "@bsv/message-box-client": "file:message-box-client",
+    "@bsv/message-box-client": "file:./mpc/message-box-client",
     "@bsv/sdk": "^2.0.3",
     "@bsv/wallet-toolbox": "^2.0.14",
-    "@bsv/wallet-toolbox-mpc": "file:./MPC-DEV/wallet-toolbox-mpc",
+    "@bsv/wallet-toolbox-mpc": "file:./mpc/wallet-toolbox-mpc",
     "@types/jsonwebtoken": "^9.0.10",
     "commander": "^12.0.0",
     "curvepoint": "github:p2ppsr/curvepoint",

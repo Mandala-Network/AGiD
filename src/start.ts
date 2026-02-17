@@ -93,6 +93,17 @@ async function main() {
   console.log(`Agent Identity: ${identityPublicKey}`);
   console.log('');
 
+  // Initialize MessageBox for encrypted messaging
+  const messageBoxHost = process.env.MESSAGEBOX_HOST || 'https://messagebox.babbage.systems';
+  try {
+    console.log('Initializing MessageBox...');
+    await (wallet as any).initializeMessageBox(messageBoxHost);
+    console.log(`✅ MessageBox initialized (host: ${messageBoxHost})`);
+  } catch (error) {
+    console.warn('⚠️  MessageBox initialization failed:', error instanceof Error ? error.message : error);
+    console.warn('   Continuing without MessageBox wallet integration');
+  }
+
   // Check trusted certifiers
   const trustedCertifiers = process.env.TRUSTED_CERTIFIERS?.split(',').filter(Boolean) || [];
   if (trustedCertifiers.length === 0) {

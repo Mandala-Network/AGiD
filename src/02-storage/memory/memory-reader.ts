@@ -6,7 +6,7 @@
  */
 
 import { PushDrop, StorageDownloader, LockingScript } from '@bsv/sdk';
-import type { AgentWallet } from '../../01-core/wallet/agent-wallet.js';
+import type { BRC100Wallet } from '../../07-shared/types/index.js';
 
 /**
  * ARC API configuration
@@ -79,11 +79,12 @@ async function getTransactionTimestamp(txid: string): Promise<number> {
  * @returns Array of decrypted Memory objects with timestamps
  */
 export async function listMemories(
-  wallet: AgentWallet,
+  wallet: BRC100Wallet & { getUnderlyingWallet?: () => any; getUnderlyingMPCWallet?: () => any },
   options?: { tags?: string[]; importance?: string }
 ): Promise<Memory[]> {
   // 1. Query basket for memory tokens
-  const underlyingWallet = wallet.getUnderlyingWallet();
+  // Get the underlying wallet - works with both AgentWallet and MPCAgentWallet
+  const underlyingWallet = wallet.getUnderlyingWallet?.() ?? wallet.getUnderlyingMPCWallet?.();
   if (!underlyingWallet) {
     throw new Error('Wallet not initialized');
   }

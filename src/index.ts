@@ -176,6 +176,20 @@ export type {
 export { getConfig, loadConfig, resetConfig, getUhrpResolver, validateConfig } from './01-core/config/index.js';
 export type { AGIdentityEnvConfig } from './01-core/config/index.js';
 
+// PushDrop Token Operations (lock/unlock/decode BRC-48 tokens)
+export {
+  lockPushDropToken,
+  unlockPushDropToken,
+  decodePushDropToken,
+} from './01-core/wallet/pushdrop-ops.js';
+export type {
+  LockTokenParams,
+  LockTokenResult,
+  UnlockTokenParams,
+  UnlockTokenResult,
+  DecodedToken,
+} from './01-core/wallet/pushdrop-ops.js';
+
 // Memory (core types and storage - server exports in future plan)
 export type { MemoryInput, MemoryToken } from './02-storage/memory/index.js';
 

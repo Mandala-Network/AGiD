@@ -7,7 +7,7 @@
 
 import { StorageUploader } from '@bsv/sdk';
 import { PushDrop } from '@bsv/sdk';
-import type { AgentWallet } from '../../01-core/wallet/agent-wallet.js';
+import type { BRC100Wallet } from '../../07-shared/types/index.js';
 import type { MemoryInput, MemoryToken } from './memory-types.js';
 
 /**
@@ -25,7 +25,7 @@ import type { MemoryInput, MemoryToken } from './memory-types.js';
  * @returns Memory token with txid and UHRP URL
  */
 export async function storeMemory(
-  wallet: AgentWallet,
+  wallet: BRC100Wallet & { getUnderlyingWallet?: () => any; getUnderlyingMPCWallet?: () => any },
   memory: MemoryInput,
   storageUrl: string = 'https://staging-storage.babbage.systems'
 ): Promise<MemoryToken> {
@@ -38,9 +38,15 @@ export async function storeMemory(
   });
 
   // 2. Upload encrypted content to UHRP
+  // Get the underlying wallet - works with both AgentWallet and MPCAgentWallet
+  const underlyingWallet = wallet.getUnderlyingWallet?.() ?? wallet.getUnderlyingMPCWallet?.();
+  if (!underlyingWallet) {
+    throw new Error('Cannot access underlying wallet for UHRP upload');
+  }
+
   const uploader = new StorageUploader({
     storageURL: storageUrl,
-    wallet: wallet.getUnderlyingWallet()!,
+    wallet: underlyingWallet,
   });
 
   const uploadResult = await uploader.publishFile({
@@ -61,7 +67,7 @@ export async function storeMemory(
     Array.from(new TextEncoder().encode(memory.importance)),
   ];
 
-  const pushDrop = new PushDrop(wallet.getUnderlyingWallet()!);
+  const pushDrop = new PushDrop(underlyingWallet);
   const lockingScript = await pushDrop.lock(
     fields,
     [2, 'agidentity-memory'],  // protocolID

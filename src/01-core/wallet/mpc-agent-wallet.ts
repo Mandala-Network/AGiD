@@ -18,6 +18,7 @@
 // Standard wallet-toolbox imports
 import { StorageKnex } from '@bsv/wallet-toolbox'
 import type { Chain } from '@bsv/wallet-toolbox'
+import { MessageBoxClient, PeerPayClient } from '@bsv/message-box-client'
 
 // Local type imports
 import type {
@@ -173,6 +174,10 @@ export class MPCAgentWallet implements BRC100Wallet {
 
   // Signing lock to prevent concurrent MPC operations (would corrupt WASM state)
   private signingLock: Promise<void> = Promise.resolve()
+
+  // MessageBox + PeerPay clients
+  private messageBoxClient: MessageBoxClient | null = null
+  private peerPayClient: PeerPayClient | null = null
 
   constructor(config: MPCAgentWalletConfig) {
     this.config = config
@@ -535,6 +540,64 @@ export class MPCAgentWallet implements BRC100Wallet {
    */
   getUnderlyingMPCWallet(): IMPCWallet | null {
     return this.mpcWallet
+  }
+
+  // ============================================================================
+  // MessageBox + PeerPay Integration
+  // ============================================================================
+
+  /**
+   * Initialize MessageBox and PeerPay clients.
+   * All MessageBox operations are wrapped in the signing lock to prevent
+   * concurrent MPC operations from corrupting WASM state.
+   */
+  async initializeMessageBox(host: string = 'https://messagebox.babbage.systems'): Promise<void> {
+    await this.ensureInitialized()
+
+    this.messageBoxClient = new MessageBoxClient({
+      walletClient: this.mpcWallet as any,
+      host,
+      enableLogging: false,
+      networkPreset: 'mainnet',
+    })
+
+    await this.withSigningLock(async () => {
+      await this.messageBoxClient!.init()
+    })
+
+    this.peerPayClient = new PeerPayClient({
+      walletClient: this.mpcWallet as any,
+      messageBoxHost: host,
+      enableLogging: false,
+    })
+  }
+
+  getMessageBoxClient(): MessageBoxClient | null {
+    return this.messageBoxClient
+  }
+
+  getPeerPayClient(): PeerPayClient | null {
+    return this.peerPayClient
+  }
+
+  async sendMessage(args: { recipient: string; messageBox: string; body: string }): Promise<any> {
+    if (!this.messageBoxClient) throw new Error('MessageBox not initialized')
+    return this.withSigningLock(() => this.messageBoxClient!.sendMessage(args))
+  }
+
+  async listMessages(args: { messageBox: string }): Promise<any[]> {
+    if (!this.messageBoxClient) throw new Error('MessageBox not initialized')
+    return this.withSigningLock(() => this.messageBoxClient!.listMessages(args))
+  }
+
+  async acknowledgeMessages(args: { messageIds: string[] }): Promise<void> {
+    if (!this.messageBoxClient) throw new Error('MessageBox not initialized')
+    await this.withSigningLock(() => this.messageBoxClient!.acknowledgeMessage(args))
+  }
+
+  async sendPayment(args: { recipient: string; amount: number }): Promise<void> {
+    if (!this.peerPayClient) throw new Error('PeerPay not initialized')
+    await this.withSigningLock(() => this.peerPayClient!.sendPayment(args))
   }
 
   /**

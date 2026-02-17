@@ -34,6 +34,7 @@ npm-debug.log*
 /tmp/
 vault-cache/
 MPC-DEV/
+mpc/
 
 # Backup files
 *.bak
