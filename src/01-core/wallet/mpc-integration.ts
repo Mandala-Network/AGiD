@@ -32,6 +32,7 @@ import { decryptShare } from '@bsv/wallet-toolbox-mpc/out/src/mpc/utils/shareEnc
 import { KnexMigrations } from '@bsv/wallet-toolbox-mpc/out/src/storage/schema/KnexMigrations.js'
 import { WalletStorageManager } from '@bsv/wallet-toolbox-mpc/out/src/storage/WalletStorageManager.js'
 import { StorageKnex } from '@bsv/wallet-toolbox-mpc/out/src/storage/StorageKnex.js'
+import { Services } from '@bsv/wallet-toolbox-mpc/out/src/services/Services.js'
 import { MPCAgentWallet } from './mpc-agent-wallet.js'
 
 // Re-export for consumer convenience
@@ -137,8 +138,8 @@ function generateAuthToken(jwtSecret: string, walletId: string, partyId: string 
     partyId,
     userId: walletId,
   }
-  // Sign with jsonwebtoken library (expires in 1 hour)
-  return jwt.sign(payload, jwtSecret, { expiresIn: '1h' })
+  // Sign with jsonwebtoken library (expires in 7 days)
+  return jwt.sign(payload, jwtSecret, { expiresIn: '7d' })
 }
 
 /**
@@ -312,7 +313,15 @@ async function restoreExistingWallet(
     collectivePublicKey: storedShare.collectivePublicKey,
   }
 
-  const keyDeriver = new MPCKeyDeriver(mpcClient, keyId, persistence)
+  const userId = 1 // Must match userId used during DKG (createNewWallet)
+  const keyDeriver = new MPCKeyDeriver(mpcClient, keyId, persistence, userId)
+
+  // CRITICAL: Restore derivations from persistent storage
+  // Without this, BRC-42 derived keys cannot be spent after wallet restart
+  const restoredCount = await keyDeriver.initializeFromStorage()
+  if (restoredCount > 0) {
+    console.log(`[MPC] Restored ${restoredCount} key derivation(s) from storage`)
+  }
 
   // Create storage manager
   const storageKnex = new StorageKnex({
@@ -333,10 +342,12 @@ async function restoreExistingWallet(
   // ============================================================================
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const services = new Services(chain)
   const rawWallet = new MPCWallet({
     chain,
     keyDeriver,
     storage: storageManager,
+    services,
     mpcClient,
     persistence,
   })

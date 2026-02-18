@@ -1018,6 +1018,484 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
   });
 
   // =========================================================================
+  // BRC-100 Wallet Operations (Public API)
+  // =========================================================================
+
+  /**
+   * POST /api/create-action
+   * Create a BSV transaction using BRC-100 createAction.
+   * Supports outputs with baskets, tags, labels - the full BRC-100 spec.
+   * Body: { description, outputs: [{ lockingScript, satoshis, outputDescription?, basket?, tags? }], labels?, options? }
+   */
+  app.post('/api/create-action', async (req: AuthRequest, res: Response) => {
+    try {
+      const { description, outputs, inputs, labels, options } = req.body;
+
+      if (!description) {
+        res.status(400).json({ success: false, error: 'Missing description' });
+        return;
+      }
+
+      const underlyingWallet = config.wallet.getUnderlyingWallet();
+      if (!underlyingWallet) {
+        res.status(500).json({ success: false, error: 'Wallet not available' });
+        return;
+      }
+
+      const result = await underlyingWallet.createAction({
+        description,
+        outputs: outputs?.map((o: any) => ({
+          lockingScript: o.lockingScript,
+          satoshis: o.satoshis,
+          outputDescription: o.outputDescription ?? o.description ?? '',
+          basket: o.basket,
+          tags: o.tags,
+        })),
+        inputs: inputs?.map((i: any) => ({
+          outpoint: i.outpoint,
+          unlockingScript: i.unlockingScript,
+          inputDescription: i.inputDescription ?? '',
+        })),
+        labels,
+        options: {
+          acceptDelayedBroadcast: options?.acceptDelayedBroadcast ?? false,
+          ...options,
+        },
+      });
+
+      res.json({
+        success: true,
+        txid: result.txid,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * POST /api/internalize-action
+   * Accept an incoming transaction (BEEF format) into the wallet.
+   * Used for receiving PeerPay payments, token transfers, etc.
+   * Body: { tx: { rawTx: string (hex), txid?: string, inputs?: any }, outputs: [{ outputIndex, protocol: 'wallet payment' | 'basket insertion', paymentRemittance?: any, insertionRemittance?: any }], description? }
+   */
+  app.post('/api/internalize-action', async (req: AuthRequest, res: Response) => {
+    try {
+      const { tx, outputs, description } = req.body;
+
+      if (!tx || !outputs) {
+        res.status(400).json({ success: false, error: 'Missing tx or outputs' });
+        return;
+      }
+
+      const underlyingWallet = config.wallet.getUnderlyingWallet();
+      if (!underlyingWallet) {
+        res.status(500).json({ success: false, error: 'Wallet not available' });
+        return;
+      }
+
+      const result = await (underlyingWallet as any).internalizeAction({
+        tx,
+        outputs,
+        description: description ?? 'Internalize action',
+      });
+
+      res.json({
+        success: true,
+        accepted: result?.accepted ?? true,
+        txid: result?.txid,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * POST /api/list-outputs
+   * List wallet outputs, optionally filtered by basket, tags, or include status.
+   * Body: { basket?: string, tags?: string[], tagQueryMode?: 'all'|'any', include?: 'locking scripts'|'entire transactions', includeCustomInstructions?: boolean, limit?: number, offset?: number }
+   */
+  app.post('/api/list-outputs', async (req: AuthRequest, res: Response) => {
+    try {
+      const { basket, tags, tagQueryMode, include, limit, offset } = req.body;
+
+      const underlyingWallet = config.wallet.getUnderlyingWallet();
+      if (!underlyingWallet) {
+        res.status(500).json({ success: false, error: 'Wallet not available' });
+        return;
+      }
+
+      const result = await (underlyingWallet as any).listOutputs({
+        basket: basket ?? 'default',
+        tags,
+        tagQueryMode: tagQueryMode ?? 'all',
+        include: include ?? 'locking scripts',
+        limit: limit ?? 25,
+        offset: offset ?? 0,
+      });
+
+      res.json({
+        success: true,
+        totalOutputs: result?.totalOutputs ?? 0,
+        outputs: result?.outputs ?? [],
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * POST /api/get-public-key
+   * Derive a protocol-specific public key (BRC-42 key derivation).
+   * Body: { identityKey?: boolean, protocolID?: [securityLevel, protocolName], keyID?: string, counterparty?: string, forSelf?: boolean }
+   */
+  app.post('/api/get-public-key', async (req: AuthRequest, res: Response) => {
+    try {
+      const { identityKey, protocolID, keyID, counterparty, forSelf } = req.body;
+
+      const result = await config.wallet.getPublicKey({
+        identityKey: identityKey ?? false,
+        protocolID,
+        keyID,
+        counterparty,
+        forSelf,
+      });
+
+      res.json({
+        success: true,
+        publicKey: result.publicKey,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * GET /api/get-height
+   * Get current blockchain height.
+   */
+  app.get('/api/get-height', async (_req: AuthRequest, res: Response) => {
+    try {
+      const height = await config.wallet.getHeight();
+
+      res.json({
+        success: true,
+        height,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // =========================================================================
+  // Messaging & Payments (Public API)
+  // =========================================================================
+
+  /**
+   * POST /api/send-message
+   * Send a MessageBox message to another identity.
+   * Body: { recipient: string (pubkey), messageBox: string, body: string|object }
+   */
+  app.post('/api/send-message', async (req: AuthRequest, res: Response) => {
+    try {
+      const { recipient, messageBox, body } = req.body;
+
+      if (!recipient || !messageBox || !body) {
+        res.status(400).json({ success: false, error: 'Missing recipient, messageBox, or body' });
+        return;
+      }
+
+      // Access the wallet's MessageBox client
+      const mbClient = (config.wallet as any).getMessageBoxClient?.();
+      if (!mbClient) {
+        res.status(503).json({ success: false, error: 'MessageBox not initialized. Wallet must call initializeMessageBox() first.' });
+        return;
+      }
+
+      const result = await mbClient.sendMessage({
+        recipient,
+        messageBox,
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      });
+
+      res.json({
+        success: true,
+        messageId: result?.messageId,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * POST /api/list-messages
+   * List messages in a MessageBox.
+   * Body: { messageBox: string }
+   */
+  app.post('/api/list-messages', async (req: AuthRequest, res: Response) => {
+    try {
+      const { messageBox } = req.body;
+
+      if (!messageBox) {
+        res.status(400).json({ success: false, error: 'Missing messageBox' });
+        return;
+      }
+
+      const mbClient = (config.wallet as any).getMessageBoxClient?.();
+      if (!mbClient) {
+        res.status(503).json({ success: false, error: 'MessageBox not initialized' });
+        return;
+      }
+
+      const messages = await mbClient.listMessages({ messageBox });
+
+      res.json({
+        success: true,
+        messages: (messages ?? []).map((m: any) => ({
+          messageId: m.messageId,
+          sender: m.sender,
+          messageBox: m.messageBox,
+          body: m.body,
+          createdAt: m.createdAt,
+        })),
+        count: messages?.length ?? 0,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * POST /api/acknowledge-messages
+   * Acknowledge (delete) messages from MessageBox after processing.
+   * Body: { messageIds: string[] }
+   */
+  app.post('/api/acknowledge-messages', async (req: AuthRequest, res: Response) => {
+    try {
+      const { messageIds } = req.body;
+
+      if (!messageIds || !Array.isArray(messageIds)) {
+        res.status(400).json({ success: false, error: 'Missing messageIds array' });
+        return;
+      }
+
+      const mbClient = (config.wallet as any).getMessageBoxClient?.();
+      if (!mbClient) {
+        res.status(503).json({ success: false, error: 'MessageBox not initialized' });
+        return;
+      }
+
+      await mbClient.acknowledgeMessage({ messageIds });
+
+      res.json({
+        success: true,
+        acknowledged: messageIds.length,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * POST /api/send-payment
+   * Send a PeerPay payment to another identity.
+   * Body: { recipient: string (pubkey), amount: number (satoshis) }
+   */
+  app.post('/api/send-payment', async (req: AuthRequest, res: Response) => {
+    try {
+      const { recipient, amount } = req.body;
+
+      if (!recipient || !amount) {
+        res.status(400).json({ success: false, error: 'Missing recipient or amount' });
+        return;
+      }
+
+      if (amount <= 0) {
+        res.status(400).json({ success: false, error: 'Amount must be positive' });
+        return;
+      }
+
+      const ppClient = (config.wallet as any).getPeerPayClient?.();
+      if (!ppClient) {
+        res.status(503).json({ success: false, error: 'PeerPay not initialized. Wallet must call initializeMessageBox() first.' });
+        return;
+      }
+
+      await ppClient.sendPayment({ recipient, amount });
+
+      res.json({
+        success: true,
+        recipient,
+        amount,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // =========================================================================
+  // PeerPay Receive (Public API)
+  // =========================================================================
+
+  /**
+   * GET /api/incoming-payments
+   * List pending incoming PeerPay payments waiting to be accepted.
+   */
+  app.get('/api/incoming-payments', async (_req: AuthRequest, res: Response) => {
+    try {
+      const ppClient = (config.wallet as any).getPeerPayClient?.();
+      if (!ppClient) {
+        res.status(503).json({ success: false, error: 'PeerPay not initialized' });
+        return;
+      }
+
+      const payments = await ppClient.listIncomingPayments();
+
+      res.json({
+        success: true,
+        payments: (payments ?? []).map((p: any) => ({
+          messageId: p.messageId,
+          sender: p.sender,
+          amount: p.token?.amount,
+          outputIndex: p.outputIndex ?? p.token?.outputIndex,
+        })),
+        count: payments?.length ?? 0,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * POST /api/accept-payment
+   * Accept an incoming PeerPay payment by messageId.
+   * Body: { messageId: string }
+   */
+  app.post('/api/accept-payment', async (req: AuthRequest, res: Response) => {
+    try {
+      const { messageId } = req.body;
+
+      if (!messageId) {
+        res.status(400).json({ success: false, error: 'Missing messageId' });
+        return;
+      }
+
+      const ppClient = (config.wallet as any).getPeerPayClient?.();
+      if (!ppClient) {
+        res.status(503).json({ success: false, error: 'PeerPay not initialized' });
+        return;
+      }
+
+      // Find the payment by messageId
+      const payments = await ppClient.listIncomingPayments();
+      const payment = (payments ?? []).find((p: any) => p.messageId === messageId);
+
+      if (!payment) {
+        res.status(404).json({ success: false, error: `Payment not found: ${messageId}` });
+        return;
+      }
+
+      const result = await ppClient.acceptPayment(payment);
+
+      res.json({
+        success: true,
+        messageId,
+        amount: payment.token?.amount,
+        sender: payment.sender,
+        result,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  /**
+   * POST /api/accept-all-payments
+   * Accept all pending incoming PeerPay payments at once.
+   */
+  app.post('/api/accept-all-payments', async (_req: AuthRequest, res: Response) => {
+    try {
+      const ppClient = (config.wallet as any).getPeerPayClient?.();
+      if (!ppClient) {
+        res.status(503).json({ success: false, error: 'PeerPay not initialized' });
+        return;
+      }
+
+      const payments = await ppClient.listIncomingPayments();
+      if (!payments || payments.length === 0) {
+        res.json({ success: true, accepted: 0, message: 'No pending payments' });
+        return;
+      }
+
+      const results = [];
+      for (const payment of payments) {
+        try {
+          await ppClient.acceptPayment(payment);
+          results.push({ messageId: payment.messageId, amount: payment.token?.amount, status: 'accepted' });
+        } catch (err) {
+          results.push({ messageId: payment.messageId, amount: payment.token?.amount, status: 'failed', error: String(err) });
+        }
+      }
+
+      res.json({
+        success: true,
+        accepted: results.filter(r => r.status === 'accepted').length,
+        failed: results.filter(r => r.status === 'failed').length,
+        results,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
+  // =========================================================================
   // Onchain Memory (PushDrop Tokens)
   // =========================================================================
 

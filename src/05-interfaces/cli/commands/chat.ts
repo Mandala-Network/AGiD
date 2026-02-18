@@ -1,15 +1,17 @@
 /**
  * Chat command - connect to an agent and start conversation
+ *
+ * Connects to the local Babbage MetaNet Client desktop app via WalletClient
+ * and delegates all signing/encryption to the local wallet.
  */
 
-import { createAgentWallet } from '../../../01-core/wallet/agent-wallet.js';
+import { WalletClient } from '@bsv/sdk';
 import { createMessageClient } from '../../../03-gateway/messaging/index.js';
 import { startChatREPL } from '../repl/chat-repl.js';
 import { formatError, showSpinner, success } from '../repl/display.js';
 
 export interface ChatOptions {
   messageBox?: string;
-  timeout?: string;
   network?: string;
   host?: string;
 }
@@ -26,49 +28,40 @@ export async function chatCommand(
     process.exit(1);
   }
 
-  // Get private key from environment
-  const privateKey = process.env.AGID_PRIVATE_KEY;
-
-  if (!privateKey) {
-    formatError(
-      'AGID_PRIVATE_KEY environment variable not set.\n\n' +
-        'Set it with:\n' +
-        '  export AGID_PRIVATE_KEY=<64-character-hex-string>'
-    );
-    process.exit(1);
-  }
-
-  if (privateKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(privateKey)) {
-    formatError(
-      'AGID_PRIVATE_KEY must be a 64-character hexadecimal string.'
-    );
-    process.exit(1);
-  }
-
   // Parse options
-  const network = (options.network || process.env.AGID_NETWORK || 'mainnet') as
-    | 'mainnet'
-    | 'testnet';
   const messageBox = options.messageBox || 'chat';
-  const timeout = parseInt(options.timeout || '30000', 10);
   const messageBoxHost =
     options.host ||
     process.env.MESSAGEBOX_HOST ||
     'https://messagebox.babbage.systems';
 
-  const spinner = showSpinner('Connecting...');
+  const spinner = showSpinner('Connecting to MetaNet Client...');
 
   try {
-    // Create wallet with remote storage (no SQLite needed)
-    const { wallet } = await createAgentWallet({
-      privateKeyHex: privateKey,
-      network,
-      storageMode: 'remote',
-    });
+    // Connect to local Babbage MetaNet Client via JSON-API substrate
+    const walletClient = new WalletClient('json-api', 'agidentity');
+
+    // Create a wallet adapter that satisfies AGIDMessageClient's MessageBoxWallet interface
+    const walletAdapter = {
+      getPublicKey: walletClient.getPublicKey.bind(walletClient),
+      encrypt: walletClient.encrypt.bind(walletClient),
+      decrypt: walletClient.decrypt.bind(walletClient),
+      createSignature: walletClient.createSignature.bind(walletClient),
+      verifySignature: walletClient.verifySignature.bind(walletClient),
+      createHmac: walletClient.createHmac.bind(walletClient),
+      verifyHmac: walletClient.verifyHmac.bind(walletClient),
+      createAction: walletClient.createAction.bind(walletClient),
+      acquireCertificate: walletClient.acquireCertificate.bind(walletClient),
+      listCertificates: walletClient.listCertificates.bind(walletClient),
+      getNetwork: walletClient.getNetwork.bind(walletClient),
+      getHeight: walletClient.getHeight.bind(walletClient),
+      // Provide the underlying wallet for MessageBoxClient/PeerPayClient construction
+      getUnderlyingWallet: () => walletClient,
+    };
 
     // Create message client
     const messageClient = createMessageClient({
-      wallet,
+      wallet: walletAdapter as any,
       messageBoxHost,
       enableLogging: false,
     });
@@ -79,7 +72,7 @@ export async function chatCommand(
     const userPublicKey = messageClient.getIdentityKey();
 
     spinner.stop();
-    console.log(success('Connected!'));
+    console.log(success('Connected to MetaNet Client!'));
 
     // Start REPL
     await startChatREPL({
@@ -87,12 +80,10 @@ export async function chatCommand(
       agentPublicKey,
       userPublicKey,
       messageBox,
-      timeout,
     });
 
     // Cleanup
     await messageClient.disconnect();
-    await wallet.destroy();
   } catch (err) {
     spinner.stop();
     formatError(err);

@@ -120,9 +120,10 @@ async function main() {
       wallet,
       trustedCertifiers,
       openclawUrl: process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789',
-      openclawToken: process.env.OPENCLAW_GATEWAY_TOKEN,
+      openclawToken: process.env.OPENCLAW_AUTH_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN,
       signResponses: true,
       audit: { enabled: true },
+      messageBoxes: ['inbox', 'chat'],
     });
     console.log('✅ MessageBox gateway initialized');
   } catch (error) {

@@ -218,18 +218,24 @@ export class AGIdentityOpenClawGateway {
     });
 
     // 3. Create OpenClawClient (using wallet as device identity)
+    // Use a timeout to prevent blocking if MPC signing stalls during connect
     try {
-      this.openclawClient = await createOpenClawClient({
+      const connectPromise = createOpenClawClient({
         wallet: this.wallet,
         gatewayUrl: this.config.openclawUrl,
         authToken: this.config.openclawToken,
       });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('OpenClaw connect timeout (45s)')), 45000)
+      );
+      this.openclawClient = await Promise.race([connectPromise, timeoutPromise]);
+      console.log('[AGIdentityGateway] ✅ OpenClaw connected');
 
       // Set up chat message handler
       this.openclawClient.onChatMessage((event) => this.handleChatMessage(event));
     } catch (error) {
       // OpenClaw connection failed - log but don't crash
-      console.error('[AGIdentityGateway] OpenClaw connection failed:', error);
+      console.error('[AGIdentityGateway] ❌ OpenClaw connection failed:', error instanceof Error ? error.message : error);
       // Gateway can still receive messages, will retry OpenClaw on demand
     }
 
@@ -239,6 +245,10 @@ export class AGIdentityOpenClawGateway {
         wallet: this.wallet,
       });
     }
+
+    // 5. Start message polling AFTER all initialization is complete
+    // This prevents concurrent MPC signing between polling and OpenClaw connect
+    this.messageBoxGateway.startMessagePolling();
 
     this.running = true;
   }
@@ -325,9 +335,31 @@ export class AGIdentityOpenClawGateway {
    */
   private async handleMessage(message: ProcessedMessage): Promise<MessageResponse | null> {
     const senderKey = message.original.sender;
-    const content = typeof message.original.body === 'string'
-      ? message.original.body
-      : JSON.stringify(message.original.body);
+    console.log(`[AGIdentityGateway] 📨 Message received from ${senderKey.substring(0, 12)}... (box: ${message.original.messageBox ?? 'unknown'})`);
+
+    // Parse ChatRequest protocol if present
+    let content: string;
+    let requestId: string | undefined;
+    const rawBody = message.original.body;
+
+    if (typeof rawBody === 'object' && rawBody !== null && 'type' in rawBody && (rawBody as any).type === 'chat_request') {
+      content = (rawBody as any).content ?? JSON.stringify(rawBody);
+      requestId = (rawBody as any).id;
+    } else if (typeof rawBody === 'string') {
+      try {
+        const parsed = JSON.parse(rawBody);
+        if (parsed.type === 'chat_request') {
+          content = parsed.content ?? rawBody;
+          requestId = parsed.id;
+        } else {
+          content = rawBody;
+        }
+      } catch {
+        content = rawBody;
+      }
+    } else {
+      content = JSON.stringify(rawBody);
+    }
 
     // 1. Create audit entry for incoming message
     if (this.auditTrail) {
@@ -384,11 +416,14 @@ You can prove your identity by signing data with your wallet key.
     const contentWithContext = contextPrefix + content;
 
     // 3. Send to OpenClaw with identity context
+    console.log(`[AGIdentityGateway] 🤖 Forwarding to OpenClaw (session: ${identityContext.conversationId})`);
+    console.log(`[AGIdentityGateway]    Content preview: "${content.substring(0, 100)}..."`);
     let aiResponse: string;
     try {
       aiResponse = await this.sendToOpenClaw(contentWithContext, identityContext);
+      console.log(`[AGIdentityGateway] ✅ OpenClaw responded (${aiResponse.length} chars)`);
     } catch (error) {
-      console.error('[AGIdentityGateway] OpenClaw error:', error);
+      console.error('[AGIdentityGateway] ❌ OpenClaw error:', error instanceof Error ? error.message : error);
 
       // If OpenClaw is unavailable, return an error message
       aiResponse = 'Sorry, I am temporarily unavailable. Please try again later.';
@@ -421,10 +456,15 @@ You can prove your identity by signing data with your wallet key.
       });
     }
 
-    // 6. Return response
+    // 6. Return response formatted as ChatResponse protocol
     return {
       body: {
+        type: 'chat_response',
+        id: crypto.randomUUID(),
+        requestId,
+        timestamp: Date.now(),
         content: signedResponse.content,
+        agent: this.agentPublicKey,
         signature: signedResponse.signature,
         signerPublicKey: signedResponse.signerPublicKey,
         signed: signedResponse.signed,
@@ -458,6 +498,7 @@ You can prove your identity by signing data with your wallet key.
   private async sendToOpenClaw(content: string, identityContext: IdentityContext): Promise<string> {
     // Ensure OpenClaw is connected
     if (!this.openclawClient || !this.openclawClient.isConnected()) {
+      console.log(`[AGIdentityGateway] 🔄 OpenClaw not connected (client=${!!this.openclawClient}, connected=${this.openclawClient?.isConnected()}), reconnecting...`);
       // Try to reconnect (using wallet as device identity)
       try {
         this.openclawClient = await createOpenClawClient({
@@ -466,7 +507,9 @@ You can prove your identity by signing data with your wallet key.
           authToken: this.config.openclawToken,
         });
         this.openclawClient.onChatMessage((event) => this.handleChatMessage(event));
-      } catch {
+        console.log('[AGIdentityGateway] ✅ OpenClaw reconnected');
+      } catch (reconnectError) {
+        console.error('[AGIdentityGateway] ❌ OpenClaw reconnect failed:', reconnectError instanceof Error ? reconnectError.message : reconnectError);
         throw new Error('OpenClaw Gateway unavailable');
       }
     }
@@ -484,7 +527,7 @@ You can prove your identity by signing data with your wallet key.
             reject(new Error('OpenClaw response timeout'));
           }
         }
-      }, 60000); // 60 second timeout
+      }, 180000); // 180 second timeout (agent may use tools)
 
       // Store pending response handler
       this.pendingResponses.set(identityContext.conversationId, {
@@ -503,7 +546,7 @@ You can prove your identity by signing data with your wallet key.
 
       // Send chat message with identity context
       this.openclawClient!.sendChat(content, {
-        sessionId: identityContext.conversationId,
+        sessionKey: identityContext.conversationId,
         context: {
           senderPublicKey: identityContext.senderPublicKey,
           verified: identityContext.verified,
@@ -522,20 +565,55 @@ You can prove your identity by signing data with your wallet key.
    * Handle chat message from OpenClaw
    */
   private handleChatMessage(event: ChatMessageEvent): void {
-    const sessionId = event.payload.sessionId;
-    const pending = this.pendingResponses.get(sessionId);
+    const sessionKey = event.payload.sessionKey;
+    console.log(`[AGIdentityGateway] 💬 Chat event: state=${event.payload.state} session=${sessionKey}`);
+    // Try exact match first, then try stripping OpenClaw's "agent:<agentId>:" prefix
+    let pending = this.pendingResponses.get(sessionKey);
+    if (!pending) {
+      // OpenClaw prefixes session keys with "agent:<agentId>:" (e.g. "agent:main:conv-xxx")
+      const stripped = sessionKey.replace(/^agent:[^:]+:/, '');
+      pending = this.pendingResponses.get(stripped);
+      if (pending) {
+        console.log(`[AGIdentityGateway]    Matched after prefix strip: ${stripped}`);
+      }
+    }
 
     if (!pending) {
       // No pending request for this session - might be unsolicited
+      console.log(`[AGIdentityGateway]    No pending request found (pending keys: [${Array.from(this.pendingResponses.keys()).join(', ')}])`);
       return;
     }
 
-    // Accumulate content (streaming)
-    pending.content += event.payload.content;
+    // Extract text content from the message
+    // OpenClaw delta events contain the FULL cumulative text, not incremental
+    // So we REPLACE (not append) on each delta, and use the final content
+    if (event.payload.message) {
+      const msg = event.payload.message as any;
+      let text = '';
+      if (typeof msg === 'string') {
+        text = msg;
+      } else if (Array.isArray(msg?.content)) {
+        // OpenClaw format: { role, content: [{ type: "text", text: "..." }] }
+        text = msg.content
+          .filter((c: any) => c.type === 'text')
+          .map((c: any) => c.text)
+          .join('');
+      } else if (typeof msg?.content === 'string') {
+        text = msg.content;
+      } else if (typeof msg?.text === 'string') {
+        text = msg.text;
+      }
+      if (text) {
+        // Replace content with latest snapshot (deltas are cumulative)
+        pending.content = text;
+      }
+    }
 
     // If message is complete, resolve
-    if (event.payload.done) {
+    if (event.payload.state === 'final') {
       pending.resolve(pending.content);
+    } else if (event.payload.state === 'error' || event.payload.state === 'aborted') {
+      pending.reject(new Error(event.payload.errorMessage ?? 'OpenClaw error'));
     }
   }
 

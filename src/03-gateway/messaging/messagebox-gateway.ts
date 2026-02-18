@@ -161,7 +161,9 @@ export class MessageBoxGateway {
   // State
   private initialized = false;
   private running = false;
+  private polling = false;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Create a new MessageBoxGateway
@@ -198,6 +200,8 @@ export class MessageBoxGateway {
    * Initialize the gateway
    *
    * Must be called before the gateway can receive messages.
+   * Does NOT start polling — call startMessagePolling() separately
+   * to avoid concurrent MPC signing during other initialization steps.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -208,23 +212,21 @@ export class MessageBoxGateway {
     // Initialize identity gate
     await this.identityGate.initialize();
 
-    // Set up certificate exchange
-    await this.gatedHandler.handleCertificateExchange();
-
-    // Set up message handlers for each messageBox
-    for (const messageBox of this.messageBoxes) {
-      this.gatedHandler.onVerifiedMessage(messageBox, async (message) => {
-        await this.handleMessage(message);
-      });
-    }
-
-    // Start listening on all message boxes
-    for (const messageBox of this.messageBoxes) {
-      await this.gatedHandler.listenForMessages(messageBox);
-    }
+    // Skip certificate exchange live listener (requires authsocket)
+    // Certificate exchange can be handled reactively if needed
 
     this.initialized = true;
     this.running = true;
+  }
+
+  /**
+   * Start polling for new messages.
+   * Call this AFTER all other initialization (e.g. OpenClaw connect)
+   * to prevent concurrent MPC signing operations.
+   */
+  startMessagePolling(): void {
+    if (!this.running) return;
+    this.startPolling();
   }
 
   /**
@@ -265,6 +267,7 @@ export class MessageBoxGateway {
       // Send response if provided
       if (response) {
         try {
+          console.log(`[MessageBoxGateway] 📤 Sending response to ${message.sender.substring(0, 12)}... (box: ${message.messageBox})`);
           // Prepare the response body with conversation context
           const preparedBody = this.conversationManager.prepareOutgoingMessage(
             message.sender,
@@ -279,6 +282,7 @@ export class MessageBoxGateway {
             preparedBody,
             { skipEncryption: response.encrypt === false }
           );
+          console.log(`[MessageBoxGateway] ✅ Response sent (messageId: ${sendResult.messageId})`);
 
           // Track outgoing message in conversation
           this.conversationManager.addMessage(
@@ -287,6 +291,7 @@ export class MessageBoxGateway {
             'outbound'
           );
         } catch (error) {
+          console.error(`[MessageBoxGateway] ❌ Response delivery failed:`, error instanceof Error ? error.message : error);
           this.emitError({
             type: 'delivery',
             message: error instanceof Error ? error.message : 'Failed to send response',
@@ -304,6 +309,47 @@ export class MessageBoxGateway {
         originalMessage: message,
       });
     }
+  }
+
+  /**
+   * Start polling for messages on all message boxes via HTTP.
+   * Uses a guard to prevent overlapping polls — MPC signing is slow
+   * and concurrent sign operations corrupt shared WASM state.
+   */
+  private startPolling(intervalMs = 5000): void {
+    const poll = async () => {
+      if (!this.running || this.polling) return;
+      this.polling = true;
+      try {
+        for (const messageBox of this.messageBoxes) {
+          if (!this.running) break;
+          try {
+            const messages = await this.gatedHandler.listVerifiedMessages(messageBox);
+            if (messages.length > 0) {
+              console.log(`[MessageBoxGateway] 📬 Got ${messages.length} message(s) from "${messageBox}"`);
+            }
+            for (const message of messages) {
+              if (!this.running) break;
+              console.log(`[MessageBoxGateway]    Processing message from ${message.sender.substring(0, 12)}... (id: ${message.messageId})`);
+              await this.handleMessage(message);
+            }
+          } catch (error) {
+            this.emitError({
+              type: 'processing',
+              message: `Poll error (${messageBox}): ${error instanceof Error ? error.message : 'Unknown'}`,
+            });
+          }
+        }
+      } finally {
+        this.polling = false;
+      }
+    };
+
+    // Initial poll immediately
+    poll();
+
+    // Then poll on interval (guard prevents overlap)
+    this.pollInterval = setInterval(poll, intervalMs);
   }
 
   /**
@@ -338,6 +384,12 @@ export class MessageBoxGateway {
 
     // Clean up conversation manager
     this.conversationManager.destroy();
+
+    // Clear polling interval
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
 
     // Clear cleanup interval if any
     if (this.cleanupInterval) {

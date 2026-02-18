@@ -85,27 +85,33 @@ export interface HelloOkEvent {
 
 // Chat/messaging types
 export interface ChatSendParams {
-  sessionId?: string;
-  content: string;
-  role?: 'user' | 'assistant';
-  context?: {
-    senderIdentity?: string;
-    senderPublicKey?: string;
-    verified?: boolean;
-    certificateSubject?: string;
-  };
+  /** Session key identifying the chat session */
+  sessionKey: string;
+  /** The message content */
+  message: string;
+  /** Idempotency key to prevent duplicate sends */
+  idempotencyKey: string;
+  /** Optional thinking/reasoning text */
+  thinking?: string;
+  /** Whether to deliver the response (default true) */
+  deliver?: boolean;
+  /** File attachments */
+  attachments?: unknown[];
+  /** Timeout in ms */
+  timeoutMs?: number;
 }
 
 export interface ChatMessageEvent {
   type: 'event';
   event: 'chat.message';
   payload: {
-    sessionId: string;
-    messageId: string;
-    role: 'user' | 'assistant';
-    content: string;
-    toolCalls?: ToolCall[];
-    done?: boolean;
+    runId: string;
+    sessionKey: string;
+    seq: number;
+    state: 'delta' | 'final' | 'aborted' | 'error';
+    message?: unknown;
+    errorMessage?: string;
+    usage?: unknown;
   };
 }
 

@@ -318,6 +318,39 @@ export class MPCAgentWallet implements BRC100Wallet {
     return this.mpcWallet
   }
 
+  /**
+   * Get wallet balance and UTXOs
+   * Delegates to the underlying wallet-toolbox wallet if available
+   */
+  async getBalanceAndUtxos(): Promise<{ total: number; utxos: Array<{ txid: string; vout: number; satoshis: number }> }> {
+    await this.ensureInitialized()
+    const wallet = this.mpcWallet as any
+
+    // Use listOutputs from the underlying SDK wallet (most reliable)
+    if (typeof wallet?.listOutputs === 'function') {
+      const result = await wallet.listOutputs({ basket: 'default' })
+      const utxos = (result.outputs || [])
+        .filter((o: any) => o.spendable)
+        .map((o: any) => {
+          const [txid, voutStr] = (o.outpoint || '').split('.')
+          return { txid, vout: parseInt(voutStr, 10), satoshis: o.satoshis }
+        })
+      const total = utxos.reduce((sum: number, u: any) => sum + u.satoshis, 0)
+      return { total, utxos }
+    }
+
+    // Legacy fallbacks
+    if (typeof wallet?.balanceAndUtxos === 'function') {
+      return wallet.balanceAndUtxos()
+    }
+    if (typeof wallet?.balance === 'function') {
+      const total = await wallet.balance()
+      return { total, utxos: [] }
+    }
+    // Fallback: wallet doesn't expose balance directly
+    return { total: 0, utxos: [] }
+  }
+
   // ============================================================================
   // BRC-100 Interface Implementation
   // ============================================================================
@@ -456,6 +489,28 @@ export class MPCAgentWallet implements BRC100Wallet {
     })
   }
 
+  /**
+   * List wallet outputs, optionally filtered by basket, tags, etc.
+   * Proxies directly to the underlying wallet-toolbox wallet's listOutputs.
+   */
+  async listOutputs(args: any): Promise<any> {
+    await this.ensureInitialized()
+    return this.withSigningLock(async () => {
+      return (this.mpcWallet as any).listOutputs(args)
+    })
+  }
+
+  /**
+   * Internalize an incoming transaction (e.g. accept a PeerPay payment).
+   * Proxies directly to the underlying MPC wallet's internalizeAction.
+   */
+  async internalizeAction(args: any, originator?: string): Promise<any> {
+    await this.ensureInitialized()
+    return this.withSigningLock(async () => {
+      return (this.mpcWallet as any).internalizeAction(args, originator)
+    })
+  }
+
   async acquireCertificate(args: AcquireCertificateArgs): Promise<AcquireCertificateResult> {
     await this.ensureInitialized()
     const result = await this.mpcWallet!.acquireCertificate({
@@ -554,8 +609,13 @@ export class MPCAgentWallet implements BRC100Wallet {
   async initializeMessageBox(host: string = 'https://messagebox.babbage.systems'): Promise<void> {
     await this.ensureInitialized()
 
+    // Create a signing-lock proxy so that MessageBoxClient/PeerPayClient
+    // route ALL signing operations through the lock, preventing concurrent
+    // WASM state corruption.
+    const lockedWallet = this.createLockedWalletProxy()
+
     this.messageBoxClient = new MessageBoxClient({
-      walletClient: this.mpcWallet as any,
+      walletClient: lockedWallet as any,
       host,
       enableLogging: false,
       networkPreset: 'mainnet',
@@ -566,9 +626,35 @@ export class MPCAgentWallet implements BRC100Wallet {
     })
 
     this.peerPayClient = new PeerPayClient({
-      walletClient: this.mpcWallet as any,
+      walletClient: lockedWallet as any,
       messageBoxHost: host,
       enableLogging: false,
+    })
+  }
+
+  /**
+   * Create a proxy around the raw MPC wallet that serializes all
+   * mutating operations through the signing lock.
+   * Read-only operations (getPublicKey, verifySignature, getNetwork, etc.)
+   * pass through directly.
+   */
+  private createLockedWalletProxy(): IMPCWallet {
+    const raw = this.mpcWallet!
+    const lock = <T>(fn: () => Promise<T>) => this.withSigningLock(fn)
+
+    return new Proxy(raw, {
+      get: (target, prop, receiver) => {
+        // These methods mutate MPC WASM state and MUST be serialized
+        const lockedMethods = new Set([
+          'createSignature', 'createHmac',
+          'createAction', 'internalizeAction',
+          'encrypt', 'decrypt',
+        ])
+        if (typeof prop === 'string' && lockedMethods.has(prop)) {
+          return (...args: any[]) => lock(() => (target as any)[prop](...args))
+        }
+        return Reflect.get(target, prop, receiver)
+      }
     })
   }
 
@@ -582,22 +668,26 @@ export class MPCAgentWallet implements BRC100Wallet {
 
   async sendMessage(args: { recipient: string; messageBox: string; body: string }): Promise<any> {
     if (!this.messageBoxClient) throw new Error('MessageBox not initialized')
-    return this.withSigningLock(() => this.messageBoxClient!.sendMessage(args))
+    // No outer lock — the lockedWallet proxy already serializes individual
+    // signing operations (createSignature, createHmac, etc.) inside authFetch.
+    // Wrapping the whole call in withSigningLock would deadlock because
+    // authFetch tries to acquire the same non-reentrant lock for signing.
+    return this.messageBoxClient.sendMessage(args)
   }
 
   async listMessages(args: { messageBox: string }): Promise<any[]> {
     if (!this.messageBoxClient) throw new Error('MessageBox not initialized')
-    return this.withSigningLock(() => this.messageBoxClient!.listMessages(args))
+    return this.messageBoxClient.listMessages(args)
   }
 
   async acknowledgeMessages(args: { messageIds: string[] }): Promise<void> {
     if (!this.messageBoxClient) throw new Error('MessageBox not initialized')
-    await this.withSigningLock(() => this.messageBoxClient!.acknowledgeMessage(args))
+    await this.messageBoxClient.acknowledgeMessage(args)
   }
 
   async sendPayment(args: { recipient: string; amount: number }): Promise<void> {
     if (!this.peerPayClient) throw new Error('PeerPay not initialized')
-    await this.withSigningLock(() => this.peerPayClient!.sendPayment(args))
+    await this.peerPayClient.sendPayment(args)
   }
 
   /**

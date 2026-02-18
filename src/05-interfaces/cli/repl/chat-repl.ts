@@ -26,14 +26,13 @@ export interface ChatREPLConfig {
   agentPublicKey: string;
   userPublicKey: string;
   messageBox: string;
-  timeout: number;
 }
 
 /**
  * Start interactive chat REPL
  */
 export async function startChatREPL(config: ChatREPLConfig): Promise<void> {
-  const { messageClient, agentPublicKey, userPublicKey, messageBox, timeout } =
+  const { messageClient, agentPublicKey, userPublicKey, messageBox } =
     config;
 
   const rl = readline.createInterface({
@@ -75,8 +74,7 @@ export async function startChatREPL(config: ChatREPLConfig): Promise<void> {
         messageClient,
         agentPublicKey,
         messageBox,
-        request,
-        timeout
+        request
       );
 
       spinner.stop();
@@ -143,24 +141,20 @@ async function sendAndWaitForResponse(
   messageClient: AGIDMessageClient,
   agentPublicKey: string,
   messageBox: string,
-  request: ChatRequest,
-  timeout: number
+  request: ChatRequest
 ): Promise<ChatResponse> {
   // Send the request (auto-encrypted by MessageBox)
   await messageClient.sendMessage(agentPublicKey, messageBox, request);
 
-  // Poll for response
+  // Poll for response (no timeout - wait until agent responds or user cancels)
   return new Promise((resolve, reject) => {
-    const startTime = Date.now();
     const pollInterval = 1000; // 1 second
 
     const poll = async () => {
       try {
-        // Check timeout
-        if (Date.now() - startTime > timeout) {
-          reject(new Error(`Response timeout after ${timeout}ms`));
-          return;
-        }
+        // No timeout - wait indefinitely for the agent to respond.
+        // The agent may use tools, sign transactions, etc. which takes time.
+        // User can Ctrl+C to cancel.
 
         // List messages in our inbox
         const messages = await messageClient.listMessages(messageBox);
