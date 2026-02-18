@@ -1,7 +1,7 @@
 {
   "name": "agidentity",
   "version": "0.1.0",
-  "description": "BSV blockchain wallet and identity for AI agents - OpenClaw wrapper with Shad memory and UHRP storage",
+  "description": "BSV blockchain wallet and identity for AI agents with native Anthropic agent core",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -32,6 +32,7 @@
     "cli:chat": "node dist/05-interfaces/cli/index.js chat"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@bsv/auth-express-middleware": "^2.0.2",
     "@bsv/message-box-client": "file:./mpc/message-box-client",
     "@bsv/sdk": "^2.0.3",
@@ -44,14 +45,6 @@
     "express": "^5.0.0",
     "jsonwebtoken": "^9.0.3",
     "zod": "^3.23.0"
-  },
-  "peerDependencies": {
-    "openclaw": "^2026.2.14"
-  },
-  "peerDependenciesMeta": {
-    "openclaw": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
@@ -73,7 +66,7 @@
     "ai",
     "agent",
     "identity",
-    "openclaw",
+    "anthropic",
     "shad",
     "uhrp",
     "encryption"

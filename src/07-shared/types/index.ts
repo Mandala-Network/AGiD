@@ -5,8 +5,8 @@
  * encryption contexts, and UHRP storage types.
  */
 
-// Re-export OpenClaw Gateway types
-export * from './openclaw-gateway.js';
+// Re-export Agent Core types
+export * from './agent-types.js';
 
 // ============================================================================
 // Wallet Types (BRC-100 Compatible)
