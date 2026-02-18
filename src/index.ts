@@ -1,8 +1,9 @@
 /**
  * AGIdentity
  *
- * A lightweight wrapper around OpenClaw that adds:
+ * BSV blockchain wallet and identity for AI agents with native Anthropic agent core:
  * - BRC-100 wallet identity for AI agents
+ * - Native Anthropic API agent loop (no OpenClaw dependency)
  * - Encrypted Shad semantic memory
  * - UHRP blockchain-timestamped storage
  * - Per-interaction encryption (Edwin-style security)
@@ -134,20 +135,20 @@ export type {
 export { createAGIdentityService } from './05-interfaces/service/index.js';
 export type { AGIdentityServiceConfig, AGIdentityService } from './05-interfaces/service/index.js';
 
-// OpenClaw Gateway (WebSocket client for OpenClaw AI agent)
-export { OpenClawClient, createOpenClawClient } from './04-integrations/openclaw/index.js';
-export type { OpenClawClientConfig } from './04-integrations/openclaw/index.js';
-
-// AGIdentity OpenClaw Gateway (full integration: MessageBox → Identity → OpenClaw → MPC Sign)
+// AGIdentity Gateway (native agent loop: MessageBox → Identity → Anthropic API → MPC Sign)
 export {
-  AGIdentityOpenClawGateway,
+  AGIdentityGateway,
   createAGIdentityGateway,
 } from './03-gateway/gateway/index.js';
 export type {
-  AGIdentityOpenClawGatewayConfig,
+  AGIdentityGatewayConfig,
   SignedResponse,
-  IdentityContext,
 } from './03-gateway/gateway/index.js';
+export type { IdentityContext } from './03-gateway/agent/index.js';
+
+// Agent Core
+export { ToolRegistry, PromptBuilder, SessionStore, AgentLoop, AnthropicProvider } from './03-gateway/agent/index.js';
+export type { PromptBuilderConfig, AgentLoopConfig, SessionStoreConfig, LLMProvider, LLMResponse, LLMMessage, LLMToolDef } from './03-gateway/agent/index.js';
 
 // Client SDK
 export { AGIDClient, createAGIDClient } from './05-interfaces/client/index.js';

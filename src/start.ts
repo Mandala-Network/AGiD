@@ -14,12 +14,18 @@
  *   AGENT_PRIVATE_KEY=<64-hex-chars>
  *
  * Common:
+ *   ANTHROPIC_API_KEY=<required>
  *   TRUSTED_CERTIFIERS=<comma-separated-ca-pubkeys>
- *   OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789 (optional)
+ *   AGID_MODEL=claude-sonnet-4-5-20250929 (optional)
+ *   AGID_WORKSPACE_PATH=~/.agidentity/workspace/ (optional)
+ *   AGID_SESSIONS_PATH=~/.agidentity/sessions/ (optional)
+ *   AGID_MAX_ITERATIONS=25 (optional)
+ *   AGID_MAX_TOKENS=8192 (optional)
  */
 
 import 'dotenv/config';
 import { createAGIdentityGateway } from './03-gateway/gateway/index.js';
+import { AnthropicProvider } from './03-gateway/agent/providers/index.js';
 import { createAgentWallet } from './01-core/wallet/agent-wallet.js';
 import { createProductionMPCWallet, loadMPCConfigFromEnv } from './01-core/wallet/mpc-integration.js';
 import { createAGIDServer } from './05-interfaces/server/auth-server.js';
@@ -34,6 +40,14 @@ async function main() {
   console.log('║         Enterprise AI with Cryptographic Identity          ║');
   console.log('╚═══════════════════════════════════════════════════════════╝');
   console.log('');
+
+  // Validate ANTHROPIC_API_KEY
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicApiKey) {
+    console.error('ERROR: ANTHROPIC_API_KEY not set');
+    console.error('Set your Anthropic API key in .env or environment');
+    process.exit(1);
+  }
 
   // Determine wallet mode
   const mpcEndpoints = process.env.MPC_COSIGNER_ENDPOINTS;
@@ -112,22 +126,27 @@ async function main() {
     console.warn('');
   }
 
-  // Create gateway (optional - for MessageBox)
-  console.log('Starting MessageBox gateway...');
+  // Create gateway with native agent loop
+  console.log('Starting native agent gateway...');
   let gateway = null;
   try {
+    const provider = new AnthropicProvider(anthropicApiKey);
     gateway = await createAGIdentityGateway({
       wallet,
       trustedCertifiers,
-      openclawUrl: process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789',
-      openclawToken: process.env.OPENCLAW_AUTH_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN,
+      provider,
+      model: process.env.AGID_MODEL,
+      workspacePath: process.env.AGID_WORKSPACE_PATH,
+      sessionsPath: process.env.AGID_SESSIONS_PATH,
+      maxIterations: process.env.AGID_MAX_ITERATIONS ? parseInt(process.env.AGID_MAX_ITERATIONS) : undefined,
+      maxTokens: process.env.AGID_MAX_TOKENS ? parseInt(process.env.AGID_MAX_TOKENS) : undefined,
       signResponses: true,
       audit: { enabled: true },
       messageBoxes: ['inbox', 'chat'],
     });
-    console.log('✅ MessageBox gateway initialized');
+    console.log('✅ Agent gateway initialized');
   } catch (error) {
-    console.warn('⚠️  MessageBox gateway failed to start:', error instanceof Error ? error.message : error);
+    console.warn('⚠️  Agent gateway failed to start:', error instanceof Error ? error.message : error);
     console.warn('   Continuing without MessageBox (HTTP API will still work)');
   }
 
@@ -145,7 +164,7 @@ async function main() {
       identityGate,
       port: parseInt(process.env.AUTH_SERVER_PORT || '3000'),
       trustedCertifiers,
-      allowUnauthenticated: true, // Allow OpenClaw plugin without BRC-103
+      allowUnauthenticated: true,
       enableLogging: true,
       logLevel: 'info',
     });
@@ -163,6 +182,7 @@ async function main() {
   console.log('');
   if (gateway) {
     console.log('✅ MessageBox: Listening for encrypted messages');
+    console.log('✅ Agent Core: Native Anthropic API (no OpenClaw)');
   } else {
     console.log('❌ MessageBox: Not running (insufficient funds)');
   }
