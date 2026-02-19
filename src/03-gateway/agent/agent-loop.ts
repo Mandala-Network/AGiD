@@ -10,6 +10,8 @@ import type { ToolRegistry } from './tool-registry.js';
 import type { SessionStore } from './session-store.js';
 import type { PromptBuilder, IdentityContext } from './prompt-builder.js';
 import type { AgentLoopResult, AgentToolCall, AgentUsageStats, ConversationTurn } from '../../07-shared/types/agent-types.js';
+import type { AnchorChain } from '../../07-shared/audit/anchor-chain.js';
+import { sha256 } from '../../07-shared/audit/anchor-chain.js';
 
 export interface AgentLoopConfig {
   toolRegistry: ToolRegistry;
@@ -40,7 +42,7 @@ export class AgentLoop {
     this.maxTokens = config.maxTokens;
   }
 
-  async run(userMessage: string, sessionId: string, identityContext?: IdentityContext): Promise<AgentLoopResult> {
+  async run(userMessage: string, sessionId: string, identityContext?: IdentityContext, anchorChain?: AnchorChain): Promise<AgentLoopResult> {
     const toolCalls: AgentToolCall[] = [];
     const usage: AgentUsageStats = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
@@ -121,6 +123,20 @@ export class AgentLoop {
           });
 
           console.log(`[AgentLoop] ${result.isError ? '❌' : '✅'} ${call.name} completed`);
+
+          // Anchor tool execution if chain provided
+          if (anchorChain) {
+            const anchorType = call.name === 'agid_send_payment' ? 'payment' as const
+              : call.name === 'agid_store_memory' ? 'memory_write' as const
+              : 'tool_use' as const;
+            const outputHash = await sha256(result.content);
+            await anchorChain.addAnchor({
+              type: anchorType,
+              data: { tool: call.name, input: call.input, outputHash },
+              summary: `${call.name}${anchorType === 'payment' ? `: ${(call.input as any).amount} sats → ${((call.input as any).recipient as string)?.substring(0, 12)}...` : ''}`,
+              metadata: anchorType === 'payment' ? { recipient: (call.input as any).recipient, amount: (call.input as any).amount } : undefined,
+            });
+          }
         }
 
         // Append tool results as user message

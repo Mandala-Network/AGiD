@@ -6,6 +6,7 @@
  * Same external behavior: every interaction is authenticated, signed, and audited.
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import type { AgentWallet } from '../../01-core/wallet/agent-wallet.js';
 import type { ProcessedMessage, MessageResponse } from '../messaging/messagebox-gateway.js';
@@ -13,6 +14,9 @@ import type { IdentityContext } from '../agent/prompt-builder.js';
 import { MessageBoxGateway, createMessageBoxGateway } from '../messaging/messagebox-gateway.js';
 import { IdentityGate } from '../../01-core/identity/identity-gate.js';
 import { SignedAuditTrail } from '../../07-shared/audit/signed-audit.js';
+import { AnchorChain } from '../../07-shared/audit/anchor-chain.js';
+import { WorkspaceIntegrity } from '../../07-shared/audit/workspace-integrity.js';
+import { lockPushDropToken } from '../../01-core/wallet/pushdrop-ops.js';
 import { ToolRegistry } from '../agent/tool-registry.js';
 import { PromptBuilder } from '../agent/prompt-builder.js';
 import { SessionStore } from '../agent/session-store.js';
@@ -71,6 +75,8 @@ export class AGIdentityGateway {
   private agentLoop: AgentLoop | null = null;
   private running = false;
   private agentPublicKey: string | null = null;
+  private workspacePath: string = '';
+  private sessionsPath: string = '';
 
   constructor(config: AGIdentityGatewayConfig) {
     this.config = config;
@@ -85,8 +91,10 @@ export class AGIdentityGateway {
     this.agentPublicKey = publicKey;
 
     const home = process.env.HOME || '/tmp';
-    const workspacePath = this.config.workspacePath ?? path.join(home, '.agidentity', 'workspace');
-    const sessionsPath = this.config.sessionsPath ?? path.join(home, '.agidentity', 'sessions');
+    this.workspacePath = this.config.workspacePath ?? path.join(home, '.agidentity', 'workspace');
+    this.sessionsPath = this.config.sessionsPath ?? path.join(home, '.agidentity', 'sessions');
+    const workspacePath = this.workspacePath;
+    const sessionsPath = this.sessionsPath;
     const model = this.config.model ?? 'claude-sonnet-4-5-20250929';
     const maxIterations = this.config.maxIterations ?? 25;
     const maxTokens = this.config.maxTokens ?? 8192;
@@ -100,7 +108,7 @@ export class AGIdentityGateway {
 
     // 2. Set up agent components
     const toolRegistry = new ToolRegistry();
-    toolRegistry.registerBuiltinTools(this.wallet);
+    toolRegistry.registerBuiltinTools(this.wallet, workspacePath, sessionsPath);
 
     const network = await this.wallet.getNetwork();
     const promptBuilder = new PromptBuilder({
@@ -218,16 +226,77 @@ export class AGIdentityGateway {
         message.context.certificate.subject;
     }
 
+    // Create anchor chain for this session
+    const anchorChain = new AnchorChain(identityContext.conversationId, this.agentPublicKey!);
+
+    // Check workspace integrity
+    let workspaceHash: { combinedHash: string } | undefined;
+    try {
+      const wsIntegrity = new WorkspaceIntegrity(this.workspacePath);
+      const currentHash = await wsIntegrity.hashWorkspace();
+      workspaceHash = currentHash;
+      const lastAnchor = await wsIntegrity.getLastAnchor(this.wallet);
+
+      if (lastAnchor) {
+        // Compare combined hashes — we only have the combined hash from on-chain
+        if (currentHash.combinedHash !== lastAnchor.workspaceHash) {
+          identityContext.workspaceIntegrity = {
+            verified: false,
+            lastAnchorTxid: lastAnchor.txid,
+            modifiedFiles: ['(workspace changed since last anchor)'],
+            missingFiles: [],
+            newFiles: [],
+          };
+        } else {
+          identityContext.workspaceIntegrity = {
+            verified: true,
+            lastAnchorTxid: lastAnchor.txid,
+            modifiedFiles: [],
+            missingFiles: [],
+            newFiles: [],
+          };
+        }
+      }
+
+      await anchorChain.addAnchor({
+        type: 'session_start',
+        data: { workspaceHash: currentHash.combinedHash, files: currentHash.files },
+        summary: `Session start (workspace: ${currentHash.combinedHash.substring(0, 12)}...)`,
+        metadata: identityContext.workspaceIntegrity ? { integrity: identityContext.workspaceIntegrity } : undefined,
+      });
+    } catch (error) {
+      console.error('[AGIdentityGateway] Workspace integrity check failed:', error instanceof Error ? error.message : error);
+    }
+
     // Run agent loop
     console.log(`[AGIdentityGateway] 🤖 Running agent loop (session: ${identityContext.conversationId})`);
     let aiResponse: string;
+    let toolCallCount = 0;
     try {
-      const result = await this.agentLoop!.run(content, identityContext.conversationId, identityContext);
+      const result = await this.agentLoop!.run(content, identityContext.conversationId, identityContext, anchorChain);
       aiResponse = result.response;
+      toolCallCount = result.toolCalls.length;
       console.log(`[AGIdentityGateway] ✅ Agent responded (${aiResponse.length} chars, ${result.iterations} iterations, ${result.toolCalls.length} tool calls, ${result.usage.totalTokens} tokens)`);
     } catch (error) {
       console.error('[AGIdentityGateway] ❌ Agent loop error:', error instanceof Error ? error.message : error);
       aiResponse = 'Sorry, I encountered an error processing your request. Please try again.';
+    }
+
+    // Finalize anchor chain
+    try {
+      await anchorChain.addAnchor({
+        type: 'session_end',
+        data: { responseLength: aiResponse.length, toolCallCount },
+        summary: `Session end (${toolCallCount} tool calls)`,
+      });
+
+      // Persist anchor chain to disk
+      await this.persistAnchorChain(anchorChain);
+
+      // Commit on-chain
+      await this.commitAnchorOnChain(anchorChain, workspaceHash?.combinedHash ?? '0'.repeat(64));
+    } catch (error) {
+      console.error('[AGIdentityGateway] Anchor chain finalization failed:', error instanceof Error ? error.message : error);
     }
 
     // Sign response
@@ -271,6 +340,41 @@ export class AGIdentityGateway {
         signed: signedResponse.signed,
       },
     };
+  }
+
+  // ===========================================================================
+  // Anchor Chain Persistence & On-Chain Commit
+  // ===========================================================================
+
+  private async persistAnchorChain(chain: AnchorChain): Promise<void> {
+    const data = await chain.serializeWithMerkle();
+    const safe = chain.getSessionId().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const anchorPath = path.join(this.sessionsPath, `${safe}.anchor.json`);
+    fs.writeFileSync(anchorPath, JSON.stringify(data, null, 2), 'utf8');
+    console.log(`[AGIdentityGateway] 📎 Anchor chain persisted (${chain.getAnchorCount()} anchors → ${anchorPath})`);
+  }
+
+  private async commitAnchorOnChain(chain: AnchorChain, workspaceCombinedHash: string): Promise<void> {
+    try {
+      const merkleRoot = await chain.getMerkleRoot();
+      const result = await lockPushDropToken(this.wallet, {
+        fields: [
+          'agidentity-anchor-v1',
+          chain.getSessionId(),
+          merkleRoot,
+          chain.getHeadHash(),
+          workspaceCombinedHash,
+          String(chain.getAnchorCount()),
+        ],
+        protocolID: [2, 'agidentity-anchor'],
+        keyID: `anchor-${chain.getSessionId()}`,
+        basket: 'anchor-chain',
+        description: `Anchor chain: ${chain.getSessionId()} (${chain.getAnchorCount()} anchors)`,
+      });
+      console.log(`[AGIdentityGateway] ⚓ Anchor chain committed on-chain (txid: ${result.txid})`);
+    } catch (error) {
+      console.error('[AGIdentityGateway] On-chain anchor commit failed:', error instanceof Error ? error.message : error);
+    }
   }
 
   // ===========================================================================

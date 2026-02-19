@@ -8,6 +8,10 @@
 // Re-export Agent Core types
 export * from './agent-types.js';
 
+// Re-export Anchor Chain types
+export type { AnchorPoint, AnchorChainData, AnchorType } from '../audit/anchor-chain.js';
+export type { WorkspaceHash, IntegrityStatus } from '../audit/workspace-integrity.js';
+
 // ============================================================================
 // Wallet Types (BRC-100 Compatible)
 // ============================================================================

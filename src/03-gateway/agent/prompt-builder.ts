@@ -7,6 +7,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { IntegrityStatus } from '../../07-shared/audit/workspace-integrity.js';
 
 export interface PromptBuilderConfig {
   workspacePath: string;
@@ -19,6 +20,7 @@ export interface IdentityContext {
   verified: boolean;
   certificateSubject?: string;
   conversationId: string;
+  workspaceIntegrity?: IntegrityStatus;
 }
 
 const DEFAULT_SOUL = `You are an autonomous AI agent with a cryptographic identity on the BSV blockchain.
@@ -49,7 +51,8 @@ export class PromptBuilder {
     if (!identityContext) return staticPrompt;
 
     const senderBlock = this.buildSenderBlock(identityContext);
-    return staticPrompt + '\n\n' + senderBlock;
+    const integrityBlock = this.buildIntegrityBlock(identityContext);
+    return staticPrompt + '\n\n' + senderBlock + (integrityBlock ? '\n\n' + integrityBlock : '');
   }
 
   private getStaticPrompt(): string {
@@ -99,6 +102,26 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
     lines.push(`Conversation: ${ctx.conversationId}`);
     lines.push('[END CURRENT MESSAGE CONTEXT]');
     return lines.join('\n');
+  }
+
+  private buildIntegrityBlock(ctx: IdentityContext): string | null {
+    const s = ctx.workspaceIntegrity;
+    if (!s) return null;
+
+    if (s.verified) {
+      return `[WORKSPACE INTEGRITY]\nVerified against on-chain anchor${s.lastAnchorTxid ? ` (tx: ${s.lastAnchorTxid})` : ''}.\n[END WORKSPACE INTEGRITY]`;
+    }
+
+    const warnings: string[] = [];
+    if (s.modifiedFiles.length > 0) warnings.push(`Modified: ${s.modifiedFiles.join(', ')}`);
+    if (s.missingFiles.length > 0) warnings.push(`Missing: ${s.missingFiles.join(', ')}`);
+    if (s.newFiles.length > 0) warnings.push(`New: ${s.newFiles.join(', ')}`);
+
+    if (warnings.length > 0) {
+      return `[WORKSPACE INTEGRITY WARNING]\nWorkspace changed since last on-chain anchor. ${warnings.join('. ')}. Exercise caution with unverified workspace state.\n[END WORKSPACE INTEGRITY WARNING]`;
+    }
+
+    return null;
   }
 
   private ensureWorkspace(): void {

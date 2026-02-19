@@ -5,8 +5,13 @@
  * Tools execute in-process against the wallet — no HTTP roundtrip.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { lockPushDropToken, decodePushDropToken, unlockPushDropToken } from '../../01-core/wallet/pushdrop-ops.js';
 import { storeMemory } from '../../02-storage/memory/memory-writer.js';
+import { WorkspaceIntegrity } from '../../07-shared/audit/workspace-integrity.js';
+import { AnchorChain } from '../../07-shared/audit/anchor-chain.js';
+import type { AnchorChainData } from '../../07-shared/audit/anchor-chain.js';
 import type { AgentWallet } from '../../01-core/wallet/agent-wallet.js';
 import type { AgentToolDefinition, RegisteredTool, ToolResult } from '../../07-shared/types/agent-types.js';
 
@@ -36,7 +41,7 @@ export class ToolRegistry {
     }
   }
 
-  registerBuiltinTools(wallet: AgentWallet): void {
+  registerBuiltinTools(wallet: AgentWallet, workspacePath?: string, sessionsPath?: string): void {
     this.registerIdentityTool(wallet);
     this.registerBalanceTool(wallet);
     this.registerSignTool(wallet);
@@ -55,6 +60,8 @@ export class ToolRegistry {
     this.registerMessageListTool(wallet);
     this.registerMessageAckTool(wallet);
     this.registerStoreMemoryTool(wallet);
+    if (workspacePath) this.registerVerifyWorkspaceTool(wallet, workspacePath);
+    if (sessionsPath) this.registerVerifySessionTool(sessionsPath);
   }
 
   // ===========================================================================
@@ -597,6 +604,85 @@ export class ToolRegistry {
         const importance = (params.importance as 'high' | 'medium' | 'low') || 'medium';
         const result = await storeMemory(wallet, { content, tags, importance });
         return ok({ txid: result.txid, uhrpUrl: result.uhrpUrl, tags: result.tags, stored: true });
+      },
+    });
+  }
+  // ===========================================================================
+  // Verification Tools
+  // ===========================================================================
+
+  private registerVerifyWorkspaceTool(wallet: AgentWallet, workspacePath: string): void {
+    this.register({
+      definition: {
+        name: 'agid_verify_workspace',
+        description: 'Verify workspace file integrity against the last on-chain anchor. Reports modified, missing, or new files.',
+        input_schema: { type: 'object', properties: {}, required: [] },
+      },
+      execute: async () => {
+        const integrity = new WorkspaceIntegrity(workspacePath);
+        const currentHash = await integrity.hashWorkspace();
+        const lastAnchor = await integrity.getLastAnchor(wallet);
+
+        if (!lastAnchor) {
+          return ok({
+            verified: false,
+            message: 'No previous on-chain anchor found. This may be a first session.',
+            currentFiles: Object.keys(currentHash.files),
+            combinedHash: currentHash.combinedHash,
+          });
+        }
+
+        // Compare current combined hash against on-chain workspace hash
+        const matched = currentHash.combinedHash === lastAnchor.workspaceHash;
+        return ok({
+          verified: matched,
+          lastAnchorTxid: lastAnchor.txid,
+          currentCombinedHash: currentHash.combinedHash,
+          anchoredCombinedHash: lastAnchor.workspaceHash,
+          files: currentHash.files,
+          message: matched
+            ? 'Workspace integrity verified against on-chain anchor.'
+            : 'Workspace has changed since last on-chain anchor.',
+        });
+      },
+    });
+  }
+
+  private registerVerifySessionTool(sessionsPath: string): void {
+    this.register({
+      definition: {
+        name: 'agid_verify_session',
+        description: 'Verify the anchor chain integrity for a past session. Walks the hash chain and confirms all links.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string', description: 'Session ID to verify' },
+          },
+          required: ['sessionId'],
+        },
+      },
+      execute: async (params) => {
+        const sessionId = params.sessionId as string;
+        const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const anchorPath = path.join(sessionsPath, `${safe}.anchor.json`);
+
+        if (!fs.existsSync(anchorPath)) {
+          return ok({ verified: false, error: `No anchor chain found for session: ${sessionId}` });
+        }
+
+        const data: AnchorChainData = JSON.parse(fs.readFileSync(anchorPath, 'utf8'));
+        const chain = AnchorChain.fromSerialized(data);
+        const verification = await chain.verify();
+        const merkleRoot = await chain.getMerkleRoot();
+
+        return ok({
+          verified: verification.valid,
+          sessionId: data.sessionId,
+          anchorCount: data.anchors.length,
+          headHash: data.headHash,
+          merkleRoot,
+          errors: verification.errors,
+        });
       },
     });
   }
