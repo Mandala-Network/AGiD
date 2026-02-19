@@ -4,17 +4,14 @@
  * JSONL-based conversation persistence at ~/.agidentity/sessions/{sessionId}.jsonl.
  * Each line is a JSON-encoded ConversationTurn.
  * Trims old turns when approaching token limits.
+ * Normalizes legacy Anthropic-format turns to canonical format on read.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { normalizeToCanonical } from './canonical-format.js';
+import type { LLMMessage } from './llm-provider.js';
 import type { ConversationTurn, SessionData } from '../../07-shared/types/agent-types.js';
-
-/** Anthropic API message format */
-export interface AnthropicMessage {
-  role: 'user' | 'assistant';
-  content: unknown;
-}
 
 export interface SessionStoreConfig {
   sessionsPath: string;
@@ -64,11 +61,11 @@ export class SessionStore {
     fs.appendFileSync(filePath, line, 'utf8');
   }
 
-  async getMessages(sessionId: string): Promise<AnthropicMessage[]> {
+  async getMessages(sessionId: string): Promise<LLMMessage[]> {
     const session = await this.getSession(sessionId);
     let turns = session.turns;
 
-    // Trim if over token estimate (4 chars ≈ 1 token heuristic)
+    // Trim if over token estimate (4 chars ~ 1 token heuristic)
     const estimateTokens = (t: ConversationTurn[]) =>
       t.reduce((sum, turn) => {
         const text = typeof turn.content === 'string' ? turn.content : JSON.stringify(turn.content);
@@ -78,21 +75,20 @@ export class SessionStore {
     if (estimateTokens(turns) > this.maxTokenEstimate && turns.length > 2) {
       // Keep first turn for context continuity, trim from the middle
       const first = turns[0];
-      let trimmed = [first];
       let remaining = turns.slice(1);
 
       // Remove oldest turns until under limit
       while (estimateTokens([first, ...remaining]) > this.maxTokenEstimate && remaining.length > 1) {
         remaining = remaining.slice(1);
       }
-      trimmed = [first, ...remaining];
-      turns = trimmed;
+      turns = [first, ...remaining];
     }
 
-    return turns.map((t) => ({
-      role: t.role,
-      content: t.content,
-    }));
+    // Normalize each turn to canonical format (handles legacy Anthropic format)
+    return turns.map((t) => {
+      const canonical = normalizeToCanonical(t);
+      return { role: canonical.role, content: canonical.content };
+    });
   }
 
   private sessionPath(sessionId: string): string {

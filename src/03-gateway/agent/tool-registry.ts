@@ -7,8 +7,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { mkdtemp, chmod, writeFile, rm } from 'fs/promises';
+import { tmpdir } from 'os';
 import { lockPushDropToken, decodePushDropToken, unlockPushDropToken } from '../../01-core/wallet/pushdrop-ops.js';
 import { storeMemory } from '../../02-storage/memory/memory-writer.js';
+import { listMemories } from '../../02-storage/memory/memory-reader.js';
+import type { Memory } from '../../02-storage/memory/memory-reader.js';
+import { ShadTempVaultExecutor } from '../../04-integrations/shad/shad-temp-executor.js';
 import { WorkspaceIntegrity } from '../../07-shared/audit/workspace-integrity.js';
 import { AnchorChain } from '../../07-shared/audit/anchor-chain.js';
 import type { AnchorChainData } from '../../07-shared/audit/anchor-chain.js';
@@ -60,6 +65,8 @@ export class ToolRegistry {
     this.registerMessageListTool(wallet);
     this.registerMessageAckTool(wallet);
     this.registerStoreMemoryTool(wallet);
+    this.registerRecallMemoriesTool(wallet);
+    this.registerSemanticSearchTool(wallet, workspacePath);
     if (workspacePath) this.registerVerifyWorkspaceTool(wallet, workspacePath);
     if (sessionsPath) this.registerVerifySessionTool(sessionsPath);
   }
@@ -607,6 +614,187 @@ export class ToolRegistry {
       },
     });
   }
+  // ===========================================================================
+  // Memory Recall & Search Tools
+  // ===========================================================================
+
+  private registerRecallMemoriesTool(wallet: AgentWallet): void {
+    this.register({
+      definition: {
+        name: 'agid_recall_memories',
+        description: 'Recall memories from your on-chain memory vault with full blockchain provenance (txid, timestamp, UHRP hash). Lightweight — no Shad dependency.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tags' },
+            importance: { type: 'string', description: '"high", "medium", or "low"' },
+            limit: { type: 'number', description: 'Max memories to return (default: 20)' },
+          },
+          required: [],
+        },
+      },
+      execute: async (params) => {
+        const tags = params.tags as string[] | undefined;
+        const importance = params.importance as string | undefined;
+        const limit = (params.limit as number) || 20;
+
+        const memories = await listMemories(wallet, { tags, importance });
+        const limited = memories.slice(0, limit);
+
+        return ok({
+          memories: limited.map((m: Memory) => ({
+            content: m.content,
+            tags: m.tags,
+            importance: m.importance,
+            txid: m.txid,
+            blockTimestamp: m.createdAt,
+            uhrpUrl: m.uhrpUrl,
+            outpoint: m.outpoint,
+          })),
+          total: memories.length,
+          returned: limited.length,
+        });
+      },
+    });
+  }
+
+  private registerSemanticSearchTool(wallet: AgentWallet, workspacePath?: string): void {
+    this.register({
+      definition: {
+        name: 'agid_semantic_search',
+        description: 'Semantic search over your on-chain memory vault using Shad RLM. Returns results with blockchain provenance. Falls back gracefully if Shad is not installed.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Search query for semantic matching' },
+            strategy: { type: 'string', description: 'Shad strategy: research, analyze, summarize (default: research)' },
+            maxDepth: { type: 'number', description: 'Max recursion depth (default: 3)' },
+            maxTime: { type: 'number', description: 'Max execution time in seconds (default: 120)' },
+            importance: { type: 'string', description: 'Filter by importance: high, medium, low' },
+          },
+          required: ['query'],
+        },
+      },
+      execute: async (params) => {
+        const query = params.query as string;
+        const strategy = (params.strategy as string) || 'research';
+        const maxDepth = (params.maxDepth as number) || 3;
+        const maxTime = (params.maxTime as number) || 120;
+        const importance = params.importance as string | undefined;
+
+        // 1. Fetch all on-chain memories (decrypted)
+        let memories: Memory[];
+        try {
+          memories = await listMemories(wallet, { importance });
+        } catch (error) {
+          return ok({
+            error: 'Failed to retrieve memories from on-chain vault',
+            details: error instanceof Error ? error.message : String(error),
+            suggestion: 'Use agid_recall_memories for direct memory access without Shad',
+          });
+        }
+
+        if (memories.length === 0 && !workspacePath) {
+          return ok({ results: [], total: 0, message: 'No memories found in on-chain vault' });
+        }
+
+        // 2. Create secure temp directory
+        const tempDir = await mkdtemp(path.join(tmpdir(), 'agid-search-'));
+        await chmod(tempDir, 0o700);
+
+        try {
+          // 3. Write decrypted memories as files
+          const provenanceMap = new Map<string, Memory>();
+          for (const memory of memories) {
+            const safeName = `${memory.tags.join('-') || 'memory'}-${memory.txid.substring(0, 8)}.md`;
+            const filePath = path.join(tempDir, safeName);
+            await writeFile(filePath, memory.content, { encoding: 'utf-8', mode: 0o600 });
+            provenanceMap.set(safeName, memory);
+          }
+
+          // 4. Include workspace MEMORY.md if present
+          if (workspacePath) {
+            const memoryMdPath = path.join(workspacePath, 'MEMORY.md');
+            if (fs.existsSync(memoryMdPath)) {
+              const content = fs.readFileSync(memoryMdPath, 'utf8');
+              await writeFile(path.join(tempDir, 'workspace-MEMORY.md'), content, { encoding: 'utf-8', mode: 0o600 });
+            }
+          }
+
+          // 5. Check Shad availability and run
+          const executor = new ShadTempVaultExecutor({
+            vault: { read: async (p: string) => fs.readFileSync(path.join(tempDir, p), 'utf8'), list: async () => fs.readdirSync(tempDir) } as any,
+            shadConfig: { strategy: strategy as any, maxDepth, maxTime },
+          });
+
+          const availability = await executor.checkShadAvailable();
+          if (!availability.available) {
+            // Graceful fallback: return memories without semantic ranking
+            return ok({
+              results: memories.slice(0, 10).map((m: Memory) => ({
+                content: m.content,
+                tags: m.tags,
+                importance: m.importance,
+                txid: m.txid,
+                blockTimestamp: m.createdAt,
+                uhrpUrl: m.uhrpUrl,
+              })),
+              total: memories.length,
+              shadAvailable: false,
+              message: 'Shad not installed — returning unranked memories. Install Shad for semantic search: pip install shad',
+            });
+          }
+
+          // Run Shad search
+          const result = await executor.execute(query, { strategy: strategy as any, maxDepth, maxTime });
+
+          if (!result.success) {
+            return ok({
+              error: 'Shad search failed',
+              details: result.error,
+              fallbackResults: memories.slice(0, 5).map((m: Memory) => ({
+                content: m.content.substring(0, 200),
+                txid: m.txid,
+                tags: m.tags,
+              })),
+            });
+          }
+
+          // 6. Attach on-chain provenance to results
+          const enrichedResults = (result.retrievedDocuments ?? []).map((doc: any) => {
+            const fileName = typeof doc === 'string' ? path.basename(doc) : doc.path ? path.basename(doc.path) : '';
+            const provenance = provenanceMap.get(fileName);
+            return {
+              content: typeof doc === 'string' ? doc : doc.content ?? doc,
+              ...(provenance ? {
+                txid: provenance.txid,
+                blockTimestamp: provenance.createdAt,
+                uhrpUrl: provenance.uhrpUrl,
+                tags: provenance.tags,
+                importance: provenance.importance,
+              } : {}),
+            };
+          });
+
+          return ok({
+            output: result.output,
+            results: enrichedResults,
+            total: enrichedResults.length,
+            shadAvailable: true,
+            strategy,
+          });
+        } finally {
+          // 7. Secure cleanup
+          try {
+            await rm(tempDir, { recursive: true, force: true });
+          } catch {
+            // Cleanup errors shouldn't break execution
+          }
+        }
+      },
+    });
+  }
+
   // ===========================================================================
   // Verification Tools
   // ===========================================================================

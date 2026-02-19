@@ -103,10 +103,6 @@ export type {
   RevocationChecker,
 } from './01-core/identity/index.js';
 
-// Server (BRC-103/104 Auth)
-export { createAGIDServer } from './05-interfaces/server/index.js';
-export type { AGIDServerConfig, AGIDServer } from './05-interfaces/server/index.js';
-
 // Messaging (MessageBox Client)
 export { AGIDMessageClient, createMessageClient } from './03-gateway/messaging/index.js';
 export type {
@@ -147,8 +143,16 @@ export type {
 export type { IdentityContext } from './03-gateway/agent/index.js';
 
 // Agent Core
-export { ToolRegistry, PromptBuilder, SessionStore, AgentLoop, AnthropicProvider } from './03-gateway/agent/index.js';
-export type { PromptBuilderConfig, AgentLoopConfig, SessionStoreConfig, LLMProvider, LLMResponse, LLMMessage, LLMToolDef } from './03-gateway/agent/index.js';
+export {
+  ToolRegistry, PromptBuilder, SessionStore, AgentLoop,
+  AnthropicProvider, OllamaProvider, createProvider, normalizeToCanonical,
+} from './03-gateway/agent/index.js';
+export type {
+  PromptBuilderConfig, AgentLoopConfig, SessionStoreConfig,
+  LLMProvider, LLMResponse, LLMMessage, LLMToolDef,
+  CanonicalContent, CanonicalBlock, CanonicalTurn,
+  ProviderConfig, ProviderType, OllamaProviderConfig,
+} from './03-gateway/agent/index.js';
 
 // Client SDK
 export { AGIDClient, createAGIDClient } from './05-interfaces/client/index.js';

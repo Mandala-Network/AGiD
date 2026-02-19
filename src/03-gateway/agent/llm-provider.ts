@@ -3,11 +3,14 @@
  *
  * Provider-neutral abstraction for language model interactions.
  * Allows plugging in any model backend (Anthropic, OpenAI, Gemini, local, etc.).
+ * All content uses CanonicalContent — providers convert at their boundary.
  */
+
+import type { CanonicalContent } from './canonical-format.js';
 
 export interface LLMMessage {
   role: 'user' | 'assistant';
-  content: unknown; // Provider-specific content blocks stored opaquely
+  content: CanonicalContent;
 }
 
 export interface LLMToolDef {
@@ -35,8 +38,8 @@ export interface LLMResponse {
   toolCalls: LLMToolUse[];
   /** true = model finished, false = needs tool execution */
   done: boolean;
-  /** Opaque assistant content for message history (provider-native format) */
-  rawContent: unknown;
+  /** Canonical assistant content for message history */
+  rawContent: CanonicalContent;
   /** Token usage statistics */
   usage: { inputTokens: number; outputTokens: number };
 }

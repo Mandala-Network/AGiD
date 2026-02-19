@@ -42,12 +42,14 @@ export interface RegisteredTool {
 // ============================================================================
 
 /**
- * A single conversation turn
+ * A single conversation turn (canonical format for cross-model continuity)
  */
 export interface ConversationTurn {
   role: 'user' | 'assistant';
-  content: unknown; // Anthropic message content (string or content blocks)
+  content: unknown; // CanonicalContent (string or CanonicalBlock[]), kept as `unknown` for serialization flexibility
   timestamp: number;
+  /** Format version. Absent = legacy Anthropic format, 1 = canonical. */
+  v?: 1;
 }
 
 /**

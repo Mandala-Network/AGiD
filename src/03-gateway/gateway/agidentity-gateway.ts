@@ -21,7 +21,7 @@ import { ToolRegistry } from '../agent/tool-registry.js';
 import { PromptBuilder } from '../agent/prompt-builder.js';
 import { SessionStore } from '../agent/session-store.js';
 import { AgentLoop } from '../agent/agent-loop.js';
-import { AnthropicProvider } from '../agent/providers/index.js';
+import { createProvider } from '../agent/providers/index.js';
 import type { LLMProvider } from '../agent/llm-provider.js';
 
 // =============================================================================
@@ -121,10 +121,11 @@ export class AGIdentityGateway {
 
     // Create or use provided LLM provider
     const provider = this.config.provider ?? (() => {
-      if (!this.config.apiKey) {
-        throw new Error('Either provider or apiKey must be specified in AGIdentityGatewayConfig');
+      if (this.config.apiKey) {
+        return createProvider({ type: 'anthropic', anthropicApiKey: this.config.apiKey });
       }
-      return new AnthropicProvider(this.config.apiKey);
+      // Auto-detect from environment
+      return createProvider();
     })();
 
     this.agentLoop = new AgentLoop({

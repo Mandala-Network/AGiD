@@ -55,8 +55,8 @@ export class AgentLoop {
     // 3. Append user message
     history.push({ role: 'user', content: userMessage });
 
-    // Save user turn
-    const userTurn: ConversationTurn = { role: 'user', content: userMessage, timestamp: Date.now() };
+    // Save user turn (canonical v1 format)
+    const userTurn: ConversationTurn = { role: 'user', content: userMessage, timestamp: Date.now(), v: 1 };
     await this.sessionStore.addTurn(sessionId, userTurn);
 
     // 4. Get tool definitions
@@ -88,11 +88,12 @@ export class AgentLoop {
 
       // Check if model is done (end_turn or max_tokens)
       if (response.done) {
-        // Save assistant turn
+        // Save assistant turn (canonical v1 format)
         const assistantTurn: ConversationTurn = {
           role: 'assistant',
           content: response.rawContent,
           timestamp: Date.now(),
+          v: 1,
         };
         await this.sessionStore.addTurn(sessionId, assistantTurn);
 
