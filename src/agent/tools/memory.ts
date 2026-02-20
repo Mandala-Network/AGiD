@@ -6,7 +6,7 @@ export function memoryTools(): ToolDescriptor[] {
     {
       definition: {
         name: 'agid_store_memory',
-        description: 'Store a memory on the blockchain with tags for later retrieval',
+        description: 'Store a memory on the blockchain. Encrypts content, uploads to UHRP, creates a PushDrop token, and stores in the agent-memories basket. Use this for all memory storage — including tokenizing core memories, insights, and learnings. Returns txid and UHRP URL on success, or an error if insufficient funds.',
         input_schema: {
           type: 'object',
           properties: {

@@ -83,5 +83,54 @@ export function messagingTools(): ToolDescriptor[] {
         return ok({ acknowledged: messageIds.length, success: true });
       },
     },
+    {
+      definition: {
+        name: 'agid_list_payments',
+        description: 'List pending incoming payments waiting to be accepted. Returns payment details (sender, amount, messageId).',
+        input_schema: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+      requiresWallet: true,
+      execute: async (_params, ctx) => {
+        const payments = await (ctx.wallet as any).listIncomingPayments();
+        return ok({
+          payments: payments.map((p: any) => ({
+            messageId: p.messageId,
+            sender: p.sender,
+            amount: p.token?.amount ?? p.amount ?? 0,
+          })),
+          total: payments.length,
+        });
+      },
+    },
+    {
+      definition: {
+        name: 'agid_accept_payment',
+        description: 'Accept an incoming payment by messageId. This internalizes the transaction and adds the funds to the wallet balance.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            messageId: { type: 'string', description: 'Message ID of the payment to accept' },
+            sender: { type: 'string', description: 'Sender public key' },
+          },
+          required: ['messageId', 'sender'],
+        },
+      },
+      requiresWallet: true,
+      execute: async (params, ctx) => {
+        const payments = await (ctx.wallet as any).listIncomingPayments();
+        const payment = payments.find((p: any) => p.messageId === params.messageId);
+        if (!payment) return ok({ error: 'Payment not found', messageId: params.messageId });
+        await (ctx.wallet as any).acceptPayment(payment);
+        return ok({
+          accepted: true,
+          messageId: params.messageId,
+          amount: payment.token?.amount ?? payment.amount ?? 0,
+        });
+      },
+    },
   ];
 }

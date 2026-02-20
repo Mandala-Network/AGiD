@@ -379,6 +379,16 @@ export class AgentWallet implements BRC100Wallet {
     await this.peerPayClient.sendPayment(args);
   }
 
+  async listIncomingPayments(): Promise<any[]> {
+    if (!this.peerPayClient) throw new Error('PeerPay not initialized');
+    return this.peerPayClient.listIncomingPayments();
+  }
+
+  async acceptPayment(payment: any): Promise<void> {
+    if (!this.peerPayClient) throw new Error('PeerPay not initialized');
+    await this.peerPayClient.acceptPayment(payment);
+  }
+
   async destroy(): Promise<void> {
     if (this.wallet) {
       await this.wallet.destroy();

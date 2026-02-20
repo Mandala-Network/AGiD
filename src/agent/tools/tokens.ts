@@ -7,7 +7,7 @@ export function tokenTools(): ToolDescriptor[] {
     {
       definition: {
         name: 'agid_token_create',
-        description: 'Create an on-chain PushDrop identity token with data fields',
+        description: 'Create a raw on-chain PushDrop token with arbitrary data fields. NOT for memories — use agid_store_memory instead, which handles encryption, UHRP upload, and proper memory indexing.',
         input_schema: {
           type: 'object',
           properties: {

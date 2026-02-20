@@ -15,6 +15,7 @@ import { messagingTools } from './messaging.js';
 import { memoryTools } from './memory.js';
 import { serviceTools } from './services.js';
 import { auditTools } from './audit.js';
+import { deploymentTools } from './deployment.js';
 
 export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
   const tools: ToolDescriptor[] = [
@@ -24,6 +25,7 @@ export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
     ...tokenTools(),
     ...messagingTools(),
     ...serviceTools(),
+    ...deploymentTools(),
   ];
 
   if (ctx.memoryManager) {

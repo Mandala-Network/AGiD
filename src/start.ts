@@ -131,7 +131,11 @@ async function main() {
   const messageBoxHost = process.env.MESSAGEBOX_HOST || 'https://messagebox.babbage.systems';
   try {
     console.log('Initializing MessageBox...');
-    await (wallet as any).initializeMessageBox(messageBoxHost);
+    const mbTimeout = parseInt(process.env.MESSAGEBOX_INIT_TIMEOUT || '10000');
+    await Promise.race([
+      (wallet as any).initializeMessageBox(messageBoxHost),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`MessageBox init timed out after ${mbTimeout}ms`)), mbTimeout)),
+    ]);
     console.log(`MessageBox initialized (host: ${messageBoxHost})`);
   } catch (error) {
     console.warn('MessageBox initialization failed:', error instanceof Error ? error.message : error);

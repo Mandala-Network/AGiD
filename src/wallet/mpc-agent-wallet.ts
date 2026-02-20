@@ -663,9 +663,10 @@ export class MPCAgentWallet implements BRC100Wallet {
       networkPreset: 'mainnet',
     })
 
-    await this.withSigningLock(async () => {
-      await this.messageBoxClient!.init()
-    })
+    // No outer lock — the lockedWallet proxy already serializes individual
+    // signing operations inside MessageBoxClient.init(). Wrapping in
+    // withSigningLock would deadlock (non-reentrant lock).
+    await this.messageBoxClient.init()
 
     this.peerPayClient = new PeerPayClient({
       walletClient: this.asWalletInterface(),
@@ -730,6 +731,16 @@ export class MPCAgentWallet implements BRC100Wallet {
   async sendPayment(args: { recipient: string; amount: number }): Promise<void> {
     if (!this.peerPayClient) throw new Error('PeerPay not initialized')
     await this.peerPayClient.sendPayment(args)
+  }
+
+  async listIncomingPayments(): Promise<any[]> {
+    if (!this.peerPayClient) throw new Error('PeerPay not initialized')
+    return this.peerPayClient.listIncomingPayments()
+  }
+
+  async acceptPayment(payment: any): Promise<void> {
+    if (!this.peerPayClient) throw new Error('PeerPay not initialized')
+    await this.peerPayClient.acceptPayment(payment)
   }
 
   /**
