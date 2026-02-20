@@ -158,15 +158,67 @@ export class AGIdentityGateway {
       },
     });
 
-    // 4. Create SignedAuditTrail if enabled
+    // 4. Auto-receive certificates from trusted certifiers
+    this.startCertListener();
+
+    // 5. Create SignedAuditTrail if enabled
     if (this.config.audit?.enabled !== false) {
       this.auditTrail = new SignedAuditTrail({ wallet: this.wallet });
     }
 
-    // 5. Start message polling AFTER all initialization
+    // 6. Start message polling AFTER all initialization
     this.messageBoxGateway.startMessagePolling();
 
     this.running = true;
+  }
+
+  // ===========================================================================
+  // Certificate Listener
+  // ===========================================================================
+
+  private startCertListener(): void {
+    const mbClient = (this.wallet as any).getMessageBoxClient?.();
+    if (!mbClient) return;
+
+    const trustedSet = new Set(this.config.trustedCertifiers);
+    const checkInterval = 60_000; // Check every 60 seconds
+
+    const poll = async () => {
+      if (!this.running) return;
+      try {
+        const messages = await mbClient.listMessages({ messageBox: 'certificate_inbox' });
+        for (const msg of messages) {
+          try {
+            const body = typeof msg.body === 'string' ? JSON.parse(msg.body) : msg.body;
+            if (body?.type === 'certificate_issuance' && body.serializedCertificate) {
+              // Only auto-receive from trusted certifiers
+              if (!trustedSet.has(msg.sender)) {
+                console.log(`[AGIdentityGateway] Ignoring cert from untrusted sender: ${msg.sender.substring(0, 12)}...`);
+                continue;
+              }
+
+              const { PeerCert } = await import('peercert');
+              const peerCert = new PeerCert(this.wallet.asWalletInterface() as any);
+              const result = await peerCert.receive(body.serializedCertificate);
+              if (result.success) {
+                console.log(`[AGIdentityGateway] Auto-received certificate from ${msg.sender.substring(0, 12)}... (fields: ${Object.keys(result.walletCertificate?.fields ?? {}).join(', ')})`);
+              }
+              await mbClient.acknowledgeMessage({ messageIds: [msg.messageId] });
+            }
+          } catch {
+            // Skip malformed cert messages
+          }
+        }
+      } catch {
+        // MessageBox polling error — will retry
+      }
+      if (this.running) {
+        setTimeout(poll, checkInterval);
+      }
+    };
+
+    // Start after a short delay to let other initialization complete
+    setTimeout(poll, 5_000);
   }
 
   // ===========================================================================
@@ -216,6 +268,24 @@ export class AGIdentityGateway {
       });
     }
 
+    // Certificate enforcement (when AGID_REQUIRE_CERTS=true)
+    if (process.env.AGID_REQUIRE_CERTS === 'true') {
+      if (!message.context.identityVerified || !message.context.certificate) {
+        console.log(`[AGIdentityGateway] Rejected uncertified sender: ${senderKey.substring(0, 12)}...`);
+        return {
+          body: {
+            type: 'chat_response',
+            id: crypto.randomUUID(),
+            requestId,
+            timestamp: Date.now(),
+            content: 'Access denied: a valid certificate from a trusted certifier is required to communicate with this agent.',
+            agent: this.agentPublicKey,
+            signed: false,
+          },
+        };
+      }
+    }
+
     // Build identity context
     const identityContext: IdentityContext = {
       senderPublicKey: senderKey,
@@ -227,6 +297,8 @@ export class AGIdentityGateway {
         message.context.certificate.fields.name ??
         message.context.certificate.fields.employeeId ??
         message.context.certificate.subject;
+      identityContext.certificateType = message.context.certificate.type;
+      identityContext.certificateRole = message.context.certificate.fields.role;
     }
 
     // Create anchor chain for this session

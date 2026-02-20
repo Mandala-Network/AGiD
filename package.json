@@ -40,6 +40,7 @@
     "dotenv": "^17.3.1",
     "express": "^5.0.0",
     "jsonwebtoken": "^9.0.3",
+    "peercert": "^0.1.4",
     "zod": "^3.23.0"
   },
   "devDependencies": {

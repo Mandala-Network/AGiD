@@ -34,6 +34,7 @@ import { createProvider } from './agent/providers/index.js';
 import { createAgentWallet } from './wallet/agent-wallet.js';
 import { createProductionMPCWallet, loadMPCConfigFromEnv } from './wallet/mpc-integration.js';
 import type { AgentWallet } from './wallet/agent-wallet.js';
+import { runFirstRunSetup, loadCertConfig } from './startup/first-run-setup.js';
 
 async function main() {
   console.log('');
@@ -142,12 +143,43 @@ async function main() {
     console.warn('   Continuing without MessageBox wallet integration');
   }
 
+  // First-run certificate setup
+  let certConfig = loadCertConfig();
+  if (!certConfig && process.stdin.isTTY) {
+    console.log('');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('First-Run Certificate Setup');
+    console.log('═══════════════════════════════════════════════════════════');
+    try {
+      certConfig = await runFirstRunSetup(identityPublicKey);
+    } catch (err) {
+      console.warn('Certificate setup failed:', err instanceof Error ? err.message : err);
+      console.warn('Continuing without certificates. Re-run to try again.');
+    }
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('');
+  } else if (!certConfig) {
+    console.warn('No cert-config.json found (non-interactive mode — skipping first-run setup)');
+  }
+
   // Check trusted certifiers
   const trustedCertifiers = process.env.TRUSTED_CERTIFIERS?.split(',').filter(Boolean) || [];
+
+  // Auto-trust the user from cert-config
+  if (certConfig?.userKey && !trustedCertifiers.includes(certConfig.userKey)) {
+    trustedCertifiers.push(certConfig.userKey);
+    console.log(`Trusted certifier (from cert-config): ${certConfig.userKey.substring(0, 16)}...`);
+  }
+
   if (trustedCertifiers.length === 0) {
     console.warn('WARNING: No TRUSTED_CERTIFIERS set - all certificates will be rejected');
     console.warn('Add comma-separated CA public keys to .env');
     console.warn('');
+  }
+
+  // Cert enforcement
+  if (process.env.AGID_REQUIRE_CERTS === 'true') {
+    console.log('Certificate enforcement: ENABLED');
   }
 
   // Create LLM provider (auto-detects from environment)

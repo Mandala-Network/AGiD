@@ -19,6 +19,8 @@ export interface IdentityContext {
   senderPublicKey: string;
   verified: boolean;
   certificateSubject?: string;
+  certificateType?: string;
+  certificateRole?: string;
   conversationId: string;
   workspaceIntegrity?: IntegrityStatus;
 }
@@ -99,6 +101,8 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
     lines.push(`Sender: ${ctx.senderPublicKey}`);
     lines.push(`Verified: ${ctx.verified}`);
     if (ctx.certificateSubject) lines.push(`Certificate Subject: ${ctx.certificateSubject}`);
+    if (ctx.certificateType) lines.push(`Certificate Type: ${ctx.certificateType}`);
+    if (ctx.certificateRole) lines.push(`Certificate Role: ${ctx.certificateRole}`);
     lines.push(`Conversation: ${ctx.conversationId}`);
     lines.push('[END CURRENT MESSAGE CONTEXT]');
     return lines.join('\n');
