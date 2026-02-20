@@ -26,13 +26,11 @@ if (fs.existsSync(agidEnvPath)) {
 // Then load project .env (overrides agidentity .env where set)
 import 'dotenv/config';
 
-import { WalletClient } from '@bsv/sdk';
 import { createAGIdentityGateway } from './gateway/index.js';
 import { createProvider } from './agent/providers/index.js';
 import { createAgentWallet } from './wallet/agent-wallet.js';
 import type { AgentWallet } from './wallet/agent-wallet.js';
-import { createMessageClient } from './messaging/index.js';
-import { startChatREPL } from './cli/repl/chat-repl.js';
+import { startDirectChatREPL } from './cli/repl/direct-chat-repl.js';
 import {
   runFirstRunSetup,
   loadCertConfig,
@@ -283,40 +281,10 @@ async function main() {
   // -----------------------------------------------------------------------
   // Start interactive chat REPL (connects via MetaNet Client)
   // -----------------------------------------------------------------------
+  // Start interactive chat REPL (direct mode — no MessageBox round-trip)
+  // -----------------------------------------------------------------------
   if (process.stdin.isTTY && gateway) {
     try {
-      console.log('Starting chat session...');
-      const chatWalletClient = new WalletClient('json-api', 'agidentity');
-
-      const walletAdapter = {
-        getPublicKey: chatWalletClient.getPublicKey.bind(chatWalletClient),
-        encrypt: chatWalletClient.encrypt.bind(chatWalletClient),
-        decrypt: chatWalletClient.decrypt.bind(chatWalletClient),
-        createSignature: chatWalletClient.createSignature.bind(chatWalletClient),
-        verifySignature: chatWalletClient.verifySignature.bind(chatWalletClient),
-        createHmac: chatWalletClient.createHmac.bind(chatWalletClient),
-        verifyHmac: chatWalletClient.verifyHmac.bind(chatWalletClient),
-        createAction: chatWalletClient.createAction.bind(chatWalletClient),
-        acquireCertificate: chatWalletClient.acquireCertificate.bind(chatWalletClient),
-        listCertificates: chatWalletClient.listCertificates.bind(chatWalletClient),
-        getNetwork: chatWalletClient.getNetwork.bind(chatWalletClient),
-        getHeight: chatWalletClient.getHeight.bind(chatWalletClient),
-        getUnderlyingWallet: () => chatWalletClient,
-      };
-
-      const messageBoxHost = process.env.MESSAGEBOX_HOST || 'https://messagebox.babbage.systems';
-      const messageClient = createMessageClient({
-        wallet: walletAdapter as any,
-        messageBoxHost,
-        enableLogging: false,
-      });
-
-      await messageClient.initialize();
-      const userPublicKey = messageClient.getIdentityKey();
-
-      console.log(`Logged in as ${userPublicKey.substring(0, 16)}...`);
-      console.log('');
-
       // Mute background gateway logs so they don't corrupt the REPL
       const origLog = console.log;
       const origWarn = console.warn;
@@ -325,11 +293,9 @@ async function main() {
       console.warn = () => {};
       console.error = () => {};
 
-      await startChatREPL({
-        messageClient,
-        agentPublicKey: identityPublicKey,
-        userPublicKey,
-        messageBox: 'chat',
+      await startDirectChatREPL({
+        gateway,
+        userPublicKey: identityPublicKey,
       });
 
       // REPL exited — restore logging for shutdown messages
@@ -337,7 +303,6 @@ async function main() {
       console.warn = origWarn;
       console.error = origError;
 
-      await messageClient.disconnect();
       await shutdown();
     } catch (err) {
       console.warn('Chat REPL failed to start:', err instanceof Error ? err.message : err);

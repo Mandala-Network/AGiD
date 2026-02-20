@@ -541,4 +541,26 @@ export class AGIdentityGateway {
   getAgentPublicKey(): string | null {
     return this.agentPublicKey;
   }
+
+  /**
+   * Direct in-process chat — bypasses MessageBox for local REPL usage.
+   * No encryption, no polling, no network round-trip.
+   */
+  async chat(message: string, senderPublicKey: string): Promise<string> {
+    if (!this.agentLoop) throw new Error('Agent loop not initialized');
+
+    const conversationId = `local-${senderPublicKey.substring(0, 12)}`;
+    const identityContext: IdentityContext = {
+      senderPublicKey,
+      verified: true,
+      conversationId,
+    };
+
+    try {
+      const result = await this.agentLoop.run(message, conversationId, identityContext);
+      return result.response;
+    } catch (error) {
+      return `Error: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
 }
