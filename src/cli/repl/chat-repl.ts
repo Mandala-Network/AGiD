@@ -31,70 +31,71 @@ export interface ChatREPLConfig {
 /**
  * Start interactive chat REPL
  */
-export async function startChatREPL(config: ChatREPLConfig): Promise<void> {
+export function startChatREPL(config: ChatREPLConfig): Promise<void> {
   const { messageClient, agentPublicKey, userPublicKey, messageBox } =
     config;
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: bold('> '),
-  });
+  return new Promise<void>((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: bold('> '),
+    });
 
-  console.log();
-  console.log(`Connected to agent ${dim(agentPublicKey.slice(0, 16) + '...')}`);
-  console.log(`Type your message or ${dim('/quit')} to exit.`);
-  console.log();
-
-  rl.prompt();
-
-  rl.on('line', async (line) => {
-    const input = line.trim();
-
-    if (!input) {
-      rl.prompt();
-      return;
-    }
-
-    // Handle commands
-    if (input.startsWith('/')) {
-      const handled = await handleCommand(input, rl);
-      if (handled) {
-        rl.prompt();
-      }
-      return;
-    }
-
-    // Send message
-    const spinner = showSpinner('Waiting for response...');
-
-    try {
-      const request = createChatRequest(input, userPublicKey);
-      const response = await sendAndWaitForResponse(
-        messageClient,
-        agentPublicKey,
-        messageBox,
-        request
-      );
-
-      spinner.stop();
-      formatAgentResponse(response.content);
-    } catch (err) {
-      spinner.stop();
-      formatError(err);
-    }
+    console.log();
+    console.log(`Connected to agent ${dim(agentPublicKey.slice(0, 16) + '...')}`);
+    console.log(`Type your message or ${dim('/quit')} to exit.`);
+    console.log();
 
     rl.prompt();
-  });
 
-  rl.on('close', () => {
-    console.log('\nGoodbye!');
-    process.exit(0);
-  });
+    rl.on('line', async (line) => {
+      const input = line.trim();
 
-  // Handle Ctrl+C gracefully
-  rl.on('SIGINT', () => {
-    rl.close();
+      if (!input) {
+        rl.prompt();
+        return;
+      }
+
+      // Handle commands
+      if (input.startsWith('/')) {
+        const handled = await handleCommand(input, rl);
+        if (handled) {
+          rl.prompt();
+        }
+        return;
+      }
+
+      // Send message
+      const spinner = showSpinner('Waiting for response...');
+
+      try {
+        const request = createChatRequest(input, userPublicKey);
+        const response = await sendAndWaitForResponse(
+          messageClient,
+          agentPublicKey,
+          messageBox,
+          request
+        );
+
+        spinner.stop();
+        formatAgentResponse(response.content);
+      } catch (err) {
+        spinner.stop();
+        formatError(err);
+      }
+
+      rl.prompt();
+    });
+
+    rl.on('close', () => {
+      resolve();
+    });
+
+    // Handle Ctrl+C gracefully
+    rl.on('SIGINT', () => {
+      rl.close();
+    });
   });
 }
 

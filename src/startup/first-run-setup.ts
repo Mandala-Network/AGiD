@@ -309,6 +309,21 @@ export async function runFirstRunSetup(): Promise<{
   if (capabilities.trim()) agentFields.capabilities = capabilities.trim();
 
   let certConfig: CertConfig | null = null;
+
+  // PeerCert.issue() resolves even when overlay broadcast fails, but dumps
+  // unhandled rejection stack traces. Suppress them during cert issuance.
+  const overlayErrors: string[] = [];
+  const suppressOverlay = (reason: unknown) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    if (msg.includes('fetch failed') || msg.includes('ENETUNREACH') || msg.includes('ECONNREFUSED')) {
+      overlayErrors.push(msg);
+    } else {
+      // Re-throw non-overlay errors
+      throw reason;
+    }
+  };
+  process.on('unhandledRejection', suppressOverlay);
+
   try {
     process.stdout.write('   Issuing certificate to agent... ');
     const agentCert = await peerCert.issue({
@@ -338,21 +353,21 @@ export async function runFirstRunSetup(): Promise<{
     // Save cert config
     fs.writeFileSync(getCertConfigPath(), JSON.stringify(certConfig, null, 2));
     console.log(`   Cert config saved to ${getCertConfigPath()}`);
+
+    if (overlayErrors.length > 0) {
+      console.log(`   Note: Overlay broadcast failed (${overlayErrors.length} errors) — certs created locally but not published to overlay network.`);
+    }
   } catch (err) {
     console.log('failed');
     console.log('');
-    console.log('   Certificate issuance failed (overlay network unreachable).');
+    console.log('   Certificate issuance failed.');
     const errMsg = err instanceof Error ? err.message : String(err);
-    const cause = (err as any)?.cause;
-    if (cause?.code === 'ENETUNREACH' || cause?.code === 'ECONNREFUSED' || errMsg.includes('fetch failed')) {
-      console.log(`   Network error: ${cause?.address ?? 'unknown'}:${cause?.port ?? ''} (${cause?.code ?? errMsg})`);
-      console.log('   This usually means the SHIP overlay broadcaster is unreachable.');
-    } else {
-      console.log(`   Error: ${errMsg}`);
-    }
+    console.log(`   Error: ${errMsg}`);
     console.log('');
     console.log('   Your config will be saved — re-run setup later to issue certs:');
     console.log('   rm ~/.agidentity/cert-config.json && npx tsx src/start.ts');
+  } finally {
+    process.removeListener('unhandledRejection', suppressOverlay);
   }
   console.log('');
 
