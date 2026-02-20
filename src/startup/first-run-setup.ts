@@ -119,7 +119,7 @@ export function needsFirstRunSetup(): boolean {
 
 export async function runFirstRunSetup(): Promise<{
   gatewayConfig: GatewayConfig;
-  certConfig: CertConfig | null;
+  certConfig: CertConfig;
 }> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q: string): Promise<string> => new Promise(r => rl.question(q, r));
@@ -247,11 +247,11 @@ export async function runFirstRunSetup(): Promise<{
   console.log('');
 
   // -----------------------------------------------------------------------
-  // 6. CONNECT TO METANET CLIENT
+  // 6. CONNECT TO METANET CLIENT (required)
   // -----------------------------------------------------------------------
   console.log('6. METANET CLIENT');
-  let userIdentityKey: string | undefined;
-  let walletClient: InstanceType<typeof WalletClient> | null = null;
+  let walletClient: InstanceType<typeof WalletClient>;
+  let userIdentityKey: string;
 
   try {
     process.stdout.write('   Connecting to MetaNet Client... ');
@@ -262,104 +262,104 @@ export async function runFirstRunSetup(): Promise<{
     console.log(`   Your Identity Key: ${userKey}`);
   } catch (err) {
     console.log('failed');
-    console.warn(`   ${err instanceof Error ? err.message : err}`);
-    console.warn('   Continuing without MetaNet Client — certs and funding will be skipped.');
+    console.log('');
+    console.log('   ╔═══════════════════════════════════════════════════════════╗');
+    console.log('   ║  MetaNet Desktop is required to run AGIdentity.          ║');
+    console.log('   ║                                                           ║');
+    console.log('   ║  Download it at: https://getmetanet.com                  ║');
+    console.log('   ║                                                           ║');
+    console.log('   ║  Install, create your identity, then re-run this setup.  ║');
+    console.log('   ╚═══════════════════════════════════════════════════════════╝');
+    console.log('');
+    rl.close();
+    throw new Error('MetaNet Desktop is required. Download at https://getmetanet.com');
   }
   console.log('');
 
   // -----------------------------------------------------------------------
   // 7. CERTIFICATE ISSUANCE
   // -----------------------------------------------------------------------
-  let certConfig: CertConfig | null = null;
-  let agentName = '';
+  console.log('7. CERTIFICATE ISSUANCE');
   const agentPublicKey = PrivateKey.fromHex(privateKeyHex).toPublicKey().toString();
 
-  if (walletClient && userIdentityKey) {
-    console.log('7. CERTIFICATE ISSUANCE');
-
-    const nameInput = await ask('   Agent name (required): ');
-    if (!nameInput.trim()) {
-      rl.close();
-      throw new Error('Agent name is required');
-    }
-    agentName = nameInput.trim();
-    const organization = await ask('   Organization (optional): ');
-    const email = await ask('   Email (optional): ');
-    const capabilities = await ask('   Capabilities (optional, comma-separated): ');
-    const userName = await ask('   Your name (required): ');
-    if (!userName.trim()) {
-      rl.close();
-      throw new Error('Your name is required');
-    }
-
-    // `as any` — bundled SDK type mismatch (curvepoint vs top-level @bsv/sdk)
-    const peerCert = new PeerCert(walletClient as any);
-
-    const agentFields: Record<string, string> = {
-      name: agentName,
-      role: 'agent',
-    };
-    if (organization.trim()) agentFields.organization = organization.trim();
-    if (email.trim()) agentFields.email = email.trim();
-    if (capabilities.trim()) agentFields.capabilities = capabilities.trim();
-
-    process.stdout.write('   Issuing certificate to agent... ');
-    const agentCert = await peerCert.issue({
-      certificateType: AGID_CERT_TYPE,
-      subjectIdentityKey: agentPublicKey,
-      fields: agentFields,
-      autoSend: true,
-    });
-    console.log('done');
-
-    process.stdout.write('   Issuing self-certificate...     ');
-    const userCert = await peerCert.issue({
-      certificateType: AGID_CERT_TYPE,
-      subjectIdentityKey: userIdentityKey,
-      fields: { name: userName.trim(), role: 'admin' },
-    });
-    console.log('done');
-
-    certConfig = {
-      userKey: userIdentityKey,
-      agentKey: agentPublicKey,
-      agentCertSerialNumber: agentCert.serialNumber,
-      userCertSerialNumber: userCert.serialNumber,
-      issuedAt: Date.now(),
-    };
-
-    // Save cert config
-    fs.writeFileSync(getCertConfigPath(), JSON.stringify(certConfig, null, 2));
-    console.log(`   Cert config saved to ${getCertConfigPath()}`);
-    console.log('');
-
-    // ---------------------------------------------------------------------
-    // 8. INITIAL FUNDING
-    // ---------------------------------------------------------------------
-    console.log('8. INITIAL FUNDING');
-    const fundInput = await ask('   Send initial funding to agent? Amount in sats (10000, 0 to skip): ');
-    const fundAmount = parseInt(fundInput.trim()) || 10000;
-
-    if (fundAmount > 0) {
-      try {
-        process.stdout.write(`   Sending ${fundAmount} sats to agent... `);
-        const { PeerPayClient } = await import('@bsv/message-box-client');
-        const peerPay = new PeerPayClient(walletClient as any);
-        await peerPay.sendPayment({ recipient: agentPublicKey, amount: fundAmount });
-        console.log('done');
-      } catch (err) {
-        console.log('failed');
-        console.warn(`   Payment failed: ${err instanceof Error ? err.message : err}`);
-      }
-    } else {
-      console.log('   Skipping initial funding.');
-    }
-    console.log('');
-  } else {
-    console.log('7. CERTIFICATE ISSUANCE — skipped (no MetaNet Client)');
-    console.log('8. INITIAL FUNDING — skipped (no MetaNet Client)');
-    console.log('');
+  const nameInput = await ask('   Agent name (required): ');
+  if (!nameInput.trim()) {
+    rl.close();
+    throw new Error('Agent name is required');
   }
+  const agentName = nameInput.trim();
+  const organization = await ask('   Organization (optional): ');
+  const email = await ask('   Email (optional): ');
+  const capabilities = await ask('   Capabilities (optional, comma-separated): ');
+  const userName = await ask('   Your name (required): ');
+  if (!userName.trim()) {
+    rl.close();
+    throw new Error('Your name is required');
+  }
+
+  // `as any` — bundled SDK type mismatch (curvepoint vs top-level @bsv/sdk)
+  const peerCert = new PeerCert(walletClient as any);
+
+  const agentFields: Record<string, string> = {
+    name: agentName,
+    role: 'agent',
+  };
+  if (organization.trim()) agentFields.organization = organization.trim();
+  if (email.trim()) agentFields.email = email.trim();
+  if (capabilities.trim()) agentFields.capabilities = capabilities.trim();
+
+  process.stdout.write('   Issuing certificate to agent... ');
+  const agentCert = await peerCert.issue({
+    certificateType: AGID_CERT_TYPE,
+    subjectIdentityKey: agentPublicKey,
+    fields: agentFields,
+    autoSend: true,
+  });
+  console.log('done');
+
+  process.stdout.write('   Issuing self-certificate...     ');
+  const userCert = await peerCert.issue({
+    certificateType: AGID_CERT_TYPE,
+    subjectIdentityKey: userIdentityKey,
+    fields: { name: userName.trim(), role: 'admin' },
+  });
+  console.log('done');
+
+  const certConfig: CertConfig = {
+    userKey: userIdentityKey,
+    agentKey: agentPublicKey,
+    agentCertSerialNumber: agentCert.serialNumber,
+    userCertSerialNumber: userCert.serialNumber,
+    issuedAt: Date.now(),
+  };
+
+  // Save cert config
+  fs.writeFileSync(getCertConfigPath(), JSON.stringify(certConfig, null, 2));
+  console.log(`   Cert config saved to ${getCertConfigPath()}`);
+  console.log('');
+
+  // -----------------------------------------------------------------------
+  // 8. INITIAL FUNDING
+  // -----------------------------------------------------------------------
+  console.log('8. INITIAL FUNDING');
+  const fundInput = await ask('   Send initial funding to agent? Amount in sats (10000, 0 to skip): ');
+  const fundAmount = parseInt(fundInput.trim()) || 10000;
+
+  if (fundAmount > 0) {
+    try {
+      process.stdout.write(`   Sending ${fundAmount} sats to agent... `);
+      const { PeerPayClient } = await import('@bsv/message-box-client');
+      const peerPay = new PeerPayClient(walletClient as any);
+      await peerPay.sendPayment({ recipient: agentPublicKey, amount: fundAmount });
+      console.log('done');
+    } catch (err) {
+      console.log('failed');
+      console.warn(`   Payment failed: ${err instanceof Error ? err.message : err}`);
+    }
+  } else {
+    console.log('   Skipping initial funding.');
+  }
+  console.log('');
 
   // -----------------------------------------------------------------------
   // 9. AGENT WORKSPACE (SOUL.md, IDENTITY.md, TOOLS.md)
@@ -373,11 +373,6 @@ export async function runFirstRunSetup(): Promise<{
   fs.mkdirSync(workspaceDir, { recursive: true });
 
   // -- SOUL.md (core persona) --
-  if (!agentName) {
-    const nameInput = await ask('   Agent name: ');
-    agentName = nameInput.trim() || 'AGIdentity Agent';
-  }
-
   const soulDefault = `You are ${agentName}, an autonomous AI agent with a cryptographic identity on the BSV blockchain.
 You can sign messages, encrypt data, create tokens, send payments, and store memories — all on-chain.
 Be helpful, precise, and use your tools when the user's request requires blockchain operations.
