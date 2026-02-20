@@ -49,6 +49,18 @@ export type {
   ShadAvailability,
 } from './04-integrations/shad/index.js';
 
+// GEPA Integration (evolutionary prompt optimization)
+export { GepaExecutor } from './04-integrations/gepa/index.js';
+export type { GepaOptimizeParams, GepaResult, GepaAvailability, GepaExecutorConfig } from './04-integrations/gepa/index.js';
+
+// x402 Integration (authenticated payment requests to x402 services)
+export { X402Client } from './04-integrations/x402/index.js';
+export type { X402ClientConfig, X402ServiceInfo } from './04-integrations/x402/index.js';
+
+// Overlay Integration (generic SHIP/SLAP overlay lookup)
+export { OverlayClient } from './04-integrations/overlay/index.js';
+export type { OverlayClientConfig, OverlayOutput } from './04-integrations/overlay/index.js';
+
 // Deprecated: AGIdentityShadBridge (uses non-existent --retriever api)
 export {
   AGIdentityShadBridge,

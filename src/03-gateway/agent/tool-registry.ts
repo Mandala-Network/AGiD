@@ -14,6 +14,9 @@ import { storeMemory } from '../../02-storage/memory/memory-writer.js';
 import { listMemories } from '../../02-storage/memory/memory-reader.js';
 import type { Memory } from '../../02-storage/memory/memory-reader.js';
 import { ShadTempVaultExecutor } from '../../04-integrations/shad/shad-temp-executor.js';
+import { GepaExecutor } from '../../04-integrations/gepa/index.js';
+import { X402Client } from '../../04-integrations/x402/index.js';
+import { OverlayClient } from '../../04-integrations/overlay/index.js';
 import { WorkspaceIntegrity } from '../../07-shared/audit/workspace-integrity.js';
 import { AnchorChain } from '../../07-shared/audit/anchor-chain.js';
 import type { AnchorChainData } from '../../07-shared/audit/anchor-chain.js';
@@ -67,6 +70,10 @@ export class ToolRegistry {
     this.registerStoreMemoryTool(wallet);
     this.registerRecallMemoriesTool(wallet);
     this.registerSemanticSearchTool(wallet, workspacePath);
+    this.registerOptimizePromptTool(wallet);
+    this.registerDiscoverServicesTool(wallet);
+    this.registerX402RequestTool(wallet);
+    this.registerOverlayLookupTool();
     if (workspacePath) this.registerVerifyWorkspaceTool(wallet, workspacePath);
     if (sessionsPath) this.registerVerifySessionTool(sessionsPath);
   }
@@ -791,6 +798,168 @@ export class ToolRegistry {
             // Cleanup errors shouldn't break execution
           }
         }
+      },
+    });
+  }
+
+  // ===========================================================================
+  // GEPA Prompt Optimization Tool
+  // ===========================================================================
+
+  private registerOptimizePromptTool(wallet: AgentWallet): void {
+    this.register({
+      definition: {
+        name: 'agid_optimize_prompt',
+        description: 'Optimize any text or prompt using GEPA evolutionary optimization. Useful for improving system prompts, user prompts, or any text against a stated objective.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'The text or prompt to optimize' },
+            objective: { type: 'string', description: 'What the optimized text should achieve (e.g. "be more concise and persuasive")' },
+            mode: { type: 'string', description: '"fast" (10 iterations) or "thorough" (30 iterations). Default: fast' },
+            storeOnChain: { type: 'boolean', description: 'Store the optimized result on-chain for later recall (default: false)' },
+          },
+          required: ['text', 'objective'],
+        },
+      },
+      execute: async (params) => {
+        const text = params.text as string;
+        const objective = params.objective as string;
+        const mode = (params.mode as string) || 'fast';
+        const storeOnChainFlag = params.storeOnChain as boolean ?? false;
+        const maxIterations = mode === 'thorough' ? 30 : 10;
+
+        const executor = new GepaExecutor();
+        const availability = await executor.checkGepaAvailable();
+
+        if (!availability.available) {
+          return ok({
+            original: text,
+            optimized: null,
+            gepaAvailable: false,
+            error: availability.error ?? 'gepa not installed. Install with: pip install gepa',
+          });
+        }
+
+        const result = await executor.optimize({ text, objective, maxIterations });
+
+        if (!result.success) {
+          return ok({
+            original: text,
+            optimized: null,
+            gepaAvailable: true,
+            error: result.error,
+          });
+        }
+
+        let stored = false;
+        if (storeOnChainFlag && result.optimizedText) {
+          try {
+            await storeMemory(wallet, {
+              content: result.optimizedText,
+              tags: ['gepa-optimized'],
+              importance: 'medium',
+            });
+            stored = true;
+          } catch (error) {
+            // Store failure shouldn't break the optimization result
+            console.error('Failed to store optimized prompt on-chain:', error);
+          }
+        }
+
+        return ok({
+          original: text,
+          optimized: result.optimizedText,
+          reasoning: result.reasoning,
+          iterations: result.iterations,
+          stored,
+          gepaAvailable: true,
+        });
+      },
+    });
+  }
+
+  // ===========================================================================
+  // x402 Authenticated Payment Request Tools
+  // ===========================================================================
+
+  private registerDiscoverServicesTool(wallet: AgentWallet): void {
+    this.register({
+      definition: {
+        name: 'agid_discover_services',
+        description: 'Discover available x402 AI services from the registry (x402agency.com). Returns service names, URLs, and descriptions.',
+        input_schema: { type: 'object', properties: {}, required: [] },
+      },
+      execute: async () => {
+        const client = new X402Client(wallet);
+        const services = await client.discoverServices();
+        return ok({ services, total: services.length });
+      },
+    });
+  }
+
+  private registerX402RequestTool(wallet: AgentWallet): void {
+    this.register({
+      definition: {
+        name: 'agid_x402_request',
+        description: 'Make an authenticated HTTP request to an x402 service with automatic payment handling. Uses BRC-31 mutual auth and pays 402 responses automatically from wallet.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Full URL to request (e.g. https://service.x402agency.com/api/chat)' },
+            method: { type: 'string', description: 'HTTP method (default: GET)' },
+            body: { type: 'string', description: 'Request body (for POST/PUT)' },
+            headers: {
+              type: 'object',
+              description: 'Additional headers (content-type, authorization, or x-bsv-* only)',
+              additionalProperties: { type: 'string' },
+            },
+          },
+          required: ['url'],
+        },
+      },
+      execute: async (params) => {
+        const url = params.url as string;
+        const method = (params.method as string) || 'GET';
+        const body = params.body as string | undefined;
+        const headers = params.headers as Record<string, string> | undefined;
+
+        const client = new X402Client(wallet);
+        const result = await client.request(url, { method, body, headers });
+        return ok({ status: result.status, headers: result.headers, body: result.body, paid: result.paid });
+      },
+    });
+  }
+
+  // ===========================================================================
+  // Overlay Lookup Tool
+  // ===========================================================================
+
+  private registerOverlayLookupTool(): void {
+    this.register({
+      definition: {
+        name: 'agid_overlay_lookup',
+        description: 'Query any BSV overlay network via SHIP/SLAP. Automatically discovers reputable hosts, queries in parallel, and decodes PushDrop token outputs. Use service "ls_slap" with empty query to list all available services. Common services: ls_identity, ls_basketmap, ls_protomap, ls_certmap.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            service: { type: 'string', description: 'Lookup service name (e.g. "ls_identity", "ls_slap", "ls_basketmap")' },
+            query: {
+              type: 'object',
+              description: 'Service-specific query object (e.g. { "identityKey": "02abc..." } for ls_identity)',
+              additionalProperties: true,
+            },
+          },
+          required: ['service'],
+        },
+      },
+      execute: async (params) => {
+        const service = params.service as string;
+        const query = (params.query as Record<string, unknown>) ?? {};
+
+        const client = new OverlayClient();
+        const outputs = await client.query(service, query);
+        return ok({ service, outputs, total: outputs.length });
       },
     });
   }
