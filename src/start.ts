@@ -5,13 +5,8 @@
  * Usage:
  *   npm run gateway
  *
- * MPC Mode (Production - Recommended):
- *   MPC_COSIGNER_ENDPOINTS=http://cosigner1:3001,http://cosigner2:3002
- *   MPC_SHARE_SECRET=<encryption-key>
- *   MPC_SHARE_PATH=./agent-mpc-share.json
- *
- * Local Mode (Development Only):
- *   AGENT_PRIVATE_KEY=<64-hex-chars>
+ * Wallet:
+ *   AGENT_PRIVATE_KEY=<64-hex-chars>   (generate with: openssl rand -hex 32)
  *
  * LLM Provider (any one of):
  *   ANTHROPIC_API_KEY=<key>                          (Anthropic, auto-detected)
@@ -32,7 +27,6 @@ import * as http from 'http';
 import { createAGIdentityGateway } from './gateway/index.js';
 import { createProvider } from './agent/providers/index.js';
 import { createAgentWallet } from './wallet/agent-wallet.js';
-import { createProductionMPCWallet, loadMPCConfigFromEnv } from './wallet/mpc-integration.js';
 import type { AgentWallet } from './wallet/agent-wallet.js';
 import { runFirstRunSetup, loadCertConfig } from './startup/first-run-setup.js';
 
@@ -59,71 +53,28 @@ async function main() {
     process.exit(1);
   }
 
-  // Determine wallet mode
-  const mpcEndpoints = process.env.MPC_COSIGNER_ENDPOINTS;
-  const localPrivateKey = process.env.AGENT_PRIVATE_KEY;
+  // Wallet setup — single private key via @bsv/wallet-toolbox
+  const privateKey = process.env.AGENT_PRIVATE_KEY;
 
+  if (!privateKey) {
+    console.error('ERROR: AGENT_PRIVATE_KEY not set');
+    console.error('');
+    console.error('Generate one with: openssl rand -hex 32');
+    console.error('Then set: AGENT_PRIVATE_KEY=<your-64-char-hex>');
+    process.exit(1);
+  }
+
+  console.log('Creating wallet (wallet-toolbox)...');
   let wallet: AgentWallet;
   let identityPublicKey: string;
 
-  if (mpcEndpoints) {
-    // MPC Mode (Production)
-    console.log('Mode: MPC (threshold signatures)');
-    console.log('');
-
-    if (!process.env.MPC_SHARE_SECRET) {
-      console.error('ERROR: MPC_SHARE_SECRET not set');
-      console.error('Generate one with: openssl rand -hex 32');
-      process.exit(1);
-    }
-
-    console.log('Initializing MPC wallet...');
-    const mpcConfig = loadMPCConfigFromEnv();
-    const result = await createProductionMPCWallet(mpcConfig);
-    wallet = result.wallet as unknown as AgentWallet;
-    identityPublicKey = result.collectivePublicKey;
-
-    if (result.isNewWallet) {
-      console.log('DKG complete - new distributed key generated');
-    } else {
-      console.log('Restored from existing key share');
-    }
-
-    // Background presign warmup (non-blocking)
-    if (result.presignPool) {
-      const keyId = `${mpcConfig.walletId}:0`;
-      console.log('Generating initial presignatures...');
-      result.presignPool.generate(keyId).then(() => {
-        console.log(`Presign pool ready (${result.presignPool!.availableCount(keyId)} available)`);
-      }).catch((err: Error) => {
-        console.warn('Presign pool warmup failed:', err.message);
-      });
-    }
-  } else if (localPrivateKey) {
-    // Local Mode (Development)
-    console.log('Mode: Local (single key - DEVELOPMENT ONLY)');
-    console.warn('WARNING: Do not use local mode in production!');
-    console.log('');
-
-    console.log('Creating local wallet...');
-    const { wallet: localWallet } = await createAgentWallet({
-      privateKeyHex: localPrivateKey,
-      network: (process.env.AGID_NETWORK as 'mainnet' | 'testnet') || 'mainnet',
-    });
-    wallet = localWallet;
-    const keyResult = await localWallet.getPublicKey({ identityKey: true });
-    identityPublicKey = keyResult.publicKey;
-  } else {
-    console.error('ERROR: No wallet configuration found');
-    console.error('');
-    console.error('For production (MPC):');
-    console.error('  MPC_COSIGNER_ENDPOINTS=http://cosigner1:3001,http://cosigner2:3002');
-    console.error('  MPC_SHARE_SECRET=<generate with: openssl rand -hex 32>');
-    console.error('');
-    console.error('For development (local key):');
-    console.error('  AGENT_PRIVATE_KEY=<generate with: openssl rand -hex 32>');
-    process.exit(1);
-  }
+  const { wallet: agentWallet } = await createAgentWallet({
+    privateKeyHex: privateKey,
+    network: (process.env.AGID_NETWORK as 'mainnet' | 'testnet') || 'mainnet',
+  });
+  wallet = agentWallet;
+  const keyResult = await agentWallet.getPublicKey({ identityKey: true });
+  identityPublicKey = keyResult.publicKey;
 
   console.log(`Agent Identity: ${identityPublicKey}`);
   console.log('');
@@ -231,7 +182,6 @@ async function main() {
         model: process.env.AGID_MODEL ?? 'default',
         gateway: gateway?.isRunning() ?? false,
         uptime: process.uptime(),
-        presignPool: wallet.getPresignPoolStatus(),
       }));
     });
     healthServer.listen(healthPort, '127.0.0.1');
