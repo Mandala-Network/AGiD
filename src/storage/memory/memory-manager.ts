@@ -18,9 +18,11 @@ import type { Memory } from './memory-reader.js';
 import type { MemoryInput, MemoryToken } from './memory-types.js';
 import type { GCStats } from './memory-gc.js';
 import type { AgentWallet } from '../../wallet/agent-wallet.js';
+import type { GepaOptimizer } from '../../integrations/gepa/gepa-optimizer.js';
 
 export interface MemoryManagerOptions {
   workspacePath?: string;
+  gepaOptimizer?: GepaOptimizer;
 }
 
 export interface RecallOptions {
@@ -58,6 +60,11 @@ export class MemoryManager {
   ) {}
 
   async store(input: MemoryInput): Promise<MemoryToken> {
+    const optimizer = this.options?.gepaOptimizer;
+    if (optimizer?.available) {
+      const optimizedContent = await optimizer.optimizeMemory(input.content, input.tags);
+      return storeMemory(this.wallet, { ...input, content: optimizedContent });
+    }
     return storeMemory(this.wallet, input);
   }
 

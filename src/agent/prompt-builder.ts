@@ -8,11 +8,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { IntegrityStatus } from '../audit/workspace-integrity.js';
+import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
 
 export interface PromptBuilderConfig {
   workspacePath: string;
   agentPublicKey: string;
   network: string;
+  gepaOptimizer?: GepaOptimizer;
 }
 
 export interface IdentityContext {
@@ -49,7 +51,7 @@ export class PromptBuilder {
   }
 
   async buildSystemPrompt(identityContext?: IdentityContext): Promise<string> {
-    const staticPrompt = this.getStaticPrompt();
+    const staticPrompt = await this.getStaticPrompt();
     if (!identityContext) return staticPrompt;
 
     const senderBlock = this.buildSenderBlock(identityContext);
@@ -57,25 +59,24 @@ export class PromptBuilder {
     return staticPrompt + '\n\n' + senderBlock + (integrityBlock ? '\n\n' + integrityBlock : '');
   }
 
-  private getStaticPrompt(): string {
+  private async getStaticPrompt(): Promise<string> {
     const currentMtimes = this.getFileMtimes();
     if (this.cache && this.mtimesMatch(this.cache.mtimes, currentMtimes)) {
       return this.cache.content;
     }
 
+    const optimizer = this.config.gepaOptimizer;
     const parts: string[] = [];
 
     // 1. SOUL.md
-    const soul = this.readFile('SOUL.md');
-    if (soul) parts.push(soul);
-    else parts.push(DEFAULT_SOUL);
+    const soul = this.readFile('SOUL.md') ?? DEFAULT_SOUL;
+    parts.push(optimizer ? await optimizer.optimizePromptComponent(soul, 'SOUL') : soul);
 
     // 2. IDENTITY.md
-    const identity = this.readFile('IDENTITY.md');
-    if (identity) parts.push(identity);
-    else parts.push(DEFAULT_IDENTITY);
+    const identity = this.readFile('IDENTITY.md') ?? DEFAULT_IDENTITY;
+    parts.push(optimizer ? await optimizer.optimizePromptComponent(identity, 'IDENTITY') : identity);
 
-    // 3. Agent identity block
+    // 3. Agent identity block (factual, not optimized)
     parts.push(`[AGENT IDENTITY]
 Public Key: ${this.config.agentPublicKey}
 Network: ${this.config.network}
@@ -84,12 +85,14 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
 
     // 4. MEMORY.md
     const memory = this.readFile('MEMORY.md');
-    if (memory) parts.push(`[LONG-TERM MEMORY]\n${memory}\n[END LONG-TERM MEMORY]`);
+    if (memory) {
+      const optimizedMemory = optimizer ? await optimizer.optimizePromptComponent(memory, 'MEMORY') : memory;
+      parts.push(`[LONG-TERM MEMORY]\n${optimizedMemory}\n[END LONG-TERM MEMORY]`);
+    }
 
     // 5. TOOLS.md
-    const tools = this.readFile('TOOLS.md');
-    if (tools) parts.push(tools);
-    else parts.push(DEFAULT_TOOLS_GUIDE);
+    const tools = this.readFile('TOOLS.md') ?? DEFAULT_TOOLS_GUIDE;
+    parts.push(optimizer ? await optimizer.optimizePromptComponent(tools, 'TOOLS') : tools);
 
     const content = parts.join('\n\n');
     this.cache = { content, mtimes: currentMtimes };

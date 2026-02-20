@@ -8,6 +8,7 @@
 import type { AgentWallet } from '../wallet/agent-wallet.js';
 import type { AgentToolDefinition, RegisteredTool, ToolResult } from '../types/agent-types.js';
 import type { MemoryManager } from '../storage/memory/memory-manager.js';
+import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
 import { createAllTools, type ToolDescriptor, type ToolContext } from './tools/index.js';
 
 export class ToolRegistry {
@@ -56,5 +57,22 @@ export class ToolRegistry {
         execute: (params) => desc.execute(params, ctx),
       });
     }
+  }
+
+  /**
+   * GEPA-optimize all registered tool descriptions in-place.
+   * Called once after registerBuiltinTools() during gateway initialization.
+   */
+  async optimizeDescriptions(optimizer: GepaOptimizer): Promise<number> {
+    let optimized = 0;
+    for (const tool of this.tools.values()) {
+      const original = tool.definition.description;
+      const result = await optimizer.optimizeToolDescription(tool.definition.name, original);
+      if (result !== original) {
+        tool.definition.description = result;
+        optimized++;
+      }
+    }
+    return optimized;
   }
 }

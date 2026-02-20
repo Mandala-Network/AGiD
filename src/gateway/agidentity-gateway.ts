@@ -1,7 +1,7 @@
 /**
  * AGIdentity Gateway
  *
- * Bridges MessageBox → IdentityGate → Native Agent Loop → MPC Sign.
+ * Bridges MessageBox → IdentityGate → Native Agent Loop → Wallet Sign.
  * Replaces the OpenClaw gateway with a native Anthropic API integration.
  * Same external behavior: every interaction is authenticated, signed, and audited.
  */
@@ -24,13 +24,14 @@ import { AgentLoop } from '../agent/agent-loop.js';
 import { createProvider } from '../agent/providers/index.js';
 import type { LLMProvider } from '../agent/llm-provider.js';
 import { MemoryManager } from '../storage/memory/memory-manager.js';
+import { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
 
 // =============================================================================
 // Types
 // =============================================================================
 
 export interface AGIdentityGatewayConfig {
-  /** Agent wallet for identity and signing (can be MPC or local) */
+  /** Agent wallet for identity and signing */
   wallet: AgentWallet;
   /** Trusted certificate authorities */
   trustedCertifiers: string[];
@@ -107,16 +108,32 @@ export class AGIdentityGateway {
     });
     await this.identityGate.initialize();
 
-    // 2. Set up agent components
-    const memoryManager = new MemoryManager(this.wallet, { workspacePath });
+    // 2. Initialize GEPA optimizer (optional, graceful fallback)
+    const gepaOptimizer = new GepaOptimizer();
+    await gepaOptimizer.initialize();
+    if (gepaOptimizer.available) {
+      console.log(`[AGIdentityGateway] 🧬 GEPA available (v${gepaOptimizer.version}) — optimizing prompts, tools, and memories`);
+    } else {
+      console.log('[AGIdentityGateway] GEPA not available — using unoptimized prompts');
+    }
+
+    // 3. Set up agent components
+    const memoryManager = new MemoryManager(this.wallet, { workspacePath, gepaOptimizer });
     const toolRegistry = new ToolRegistry();
     toolRegistry.registerBuiltinTools(this.wallet, workspacePath, sessionsPath, memoryManager);
+
+    // GEPA-optimize tool descriptions at registration time
+    if (gepaOptimizer.available) {
+      const optimizedCount = await toolRegistry.optimizeDescriptions(gepaOptimizer);
+      console.log(`[AGIdentityGateway] 🧬 GEPA optimized ${optimizedCount} tool descriptions`);
+    }
 
     const network = await this.wallet.getNetwork();
     const promptBuilder = new PromptBuilder({
       workspacePath,
       agentPublicKey: this.agentPublicKey,
       network,
+      gepaOptimizer,
     });
 
     const sessionStore = new SessionStore({ sessionsPath });

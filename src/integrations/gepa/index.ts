@@ -8,3 +8,5 @@
 
 export { GepaExecutor } from './gepa-executor.js';
 export type { GepaOptimizeParams, GepaResult, GepaAvailability, GepaExecutorConfig } from './gepa-executor.js';
+export { GepaOptimizer } from './gepa-optimizer.js';
+export type { GepaOptimizerConfig } from './gepa-optimizer.js';
