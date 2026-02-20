@@ -1,166 +1,112 @@
 # AGIdentity Source Code Architecture
 
-**Clear layered structure with dependency ordering**
+**Flat directory structure organized by domain**
 
 ---
 
-## 📊 Folder Structure
+## Folder Structure
 
 ```
 src/
-├── 01-core/              # Core infrastructure (wallet, identity, config)
-├── 02-storage/           # Storage backends (vault, uhrp, memory)
-├── 03-gateway/           # AGIdentity Gateway (main system)
-├── integrations/         # External services (openclaw, shad)
-├── 05-interfaces/        # External access (HTTP, CLI, SDK)
-├── 06-tools/             # ⭐ OpenClaw AI Tools (AI-callable)
-├── 07-shared/            # Shared utilities (types, audit)
+├── wallet/          # BRC-100 wallet, MPC wallet, PushDrop token ops
+├── identity/        # Certificate authority, verifier, identity gate
+├── config/          # Environment configuration
+├── storage/         # Data persistence
+│   ├── vault/       #   Local encrypted vault (VaultStore impl)
+│   ├── uhrp/        #   UHRP blockchain storage manager
+│   └── memory/      #   PushDrop memory system + MemoryManager facade
+├── agent/           # Native agent loop (LLM interaction)
+│   ├── tools/       #   25 declarative tools across 8 domain files
+│   └── providers/   #   LLM providers (Anthropic, Ollama)
+├── gateway/         # AGIdentity gateway (orchestrates everything)
+├── messaging/       # MessageBox client, conversation manager, gated handler
+├── encryption/      # Per-interaction encryption helpers
+├── integrations/    # External service connectors
+│   ├── shad/        #   Semantic memory (Shad encrypted vault)
+│   ├── x402/        #   Authenticated payments (x402 protocol)
+│   ├── overlay/     #   BSV overlay network lookup
+│   ├── gepa/        #   Prompt optimization (GEPA)
+│   └── team/        #   Team vault with certificate-based access
+├── server/          # BRC-103/104 authenticated HTTP API
+├── client/          # Authenticated HTTP client SDK
+├── cli/             # Employee-side CLI (chat REPL)
+├── types/           # Shared type definitions (BRC100Wallet, VaultStore, etc.)
+├── audit/           # Anchor chain, signed audit trail, workspace integrity
 │
-├── __tests__/            # Test files
-├── index.ts              # Main module export
-└── start.ts              # Gateway startup script
+├── __tests__/       # Test files
+├── index.ts         # Public API exports
+└── start.ts         # Gateway startup script
 ```
-
-**Numbers indicate dependency order:** Layer 01 has no deps, Layer 02 depends on 01, etc.
 
 ---
 
-## 🎯 What's What
+## Key Concepts
 
-### ⭐ OpenClaw Tools (What AI Can Call)
+### Agent Tools (What the AI Can Call)
 
-**Only in:** `06-tools/`
+Defined in `agent/tools/` as declarative `ToolDescriptor` objects:
 
 ```typescript
-// These ARE tools - AI calls them:
-- agid_sign          → Sign with MPC wallet
-- agid_encrypt       → Encrypt data
-- agid_balance       → Check wallet
-- agid_store_memory  → Save to memory
+interface ToolDescriptor {
+  definition: AgentToolDefinition;  // name, description, input_schema
+  execute: (params, ctx) => Promise<ToolResult>;
+  requiresWallet: boolean;          // controls parallel vs sequential execution
+}
 ```
 
-**Everything else is infrastructure, not tools!**
+8 domain files: `identity.ts`, `wallet-ops.ts`, `transactions.ts`, `tokens.ts`, `messaging.ts`, `memory.ts`, `services.ts`, `audit.ts`
+
+**Everything else is infrastructure that tools call into.**
+
+### Execution Model
+
+- Read-only tools (`requiresWallet: false`) execute in **parallel** via `Promise.all`
+- Wallet tools (`requiresWallet: true`) execute **sequentially** to respect the MPC signing lock
+- Results are re-ordered to match the original `tool_use_id` order for the Anthropic API
+
+### VaultStore Interface
+
+Unified storage interface implemented by three backends:
+
+| Implementation | Backend |
+|---------------|---------|
+| `LocalEncryptedVault` | Local filesystem with AES encryption |
+| `ShadVaultAdapter` | Shad semantic document store |
+| `TeamVaultAdapter` | Team vault with certificate-based access |
+
+### MemoryManager
+
+Unified facade for the PushDrop memory system:
+
+- `store()` — Write memory to blockchain via PushDrop tokens
+- `recall()` — Read memories with optional semantic search (via Shad)
+- `gc()` — Garbage collect expired memories
 
 ---
 
-### 🏗️ Infrastructure (Background Systems)
+## Quick Reference
 
-**Layers 01-05:**
-
-```
-01-core/          → Wallet, identity, config
-02-storage/       → Data persistence
-03-gateway/       → Main system (wraps OpenClaw)
-integrations/     → External service connectors
-05-interfaces/    → HTTP/CLI/SDK access
-```
-
-**Not callable by AI - they run in background**
-
----
-
-### 🔗 Helper Code
-
-**Layer 07:**
-
-```
-07-shared/        → Types, utilities, audit
-```
-
-**Not tools - used internally**
-
----
-
-## 📋 Quick Reference
-
-| Layer | Purpose | Contains | Is Tool? |
-|-------|---------|----------|----------|
-| 01-core | Foundation | wallet, identity, config | ❌ NO |
-| 02-storage | Data | vault, uhrp, memory | ❌ NO |
-| 03-gateway | Main system | gateway, messaging, auth | ❌ NO |
-| integrations | External | openclaw, shad, team | ❌ NO |
-| 05-interfaces | Access | server, cli, client | ❌ NO |
-| **06-tools** | **AI Tools** | **wallet-tools, memory-tools** | **✅ YES** |
-| 07-shared | Utilities | types, audit | ❌ NO |
-
----
-
-## 🎓 Dependency Rules
-
-**Allowed dependencies (top-down only):**
-
-```
-07-shared → (no dependencies)
-    ↓
-01-core → 07-shared
-    ↓
-02-storage → 01-core, 07-shared
-    ↓
-03-gateway → 01-core, 02-storage, 07-shared
-    ↓
-integrations → 01-core, 02-storage, 07-shared
-    ↓
-05-interfaces → 01-core, 02-storage, 03-gateway, 07-shared
-    ↓
-06-tools → Everything (tools use all infrastructure)
-```
-
-**Never:** Lower layers depending on higher layers
-
----
-
-## 🎯 Finding Things
-
-**"Where is X?"**
-
-| Looking for | Check folder |
-|-------------|--------------|
-| MPC wallet code | 01-core/wallet/ |
-| Identity verification | 01-core/identity/ |
-| Storage interface | 02-storage/vault/ |
-| Blockchain storage | 02-storage/uhrp/ |
-| Memory system | 02-storage/memory/ |
-| Main gateway | 03-gateway/gateway/ |
-| MessageBox integration | 03-gateway/messaging/ |
-| Encryption helpers | 03-gateway/encryption/ |
-| OpenClaw client | integrations/openclaw/ |
-| Shad integration | integrations/shad/ |
-| HTTP API | 05-interfaces/server/ |
-| CLI tool | 05-interfaces/cli/ |
-| **OpenClaw tools** | **06-tools/tools/** |
-| Type definitions | 07-shared/types/ |
-| Audit logging | 07-shared/audit/ |
-
----
-
-## ⭐ Key Insight
-
-**OpenClaw Tool = Only things in `06-tools/`**
-
-Everything else is either:
-- Infrastructure (provides services)
-- Storage (persists data)
-- Integration (connects to external services)
-- Interface (how to access AGIdentity)
-- Utility (helper code)
-
-**The AI only calls tools. Tools use everything else.**
-
----
-
-## 📖 Layer Documentation
-
-Each folder has its own README.md:
-- `01-core/README.md`
-- `02-storage/README.md`
-- `03-gateway/README.md`
-- `integrations/README.md`
-- `05-interfaces/README.md`
-- `06-tools/README.md`
-- `07-shared/README.md`
-
-**Read these for details on each layer.**
-
----
-
-**Structure is now intuitive: Numbers show dependencies, names show purpose!**
+| Directory | Purpose |
+|-----------|---------|
+| `wallet/` | MPC wallet, key derivation, PushDrop ops |
+| `identity/` | Certificate authority, verification, identity gate |
+| `config/` | Environment config loading |
+| `storage/vault/` | Local encrypted vault |
+| `storage/uhrp/` | UHRP blockchain storage |
+| `storage/memory/` | PushDrop memory + MemoryManager |
+| `agent/` | Agent loop, tool registry, prompt builder |
+| `agent/tools/` | 25 declarative agent tools |
+| `agent/providers/` | LLM providers (Anthropic, Ollama) |
+| `gateway/` | Main gateway orchestration |
+| `messaging/` | MessageBox P2P messaging |
+| `encryption/` | Per-interaction encryption |
+| `integrations/shad/` | Semantic memory (Shad) |
+| `integrations/x402/` | Authenticated payments |
+| `integrations/overlay/` | BSV overlay lookup |
+| `integrations/gepa/` | Prompt optimization |
+| `integrations/team/` | Team vault + secure team vault |
+| `server/` | BRC-103/104 authenticated HTTP API |
+| `client/` | HTTP client SDK |
+| `cli/` | Employee chat CLI |
+| `types/` | Shared type definitions |
+| `audit/` | Anchor chain, audit trail, workspace integrity |

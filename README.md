@@ -1,34 +1,40 @@
 # AGIdentity
 
-**Cryptographic Identity for Enterprise AI**
+**Cryptographic Identity for Autonomous AI Agents**
 
-AGIdentity wraps your AI (OpenClaw) with cryptographic identity. Every employee message is verified, every AI response is signed, and all communication is end-to-end encrypted.
+AGIdentity gives your AI agent a cryptographic identity backed by MPC threshold signatures. Every user message is verified, every AI response is signed, and all communication is end-to-end encrypted.
 
 ```
-Employee (BRC-100 Wallet) ──► MessageBox (E2E Encrypted) ──► AGIdentity Gateway ──► OpenClaw AI
-                                                                    │
-                                                              MPC Wallet
-                                                         (signs, can't leak keys)
+User (BRC-100 Wallet) --> MessageBox (E2E Encrypted) --> AGIdentity Gateway --> Native Agent Loop (LLM)
+                                                                |
+                                                          MPC Wallet
+                                                     (signs, can't leak keys)
 ```
 
-## 📁 Repository Structure
-
-**Reorganized into intuitive layers:**
+## Repository Structure
 
 ```
 src/
-├── 01-core/        # Core (wallet, identity, config)
-├── 02-storage/     # Storage (vault, uhrp, memory)
-├── 03-gateway/     # Gateway (main system)
-├── 04-integrations/# External services
-├── 05-interfaces/  # Access methods (HTTP, CLI, SDK)
-├── 06-tools/       # ⭐ OpenClaw AI Tools (AI-callable)
-└── 07-shared/      # Shared utilities
+├── wallet/          # BRC-100 + MPC wallet, PushDrop token ops
+├── identity/        # Certificate authority, verification, identity gate
+├── config/          # Environment config
+├── storage/         # Vault, UHRP blockchain storage, memory system
+├── agent/           # Agent loop, tool registry, LLM providers, prompt builder
+│   └── tools/       # 25 declarative agent tools (8 domain files)
+├── gateway/         # AGIdentity gateway (orchestrates agent + messaging)
+├── messaging/       # MessageBox client, conversation manager
+├── encryption/      # Per-interaction encryption helpers
+├── integrations/    # External services (Shad, x402, overlay, GEPA, team vault)
+├── server/          # BRC-103/104 authenticated HTTP API
+├── client/          # Authenticated HTTP client SDK
+├── cli/             # Employee-side CLI (chat REPL)
+├── types/           # Shared type definitions
+├── audit/           # Anchor chain, signed audit trail, workspace integrity
+├── index.ts         # Public API exports
+└── start.ts         # Gateway startup script
 ```
 
-**Key insight:** Only `06-tools/` contains OpenClaw tools. Everything else is infrastructure.
-
-See `src/README.md` for full architecture guide.
+See `src/README.md` for the full architecture guide.
 
 ---
 
@@ -61,6 +67,7 @@ MPC_COSIGNER_ENDPOINTS=http://cosigner1:3001,http://cosigner2:3002
 MPC_SHARE_SECRET=<generate: openssl rand -hex 32>
 MPC_SHARE_PATH=./agent-mpc-share.json
 TRUSTED_CERTIFIERS=03abc...,03def...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 First run performs DKG (distributed key generation). Subsequent runs restore from the encrypted share.
@@ -73,6 +80,7 @@ Single private key - **do not use in production**.
 # .env for local mode
 AGENT_PRIVATE_KEY=<generate: openssl rand -hex 32>
 TRUSTED_CERTIFIERS=03abc...,03def...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ## Environment Variables
@@ -87,11 +95,14 @@ MPC_SHARE_PATH=./agent-mpc-share.json # Where to store share
 AGENT_PRIVATE_KEY=<64-hex-chars>      # Single key (insecure)
 
 # --- Common ---
-TRUSTED_CERTIFIERS=03abc...,03def...  # CA public keys to trust
-AGID_NETWORK=mainnet                  # or testnet
-OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
-OPENCLAW_GATEWAY_TOKEN=<token>
+ANTHROPIC_API_KEY=sk-ant-...          # Required for native agent loop
+AGID_MODEL=claude-sonnet-4-5-20250929 # LLM model (default)
+AGID_MAX_ITERATIONS=25               # Max tool-use iterations per request
+AGID_MAX_TOKENS=8192                 # Max tokens per LLM response
+TRUSTED_CERTIFIERS=03abc...,03def... # CA public keys to trust
+AGID_NETWORK=mainnet                 # or testnet
 MESSAGEBOX_HOST=https://messagebox.babbage.systems
+AGID_ALLOW_UNAUTHENTICATED=false     # HTTP API auth (default: false)
 ```
 
 ## Architecture
@@ -111,19 +122,19 @@ MESSAGEBOX_HOST=https://messagebox.babbage.systems
 │                   MessageBox (P2P)                           │
 │              BRC-2 ECDH End-to-End Encrypted                 │
 │                          │                                   │
-│                          ▼                                   │
+│                          v                                   │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │                 AGIdentity Gateway                     │  │
 │  │                                                        │  │
 │  │  ┌─────────────┐    ┌──────────────────────────────┐  │  │
-│  │  │ Identity    │    │         OpenClaw              │  │  │
-│  │  │ Gate        │───►│         (AI Agent)            │  │  │
+│  │  │ Identity    │    │     Native Agent Loop         │  │  │
+│  │  │ Gate        │───>│     (Anthropic API)           │  │  │
 │  │  │             │    │                               │  │  │
-│  │  │ - Verify    │    │  Tools, Skills, Memory        │  │  │
-│  │  │   cert      │    │                               │  │  │
+│  │  │ - Verify    │    │  25 Tools (8 domain files)    │  │  │
+│  │  │   cert      │    │  Parallel read-only execution │  │  │
 │  │  │ - Check     │    └───────────────┬──────────────┘  │  │
 │  │  │   revocation│                    │                  │  │
-│  │  └─────────────┘                    ▼                  │  │
+│  │  └─────────────┘                    v                  │  │
 │  │                     ┌──────────────────────────────┐  │  │
 │  │                     │      MPC Wallet               │  │  │
 │  │                     │  (AI signs, CAN'T leak keys)  │  │  │
@@ -132,10 +143,27 @@ MESSAGEBOX_HOST=https://messagebox.babbage.systems
 │                                                              │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │           Certificate Authority (MPC-backed)           │  │
-│  │     Issues employee certs • Revocation on-chain        │  │
+│  │     Issues employee certs - Revocation on-chain        │  │
 │  └───────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+## Agent Tools
+
+The native agent loop exposes 25 tools across 8 domains, defined declaratively in `src/agent/tools/`:
+
+| Domain | Tools | Wallet Required |
+|--------|-------|-----------------|
+| **Identity** | `agid_identity`, `agid_balance`, `agid_get_public_key`, `agid_get_height` | No |
+| **Wallet Ops** | `agid_sign`, `agid_encrypt`, `agid_decrypt` | Yes |
+| **Transactions** | `agid_create_action`, `agid_internalize_action`, `agid_send_payment`, `agid_list_outputs` | Mixed |
+| **Tokens** | `agid_token_create`, `agid_token_list`, `agid_token_redeem` | Mixed |
+| **Messaging** | `agid_message_send`, `agid_message_list`, `agid_message_ack` | Mixed |
+| **Memory** | `agid_store_memory`, `agid_recall_memories` | Mixed |
+| **Services** | `agid_optimize_prompt`, `agid_discover_services`, `agid_x402_request`, `agid_overlay_lookup` | Mixed |
+| **Audit** | `agid_verify_workspace`, `agid_verify_session` | No |
+
+Read-only tools execute in parallel. Wallet tools execute sequentially to respect the MPC signing lock.
 
 ## Key Security Properties
 
@@ -145,7 +173,8 @@ MESSAGEBOX_HOST=https://messagebox.babbage.systems
 | **Verified identity** | Employees present certificates, checked against CA |
 | **Signed responses** | Every AI response signed with MPC wallet |
 | **MPC protection** | AI can't leak its private key, even if prompt-injected |
-| **Audit trail** | Every interaction logged with blockchain timestamps |
+| **Audit trail** | Per-session hash chain with Merkle root anchored on-chain |
+| **Workspace integrity** | Workspace files verified against on-chain anchors |
 
 ## Programmatic Usage
 
@@ -160,38 +189,18 @@ const wallet = await createAgentWallet({
 const gateway = await createAGIdentityGateway({
   wallet,
   trustedCertifiers: ['03abc...'],
-  openclawUrl: 'ws://127.0.0.1:18789',
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Gateway is now listening
-// Employees send encrypted messages → verified → AI responds → signed
+// Gateway is now listening on MessageBox
+// Employees send encrypted messages -> verified -> AI responds -> signed
 ```
 
 ## CLI (Employee Side)
 
 ```bash
-# Show your identity
-npm run cli:info
-
 # Chat with the AI agent
 npm run cli:chat <agent-pubkey>
-```
-
-## Project Structure
-
-```
-src/
-├── start.ts           # Simple gateway entry point
-├── gateway/           # AGIdentityOpenClawGateway
-├── wallet/            # BRC-100 + MPC wallet
-├── messaging/         # MessageBox client
-├── identity/          # Certificate verification
-├── openclaw/          # OpenClaw WebSocket client
-├── memory/            # MCP memory server
-├── shad/              # Semantic memory (Shad)
-├── vault/             # Encrypted document storage
-├── audit/             # Signed audit trail
-└── cli/               # Employee CLI
 ```
 
 ## Scripts
@@ -202,18 +211,7 @@ src/
 | `npm run gateway` | Start the gateway |
 | `npm run start` | Same as gateway |
 | `npm test` | Run tests |
-| `npm run cli:info` | Show identity info |
 | `npm run cli:chat` | Chat with agent |
-
-## v0.1 Features
-
-- Interface hardening (security fixes, session cleanup)
-- MessageBox as primary P2P encrypted channel
-- MPC wallet interface with dependency injection
-- Production MPC integration (DKG/restore)
-- OpenClaw Gateway with identity gate
-- Shad semantic memory with auto-retrieval
-- Signed audit trail for all interactions
 
 ## BRC Standards
 
@@ -221,6 +219,7 @@ src/
 |----------|---------|
 | BRC-2 | ECDH encryption |
 | BRC-42 | Key derivation |
+| BRC-48 | PushDrop tokens (on-chain memory) |
 | BRC-52 | Identity certificates |
 | BRC-100 | Wallet interface |
 | BRC-103/104 | HTTP authentication |
@@ -228,7 +227,3 @@ src/
 ## License
 
 MIT
-
----
-
-**SSL unlocked e-commerce. AGIdentity unlocks enterprise AI.**
