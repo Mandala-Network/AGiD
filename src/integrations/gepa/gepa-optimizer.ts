@@ -44,11 +44,34 @@ export class GepaOptimizer {
 
   /**
    * Check GEPA availability and create cache directory.
+   * Tries configured/env python first, then common Homebrew paths.
    * Must be called before using optimize methods.
    */
   async initialize(): Promise<void> {
-    // Check availability
-    const check = await this.executor.checkGepaAvailable();
+    // Try default python path first
+    let check = await this.executor.checkGepaAvailable();
+
+    // If not found, try common alternative Python paths (Homebrew, pyenv, etc.)
+    if (!check.available) {
+      const candidates = [
+        '/opt/homebrew/bin/python3',
+        '/opt/homebrew/bin/python3.13',
+        '/opt/homebrew/bin/python3.12',
+        '/opt/homebrew/bin/python3.11',
+        '/opt/homebrew/bin/python3.10',
+        '/usr/local/bin/python3',
+      ];
+      for (const candidate of candidates) {
+        const altExecutor = new GepaExecutor({ pythonPath: candidate });
+        const altCheck = await altExecutor.checkGepaAvailable();
+        if (altCheck.available) {
+          this.executor = new GepaExecutor({ pythonPath: candidate });
+          check = altCheck;
+          break;
+        }
+      }
+    }
+
     this._available = check.available;
     this._version = check.version;
 

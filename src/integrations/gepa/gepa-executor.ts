@@ -57,7 +57,7 @@ export class GepaExecutor {
    */
   async checkGepaAvailable(): Promise<GepaAvailability> {
     return new Promise((resolve) => {
-      const proc = spawn(this.pythonPath, ['-c', 'import gepa; print(gepa.__version__)']);
+      const proc = spawn(this.pythonPath, ['-c', 'from importlib.metadata import version; print(version("gepa"))']);
 
       let stdout = '';
       let stderr = '';
