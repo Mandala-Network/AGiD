@@ -28,7 +28,7 @@ import type {
   AcquireCertificateResult,
   ListCertificatesArgs,
   ListCertificatesResult,
-} from '../07-shared/types/index.js';
+} from '../types/index.js';
 
 /**
  * Cryptographically secure mock wallet for testing
@@ -293,6 +293,10 @@ export class MockSecureWallet implements BRC100Wallet {
 
   async isAuthenticated(): Promise<boolean> {
     return true;
+  }
+
+  asWalletInterface(): any {
+    return this;
   }
 
   // =========================================================================

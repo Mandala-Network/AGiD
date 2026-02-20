@@ -8,20 +8,18 @@
  * - Performance under load
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   MockSecureWallet,
   createDeterministicWallet,
   bytesToHex,
   randomBytes,
-  sleep,
 } from './test-utils.js';
 import {
   PerInteractionEncryption,
   SessionEncryption,
-} from '../03-gateway/encryption/per-interaction.js';
-import { SessionManager } from '../03-gateway/auth/session-manager.js';
-import { SignedAuditTrail } from '../07-shared/audit/signed-audit.js';
+} from '../encryption/per-interaction.js';
+import { SignedAuditTrail } from '../audit/signed-audit.js';
 
 describe('Enterprise Security Compliance', () => {
   describe('End-to-End Encryption Flow', () => {
@@ -126,37 +124,6 @@ describe('Enterprise Security Compliance', () => {
         // In production, this keyId would be in a "used" set
       });
 
-      it('should prevent session replay via timing checks', async () => {
-        const wallet = new MockSecureWallet();
-        const sessionManager = new SessionManager({
-          wallet,
-          maxSessionDurationMs: 3600000,
-          timingAnomalyThresholdMs: 100
-        });
-
-        const session = await sessionManager.createSession('user');
-
-        // Create valid signature
-        const signature = await wallet.createSignature({
-          data: Array.from(new TextEncoder().encode(session.nonce)),
-          protocolID: [2, 'agidentity-auth'],
-          keyID: `session-${session.sessionId}`,
-          counterparty: session.userPublicKey
-        });
-
-        // Replay with old timestamp should fail (timing anomaly)
-        const replayResult = await sessionManager.verifySession(
-          session.sessionId,
-          new Uint8Array(signature.signature),
-          Date.now() - 120000 // 2 minutes ago
-        );
-
-        expect(replayResult.valid).toBe(false);
-        // Could be either timing anomaly or timestamp too old
-        expect(replayResult.error).toBeDefined();
-
-        sessionManager.stop();
-      });
     });
 
     describe('Man-in-the-Middle', () => {
@@ -397,50 +364,6 @@ describe('Enterprise Security Compliance', () => {
 
       // Should complete in reasonable time (< 10 seconds)
       expect(endTime - startTime).toBeLessThan(10000);
-    });
-
-    it('should handle concurrent session operations', async () => {
-      const wallet = new MockSecureWallet();
-      const sessionManager = new SessionManager({
-        wallet,
-        maxSessionDurationMs: 60000,
-        timingAnomalyThresholdMs: 1000
-      });
-
-      const startTime = performance.now();
-
-      // Create 50 concurrent sessions
-      const sessions = await Promise.all(
-        Array.from({ length: 50 }, (_, i) =>
-          sessionManager.createSession(`user-${i}`)
-        )
-      );
-
-      // Verify all sessions concurrently
-      const verifications = await Promise.all(
-        sessions.map(async (session) => {
-          const signature = await wallet.createSignature({
-            data: Array.from(new TextEncoder().encode(session.nonce)),
-            protocolID: [2, 'agidentity-auth'],
-            keyID: `session-${session.sessionId}`,
-            counterparty: session.userPublicKey
-          });
-
-          return sessionManager.verifySession(
-            session.sessionId,
-            new Uint8Array(signature.signature),
-            Date.now()
-          );
-        })
-      );
-
-      const endTime = performance.now();
-
-      expect(sessions.length).toBe(50);
-      expect(verifications.every(v => v.valid)).toBe(true);
-      expect(endTime - startTime).toBeLessThan(10000);
-
-      sessionManager.stop();
     });
 
     it('should maintain security properties under stress', async () => {

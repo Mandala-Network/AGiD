@@ -29,11 +29,11 @@
 
 import 'dotenv/config';
 import * as http from 'http';
-import { createAGIdentityGateway } from './03-gateway/gateway/index.js';
-import { createProvider } from './03-gateway/agent/providers/index.js';
-import { createAgentWallet } from './01-core/wallet/agent-wallet.js';
-import { createProductionMPCWallet, loadMPCConfigFromEnv } from './01-core/wallet/mpc-integration.js';
-import type { AgentWallet } from './01-core/wallet/agent-wallet.js';
+import { createAGIdentityGateway } from './gateway/index.js';
+import { createProvider } from './agent/providers/index.js';
+import { createAgentWallet } from './wallet/agent-wallet.js';
+import { createProductionMPCWallet, loadMPCConfigFromEnv } from './wallet/mpc-integration.js';
+import type { AgentWallet } from './wallet/agent-wallet.js';
 
 async function main() {
   console.log('');

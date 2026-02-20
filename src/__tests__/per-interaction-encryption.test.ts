@@ -13,7 +13,7 @@ import {
   PerInteractionEncryption,
   SessionEncryption,
   type InteractionContext,
-} from '../03-gateway/encryption/per-interaction.js';
+} from '../encryption/per-interaction.js';
 import {
   MockSecureWallet,
   bytesToHex,

@@ -4,7 +4,7 @@
  * Run this after internalize-payments.ts if keys weren't persisted.
  */
 import 'dotenv/config';
-import { createProductionMPCWallet, loadMPCConfigFromEnv } from '../src/01-core/wallet/mpc-integration.js';
+import { createProductionMPCWallet, loadMPCConfigFromEnv } from '../src/wallet/mpc-integration.js';
 
 async function main() {
   console.log('Loading MPC wallet...');

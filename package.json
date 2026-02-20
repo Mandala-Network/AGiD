@@ -12,10 +12,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./plugin": {
-      "types": "./dist/plugin/agidentity-plugin.d.ts",
-      "default": "./dist/plugin/agidentity-plugin.js"
     }
   },
   "scripts": {

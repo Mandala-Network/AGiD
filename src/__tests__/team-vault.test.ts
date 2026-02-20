@@ -13,9 +13,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TeamVault } from '../04-integrations/team/team-vault.js';
+import { TeamVault } from '../integrations/team/team-vault.js';
 import { MockSecureWallet, randomBytes, bytesToHex } from './test-utils.js';
-import type { TeamConfig, TeamRole, SecurityLevel } from '../07-shared/types/index.js';
+import type { TeamConfig, TeamRole, SecurityLevel } from '../types/index.js';
 
 describe('Team Vault', () => {
   let ownerWallet: MockSecureWallet;

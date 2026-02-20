@@ -3,7 +3,7 @@
  * Quick diagnostic: test MessageBox list from MPC wallet
  */
 import 'dotenv/config';
-import { createProductionMPCWallet, loadMPCConfigFromEnv } from '../src/01-core/wallet/mpc-integration.js';
+import { createProductionMPCWallet, loadMPCConfigFromEnv } from '../src/wallet/mpc-integration.js';
 import { MessageBoxClient } from '@bsv/message-box-client';
 
 async function main() {

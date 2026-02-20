@@ -11,7 +11,7 @@ src/
 ├── 01-core/              # Core infrastructure (wallet, identity, config)
 ├── 02-storage/           # Storage backends (vault, uhrp, memory)
 ├── 03-gateway/           # AGIdentity Gateway (main system)
-├── 04-integrations/      # External services (openclaw, shad)
+├── integrations/         # External services (openclaw, shad)
 ├── 05-interfaces/        # External access (HTTP, CLI, SDK)
 ├── 06-tools/             # ⭐ OpenClaw AI Tools (AI-callable)
 ├── 07-shared/            # Shared utilities (types, audit)
@@ -51,7 +51,7 @@ src/
 01-core/          → Wallet, identity, config
 02-storage/       → Data persistence
 03-gateway/       → Main system (wraps OpenClaw)
-04-integrations/  → External service connectors
+integrations/     → External service connectors
 05-interfaces/    → HTTP/CLI/SDK access
 ```
 
@@ -78,7 +78,7 @@ src/
 | 01-core | Foundation | wallet, identity, config | ❌ NO |
 | 02-storage | Data | vault, uhrp, memory | ❌ NO |
 | 03-gateway | Main system | gateway, messaging, auth | ❌ NO |
-| 04-integrations | External | openclaw, shad, team | ❌ NO |
+| integrations | External | openclaw, shad, team | ❌ NO |
 | 05-interfaces | Access | server, cli, client | ❌ NO |
 | **06-tools** | **AI Tools** | **wallet-tools, memory-tools** | **✅ YES** |
 | 07-shared | Utilities | types, audit | ❌ NO |
@@ -98,7 +98,7 @@ src/
     ↓
 03-gateway → 01-core, 02-storage, 07-shared
     ↓
-04-integrations → 01-core, 02-storage, 07-shared
+integrations → 01-core, 02-storage, 07-shared
     ↓
 05-interfaces → 01-core, 02-storage, 03-gateway, 07-shared
     ↓
@@ -123,8 +123,8 @@ src/
 | Main gateway | 03-gateway/gateway/ |
 | MessageBox integration | 03-gateway/messaging/ |
 | Encryption helpers | 03-gateway/encryption/ |
-| OpenClaw client | 04-integrations/openclaw/ |
-| Shad integration | 04-integrations/shad/ |
+| OpenClaw client | integrations/openclaw/ |
+| Shad integration | integrations/shad/ |
 | HTTP API | 05-interfaces/server/ |
 | CLI tool | 05-interfaces/cli/ |
 | **OpenClaw tools** | **06-tools/tools/** |
@@ -154,7 +154,7 @@ Each folder has its own README.md:
 - `01-core/README.md`
 - `02-storage/README.md`
 - `03-gateway/README.md`
-- `04-integrations/README.md`
+- `integrations/README.md`
 - `05-interfaces/README.md`
 - `06-tools/README.md`
 - `07-shared/README.md`
