@@ -317,6 +317,14 @@ async function main() {
       console.log(`Logged in as ${userPublicKey.substring(0, 16)}...`);
       console.log('');
 
+      // Mute background gateway logs so they don't corrupt the REPL
+      const origLog = console.log;
+      const origWarn = console.warn;
+      const origError = console.error;
+      console.log = () => {};
+      console.warn = () => {};
+      console.error = () => {};
+
       await startChatREPL({
         messageClient,
         agentPublicKey: identityPublicKey,
@@ -324,7 +332,11 @@ async function main() {
         messageBox: 'chat',
       });
 
-      // REPL exited (user typed /quit)
+      // REPL exited — restore logging for shutdown messages
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+
       await messageClient.disconnect();
       await shutdown();
     } catch (err) {
