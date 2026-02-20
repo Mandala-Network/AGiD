@@ -559,7 +559,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
     try {
       const signature = await config.wallet.createSignature({
         data: Array.from(new TextEncoder().encode(message)),
-        protocolID: [2, 'agidentity-sign'],
+        protocolID: [2, 'agidentity sign'],
         keyID: keyId ?? `sign-${Date.now()}`,
         counterparty: clientKey,
       });
@@ -598,7 +598,7 @@ export async function createAGIDServer(config: AGIDServerConfig): Promise<AGIDSe
       const result = await config.wallet.verifySignature({
         data: Array.from(new TextEncoder().encode(message)),
         signature: signatureBytes,
-        protocolID: [2, 'agidentity-sign'],
+        protocolID: [2, 'agidentity sign'],
         keyID: keyId ?? 'verify',
         counterparty: clientKey,
       });

@@ -34,12 +34,11 @@ export interface Memory {
  * @returns Array of decrypted Memory objects with timestamps
  */
 export async function listMemories(
-  wallet: BRC100Wallet & { getUnderlyingWallet?: () => any; getUnderlyingMPCWallet?: () => any },
+  wallet: BRC100Wallet & { getUnderlyingWallet?: () => any },
   options?: { tags?: string[]; importance?: string }
 ): Promise<Memory[]> {
   // 1. Query basket for memory tokens
-  // Get the underlying wallet - works with both AgentWallet and MPCAgentWallet
-  const underlyingWallet = wallet.getUnderlyingWallet?.() ?? wallet.getUnderlyingMPCWallet?.();
+  const underlyingWallet = wallet.getUnderlyingWallet?.();
   if (!underlyingWallet) {
     throw new Error('Wallet not initialized');
   }
@@ -47,7 +46,7 @@ export async function listMemories(
   const network = await wallet.getNetwork();
   const result = await underlyingWallet.listOutputs({
     basket: 'agent-memories',
-    tags: options?.tags ? ['agidentity-memory', ...options.tags] : ['agidentity-memory'],
+    tags: options?.tags ? ['agidentity memory', ...options.tags] : ['agidentity memory'],
     include: 'entire transactions', // Include BEEF for validation
     includeCustomInstructions: true,
   });
@@ -94,7 +93,7 @@ export async function listMemories(
 
       const decrypted = await wallet.decrypt({
         ciphertext: Array.from(downloadResult.data),
-        protocolID: [2, 'agidentity-memory'],
+        protocolID: [2, 'agidentity memory'],
         keyID: keyID || `memory-fallback-${output.outpoint}`,
       });
 

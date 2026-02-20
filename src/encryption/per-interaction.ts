@@ -129,7 +129,7 @@ export class PerInteractionEncryption {
 
     const encrypted = await this.wallet.encrypt({
       plaintext: Array.from(data),
-      protocolID: [2, 'agidentity-storage'],
+      protocolID: [2, 'agidentity storage'],
       keyID: keyId,
       counterparty: userPublicKey
     });
@@ -150,7 +150,7 @@ export class PerInteractionEncryption {
   ): Promise<Uint8Array> {
     const decrypted = await this.wallet.decrypt({
       ciphertext: Array.from(ciphertext),
-      protocolID: [2, 'agidentity-storage'],
+      protocolID: [2, 'agidentity storage'],
       keyID: keyId,
       counterparty: userPublicKey
     });
@@ -190,7 +190,7 @@ export class PerInteractionEncryption {
     // Sign the metadata
     const signature = await this.wallet.createSignature({
       data: Array.from(new TextEncoder().encode(signedData)),
-      protocolID: [1, 'agidentity-envelope'],
+      protocolID: [1, 'agidentity envelope'],
       keyID: `envelope-${encrypted.keyId}`
     });
 
@@ -216,7 +216,7 @@ export class PerInteractionEncryption {
     const verifyResult = await this.wallet.verifySignature({
       data: Array.from(new TextEncoder().encode(envelope.signedData)),
       signature: Array.from(envelope.signature),
-      protocolID: [1, 'agidentity-envelope'],
+      protocolID: [1, 'agidentity envelope'],
       keyID: `envelope-${envelope.encrypted.keyId}`,
       counterparty: userPublicKey
     });
@@ -251,7 +251,7 @@ export class PerInteractionEncryption {
     // Use HMAC to derive a symmetric key
     const hmacResult = await this.wallet.createHmac({
       data: Array.from(new TextEncoder().encode(purpose)),
-      protocolID: [2, 'agidentity-shared'],
+      protocolID: [2, 'agidentity shared'],
       keyID: keyId,
       counterparty: counterpartyPublicKey
     });

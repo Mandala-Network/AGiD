@@ -458,7 +458,7 @@ export class AGIdentityGateway {
           workspaceCombinedHash,
           String(chain.getAnchorCount()),
         ],
-        protocolID: [2, 'agidentity-anchor'],
+        protocolID: [2, 'agidentity anchor'],
         keyID: `anchor-${chain.getSessionId()}`,
         basket: 'anchor-chain',
         description: `Anchor chain: ${chain.getSessionId()} (${chain.getAnchorCount()} anchors)`,
@@ -480,7 +480,7 @@ export class AGIdentityGateway {
 
       const signature = await this.wallet.createSignature({
         data,
-        protocolID: [0, 'agidentity-response'],
+        protocolID: [0, 'agidentity response'],
         keyID: keyId,
       });
 

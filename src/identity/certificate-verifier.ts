@@ -142,7 +142,7 @@ export class CertificateVerifier {
       const verifyResult = await this.wallet.verifySignature({
         data: Array.from(certificateData),
         signature: Array.from(signatureBytes),
-        protocolID: [2, 'certificate-signing'],
+        protocolID: [2, 'certificate signing'],
         keyID: `cert-${certificate.serialNumber}`,
       });
 

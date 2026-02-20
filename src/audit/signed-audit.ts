@@ -86,7 +86,7 @@ export class SignedAuditTrail {
     const dataToSign = JSON.stringify(entryData);
     const signature = await this.wallet.createSignature({
       data: Array.from(new TextEncoder().encode(dataToSign)),
-      protocolID: [0, 'agidentity-audit'],  // Level 0 = publicly verifiable
+      protocolID: [0, 'agidentity audit'],  // Level 0 = publicly verifiable
       keyID: `audit-${entryId}`
     });
 
@@ -138,7 +138,7 @@ export class SignedAuditTrail {
     const result = await this.wallet.verifySignature({
       data: Array.from(new TextEncoder().encode(dataToVerify)),
       signature: Array.from(this.hexToBuffer(entry.signature)),
-      protocolID: [0, 'agidentity-audit'],
+      protocolID: [0, 'agidentity audit'],
       keyID: `audit-${entry.entryId}`
     });
 

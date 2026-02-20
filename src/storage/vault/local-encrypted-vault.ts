@@ -473,7 +473,7 @@ export class LocalEncryptedVault implements VaultStore {
     // Derive encryption key using wallet
     const keyData = await this.wallet.encrypt({
       plaintext: Array.from(Buffer.from(content, 'utf-8')),
-      protocolID: [2, 'agidentity-vault'],
+      protocolID: [2, 'agidentity vault'],
       keyID: this.keyId,
     });
 
@@ -509,7 +509,7 @@ export class LocalEncryptedVault implements VaultStore {
     // Decrypt using wallet
     const decrypted = await this.wallet.decrypt({
       ciphertext: Array.from(ciphertext),
-      protocolID: [2, 'agidentity-vault'],
+      protocolID: [2, 'agidentity vault'],
       keyID: meta.keyId,
     });
 

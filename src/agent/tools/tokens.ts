@@ -22,7 +22,7 @@ export function tokenTools(): ToolDescriptor[] {
       requiresWallet: true,
       execute: async (params, ctx) => {
         const fields = params.fields as string[];
-        const protocol = (params.protocol as string) || 'agidentity-token';
+        const protocol = (params.protocol as string) || 'agidentity token';
         const keyId = (params.keyId as string) || 'default';
         const basket = (params.basket as string) || 'tokens';
         const result = await lockPushDropToken(ctx.wallet, {
@@ -92,7 +92,7 @@ export function tokenTools(): ToolDescriptor[] {
         const result = await unlockPushDropToken(underlyingWallet, {
           txid: params.txid as string,
           vout: (params.vout as number) ?? 0,
-          protocolID: [2, (params.protocol as string) || 'agidentity-token'],
+          protocolID: [2, (params.protocol as string) || 'agidentity token'],
           keyID: (params.keyId as string) || 'default',
         });
         return ok({ txid: result.txid, satoshis: result.satoshis, redeemed: true });

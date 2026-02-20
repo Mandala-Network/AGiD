@@ -101,7 +101,7 @@ export async function applyGarbageCollection(
           outpoint: output.outpoint,
           lockingScript: output.lockingScript,
           satoshis: output.satoshis,
-          protocolID: [2, 'agidentity-memory'],
+          protocolID: [2, 'agidentity memory'],
           keyID,
         });
       }

@@ -5,32 +5,25 @@
  * Every tool call, inference, and data access must pass through this gate.
  *
  * STUB INTERFACES:
- * - CertificateIssuer: Will be replaced with MPC wallet implementation
- * - RevocationChecker: Will be replaced with custom overlay for outpoint checking
+ * - CertificateIssuer: Interface for certificate issuance
+ * - RevocationChecker: Interface for on-chain revocation checking
  *
- * These stubs define the interfaces that the production implementations must follow.
+ * These stubs define the interfaces that production implementations must follow.
  */
 
 import type { Certificate, BRC100Wallet } from '../types/index.js';
 
 // =============================================================================
-// STUB INTERFACES (To be implemented with MPC wallet and overlay)
+// STUB INTERFACES
 // =============================================================================
 
 /**
  * STUB: Certificate Issuer Interface
  *
- * Production implementation will use MPC wallet for secure multi-party
- * certificate signing. The MPC wallet ensures no single party has access
- * to the full signing key.
- *
- * @stub This interface defines what the MPC implementation must provide
+ * Production implementation will use the wallet for certificate signing.
  */
 export interface CertificateIssuer {
-  /**
-   * Issue a certificate to a subject
-   * @stub MPC implementation will use threshold signatures
-   */
+  /** Issue a certificate to a subject */
   issueCertificate(
     subjectPublicKey: string,
     certificateType: string,
@@ -38,16 +31,10 @@ export interface CertificateIssuer {
     expiresInDays: number
   ): Promise<Certificate>;
 
-  /**
-   * Get the certifier's public key
-   * @stub MPC implementation will derive from combined key shares
-   */
+  /** Get the certifier's public key */
   getCertifierPublicKey(): Promise<string>;
 
-  /**
-   * Check if the issuer is properly initialized
-   * @stub MPC implementation will verify all parties are connected
-   */
+  /** Check if the issuer is properly initialized */
   isInitialized(): Promise<boolean>;
 }
 
@@ -94,7 +81,7 @@ export interface RevocationChecker {
 
 /**
  * Local stub implementation of CertificateIssuer
- * Uses local wallet for development. Replace with MPC implementation in production.
+ * Uses wallet-toolbox for certificate issuance.
  */
 export class LocalCertificateIssuer implements CertificateIssuer {
   private wallet: BRC100Wallet;
@@ -142,7 +129,7 @@ export class LocalCertificateIssuer implements CertificateIssuer {
 
     const signature = await this.wallet.createSignature({
       data: Array.from(new TextEncoder().encode(certData)),
-      protocolID: [2, 'certificate-signing'],
+      protocolID: [2, 'certificate signing'],
       keyID: `cert-${serialNumber}`,
     });
 
@@ -402,7 +389,7 @@ export class IdentityGate {
     const verifyResult = await this.wallet.verifySignature({
       data: Array.from(new TextEncoder().encode(certData)),
       signature: Array.from(signatureBytes),
-      protocolID: [2, 'certificate-signing'],
+      protocolID: [2, 'certificate signing'],
       keyID: `cert-${certificate.serialNumber}`,
     });
 

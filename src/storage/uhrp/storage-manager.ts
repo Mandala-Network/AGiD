@@ -63,7 +63,7 @@ export class AGIdentityStorageManager {
     // 2. Encrypt document content using BRC-42 derived key
     const encryptedContent = await this.wallet.encrypt({
       plaintext: Array.from(document.content),
-      protocolID: [2, 'agidentity-vault'],  // Level 2 = per-counterparty
+      protocolID: [2, 'agidentity vault'],  // Level 2 = per-counterparty
       keyID: keyId,
       counterparty: userPublicKey
     });
@@ -139,7 +139,7 @@ export class AGIdentityStorageManager {
     // 4. Decrypt with user's key
     const decrypted = await this.wallet.decrypt({
       ciphertext: Array.from(downloadResult.data),
-      protocolID: [2, 'agidentity-vault'],
+      protocolID: [2, 'agidentity vault'],
       keyID: encryptionKeyId,
       counterparty: userPublicKey
     });

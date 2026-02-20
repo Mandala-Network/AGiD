@@ -206,7 +206,7 @@ export class CertificateAuthority {
 
     const signatureResult = await this.wallet.createSignature({
       data: Array.from(certificateData),
-      protocolID: [2, 'certificate-signing'],
+      protocolID: [2, 'certificate signing'],
       keyID: `cert-${serialNumber}`,
     });
 
@@ -345,7 +345,7 @@ export class CertificateAuthority {
     const verifyResult = await this.wallet.verifySignature({
       data: Array.from(certificateData),
       signature: Array.from(signatureBytes),
-      protocolID: [2, 'certificate-signing'],
+      protocolID: [2, 'certificate signing'],
       keyID: `cert-${certificate.serialNumber}`,
     });
 

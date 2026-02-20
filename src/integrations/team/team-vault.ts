@@ -722,7 +722,7 @@ export class TeamVault {
     const dataToSign = JSON.stringify(entryData);
     const signatureResult = await this.wallet.createSignature({
       data: Array.from(new TextEncoder().encode(dataToSign)),
-      protocolID: [0, 'agidentity-team-audit'], // Level 0 = publicly verifiable
+      protocolID: [0, 'agidentity team audit'], // Level 0 = publicly verifiable
       keyID: `audit-${entryId}`,
     });
 

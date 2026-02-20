@@ -25,7 +25,7 @@ import type { MemoryInput, MemoryToken } from './memory-types.js';
  * @returns Memory token with txid and UHRP URL
  */
 export async function storeMemory(
-  wallet: BRC100Wallet & { getUnderlyingWallet?: () => any; getUnderlyingMPCWallet?: () => any },
+  wallet: BRC100Wallet & { getUnderlyingWallet?: () => any },
   memory: MemoryInput,
   storageUrl: string = 'https://staging-storage.babbage.systems'
 ): Promise<MemoryToken> {
@@ -33,13 +33,12 @@ export async function storeMemory(
   const plaintext = new TextEncoder().encode(memory.content);
   const encrypted = await wallet.encrypt({
     plaintext: Array.from(plaintext),
-    protocolID: [2, 'agidentity-memory'],
+    protocolID: [2, 'agidentity memory'],
     keyID: `memory-${Date.now()}`,
   });
 
   // 2. Upload encrypted content to UHRP
-  // Get the underlying wallet - works with both AgentWallet and MPCAgentWallet
-  const underlyingWallet = wallet.getUnderlyingWallet?.() ?? wallet.getUnderlyingMPCWallet?.();
+  const underlyingWallet = wallet.getUnderlyingWallet?.();
   if (!underlyingWallet) {
     throw new Error('Cannot access underlying wallet for UHRP upload');
   }
@@ -70,7 +69,7 @@ export async function storeMemory(
   const pushDrop = new PushDrop(underlyingWallet);
   const lockingScript = await pushDrop.lock(
     fields,
-    [2, 'agidentity-memory'],  // protocolID
+    [2, 'agidentity memory'],  // protocolID
     `memory-${Date.now()}`,     // keyID
     'self',                      // counterparty
     false,                       // forSelf
@@ -85,9 +84,9 @@ export async function storeMemory(
       script: lockingScript.toHex(),
       satoshis: 1, // Minimum UTXO value
       basket: 'agent-memories', // Store in basket for retrieval
-      tags: ['agidentity-memory', memory.importance, ...memory.tags],
+      tags: ['agidentity memory', memory.importance, ...memory.tags],
     }],
-    labels: ['agidentity-memory', memory.importance, ...memory.tags],
+    labels: ['agidentity memory', memory.importance, ...memory.tags],
   });
 
   // 5. Return memory token

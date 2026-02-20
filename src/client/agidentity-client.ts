@@ -557,7 +557,7 @@ export class AGIDClient {
       try {
         const signature = await wallet.createSignature({
           data: Array.from(new TextEncoder().encode(signatureData)),
-          protocolID: [2, 'brc-103-auth'],
+          protocolID: [2, 'brc 103 auth'],
           keyID: `auth-${timestamp}`,
         });
 
