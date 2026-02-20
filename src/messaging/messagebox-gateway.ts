@@ -161,9 +161,8 @@ export class MessageBoxGateway {
   // State
   private initialized = false;
   private running = false;
-  private polling = false;
+  private processing = false;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
-  private pollInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Create a new MessageBoxGateway
@@ -201,7 +200,7 @@ export class MessageBoxGateway {
    *
    * Must be called before the gateway can receive messages.
    * Does NOT start polling — call startMessagePolling() separately
-   * to avoid concurrent MPC signing during other initialization steps.
+   * to avoid concurrent signing during other initialization steps.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -220,13 +219,13 @@ export class MessageBoxGateway {
   }
 
   /**
-   * Start polling for new messages.
+   * Start listening for messages via AuthSocket WebSocket.
    * Call this AFTER all other initialization (e.g. wallet setup)
-   * to prevent concurrent MPC signing operations.
+   * to prevent concurrent signing operations.
    */
   startMessagePolling(): void {
     if (!this.running) return;
-    this.startPolling();
+    this.startLiveListeners();
   }
 
   /**
@@ -312,44 +311,81 @@ export class MessageBoxGateway {
   }
 
   /**
-   * Start polling for messages on all message boxes via HTTP.
-   * Uses a guard to prevent overlapping polls — MPC signing is slow
-   * and concurrent sign operations corrupt shared WASM state.
+   * Start live WebSocket listeners on all message boxes via AuthSocket.
+   * Uses a processing guard to prevent concurrent signing operations.
+   * Falls back to polling if WebSocket connection fails.
    */
-  private startPolling(intervalMs = 5000): void {
-    const poll = async () => {
-      if (!this.running || this.polling) return;
-      this.polling = true;
+  private startLiveListeners(): void {
+    // Queue for messages that arrive while another is being processed
+    const messageQueue: VerifiedMessage[] = [];
+
+    const processQueue = async () => {
+      if (this.processing || messageQueue.length === 0) return;
+      this.processing = true;
       try {
-        for (const messageBox of this.messageBoxes) {
-          if (!this.running) break;
-          try {
-            const messages = await this.gatedHandler.listVerifiedMessages(messageBox);
-            if (messages.length > 0) {
-              console.log(`[MessageBoxGateway] 📬 Got ${messages.length} message(s) from "${messageBox}"`);
-            }
-            for (const message of messages) {
-              if (!this.running) break;
-              console.log(`[MessageBoxGateway]    Processing message from ${message.sender.substring(0, 12)}... (id: ${message.messageId})`);
-              await this.handleMessage(message);
-            }
-          } catch (error) {
-            this.emitError({
-              type: 'processing',
-              message: `Poll error (${messageBox}): ${error instanceof Error ? error.message : 'Unknown'}`,
-            });
-          }
+        while (messageQueue.length > 0 && this.running) {
+          const message = messageQueue.shift()!;
+          console.log(`[MessageBoxGateway]    Processing message from ${message.sender.substring(0, 12)}... (id: ${message.messageId})`);
+          await this.handleMessage(message);
         }
       } finally {
-        this.polling = false;
+        this.processing = false;
       }
     };
 
-    // Initial poll immediately
-    poll();
+    // Register live listener for each message box
+    for (const messageBox of this.messageBoxes) {
+      this.messageClient.onMessage(messageBox, async (rawMessage) => {
+        if (!this.running) return;
+        console.log(`[MessageBoxGateway] 📬 Live message in "${messageBox}" from ${rawMessage.sender.substring(0, 12)}...`);
 
-    // Then poll on interval (guard prevents overlap)
-    this.pollInterval = setInterval(poll, intervalMs);
+        // Verify sender identity
+        const verified = await this.gatedHandler.verifyAndHandle(rawMessage);
+        messageQueue.push(verified);
+        processQueue();
+      });
+
+      // Start WebSocket listener (auto-connects AuthSocket)
+      this.messageClient.listenForMessages(messageBox).catch((error) => {
+        this.emitError({
+          type: 'processing',
+          message: `WebSocket listener failed for "${messageBox}": ${error instanceof Error ? error.message : 'Unknown'}`,
+        });
+      });
+    }
+
+    // Also do an initial poll to pick up any messages that arrived before the WebSocket connected
+    this.drainPendingMessages().catch((error) => {
+      this.emitError({
+        type: 'processing',
+        message: `Initial drain failed: ${error instanceof Error ? error.message : 'Unknown'}`,
+      });
+    });
+  }
+
+  /**
+   * Drain any pending messages that arrived before the WebSocket connected.
+   * Called once at startup.
+   */
+  private async drainPendingMessages(): Promise<void> {
+    for (const messageBox of this.messageBoxes) {
+      if (!this.running) break;
+      try {
+        const messages = await this.gatedHandler.listVerifiedMessages(messageBox);
+        if (messages.length > 0) {
+          console.log(`[MessageBoxGateway] 📬 Draining ${messages.length} pending message(s) from "${messageBox}"`);
+        }
+        for (const message of messages) {
+          if (!this.running) break;
+          await this.handleMessage(message);
+        }
+      } catch (error) {
+        this.emitError({
+          type: 'processing',
+          message: `Drain error (${messageBox}): ${error instanceof Error ? error.message : 'Unknown'}`,
+        });
+      }
+    }
   }
 
   /**
@@ -384,12 +420,6 @@ export class MessageBoxGateway {
 
     // Clean up conversation manager
     this.conversationManager.destroy();
-
-    // Clear polling interval
-    if (this.pollInterval) {
-      clearInterval(this.pollInterval);
-      this.pollInterval = null;
-    }
 
     // Clear cleanup interval if any
     if (this.cleanupInterval) {
