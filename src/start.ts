@@ -87,6 +87,17 @@ async function main() {
     } else {
       console.log('Restored from existing key share');
     }
+
+    // Background presign warmup (non-blocking)
+    if (result.presignPool) {
+      const keyId = `${mpcConfig.walletId}:0`;
+      console.log('Generating initial presignatures...');
+      result.presignPool.generate(keyId).then(() => {
+        console.log(`Presign pool ready (${result.presignPool!.availableCount(keyId)} available)`);
+      }).catch((err: Error) => {
+        console.warn('Presign pool warmup failed:', err.message);
+      });
+    }
   } else if (localPrivateKey) {
     // Local Mode (Development)
     console.log('Mode: Local (single key - DEVELOPMENT ONLY)');
@@ -184,6 +195,7 @@ async function main() {
         model: process.env.AGID_MODEL ?? 'default',
         gateway: gateway?.isRunning() ?? false,
         uptime: process.uptime(),
+        presignPool: wallet.getPresignPoolStatus(),
       }));
     });
     healthServer.listen(healthPort, '127.0.0.1');

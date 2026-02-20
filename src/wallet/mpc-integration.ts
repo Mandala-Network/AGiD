@@ -20,7 +20,10 @@ import {
   MPCClient,
   MPCPersistence,
   MPCKeyDeriver,
+  MPCSigningCoordinator,
 } from '@bsv/wallet-toolbox-mpc/out/src/mpc/index.js'
+import { MPCPresignPool } from '@bsv/wallet-toolbox-mpc/out/src/mpc/MPCPresignPool.js'
+import type { PresignPoolConfig } from '@bsv/wallet-toolbox-mpc/out/src/mpc/types.js'
 import type {
   DKGProgressInfo,
   MPCConfig,
@@ -59,6 +62,13 @@ export interface ProductionMPCConfig {
   onProgress?: (info: DKGProgressInfo) => void
   /** Optional error callback */
   onError?: (error: Error) => void
+  /** Presign pool configuration for fast 1-round signing */
+  presignPool?: {
+    enabled?: boolean       // default: true
+    batchSize?: number      // default: 5
+    minPoolSize?: number    // default: 3
+    autoReplenish?: boolean // default: true
+  }
 }
 
 /**
@@ -73,6 +83,12 @@ export interface ProductionMPCWalletResult {
   isNewWallet: boolean
   /** The collective public key (identity key) of the wallet */
   collectivePublicKey: string
+  /** Presign pool for fast signing (if enabled) */
+  presignPool?: MPCPresignPool
+  /** Signing coordinator (internal to MPCClient, exposed for status) */
+  signingCoordinator?: MPCSigningCoordinator
+  /** The MPC client instance */
+  mpcClient?: MPCClient
 }
 
 /**
@@ -121,6 +137,12 @@ export function loadMPCConfigFromEnv(): ProductionMPCConfig {
     jwtSecret: requireEnv('MPC_JWT_SECRET'),
     network,
     storagePath: process.env.MPC_STORAGE_PATH ?? './data/mpc-wallet.sqlite',
+    presignPool: {
+      enabled: process.env.MPC_PRESIGN_ENABLED !== 'false',
+      batchSize: process.env.MPC_PRESIGN_BATCH_SIZE ? parseInt(process.env.MPC_PRESIGN_BATCH_SIZE) : 5,
+      minPoolSize: process.env.MPC_PRESIGN_MIN_POOL ? parseInt(process.env.MPC_PRESIGN_MIN_POOL) : 3,
+      autoReplenish: process.env.MPC_PRESIGN_AUTO_REPLENISH !== 'false',
+    },
   }
 }
 
@@ -353,6 +375,22 @@ async function restoreExistingWallet(
     persistence,
   })
 
+  // Initialize presign pool for fast signing (if enabled)
+  let presignPool: MPCPresignPool | undefined
+  let signingCoordinator: MPCSigningCoordinator | undefined
+
+  if (config.presignPool?.enabled !== false) {
+    const bridge = await mpcClient.ensureWasmBridge()
+    const poolConfig: PresignPoolConfig = {
+      batchSize: config.presignPool?.batchSize ?? 5,
+      minPoolSize: config.presignPool?.minPoolSize ?? 3,
+      autoReplenish: config.presignPool?.autoReplenish ?? true,
+    }
+    presignPool = new MPCPresignPool(mpcClient, bridge, poolConfig)
+    signingCoordinator = mpcClient.getCoordinator()
+    signingCoordinator.setPresignPool(presignPool)
+  }
+
   // Wrap in MPCAgentWallet for compatibility
   const agentWallet = new MPCAgentWallet({
     walletId: config.walletId,
@@ -362,6 +400,8 @@ async function restoreExistingWallet(
     network: config.network,
     storagePath: config.storagePath,
     mpcWallet: rawWallet as unknown as IMPCWallet,
+    presignPool,
+    signingCoordinator,
   })
   await agentWallet.initialize()
 
@@ -370,6 +410,9 @@ async function restoreExistingWallet(
     rawWallet,
     isNewWallet: false,
     collectivePublicKey: storedShare.collectivePublicKey,
+    presignPool,
+    signingCoordinator,
+    mpcClient,
   }
 }
 
@@ -456,6 +499,22 @@ async function createNewWallet(
     identityKey: collectivePublicKey,
   }
 
+  // Initialize presign pool for fast signing (if enabled)
+  let presignPool: MPCPresignPool | undefined
+  let signingCoordinator: MPCSigningCoordinator | undefined
+
+  if (config.presignPool?.enabled !== false) {
+    const bridge = await mpcClient.ensureWasmBridge()
+    const poolConfig: PresignPoolConfig = {
+      batchSize: config.presignPool?.batchSize ?? 5,
+      minPoolSize: config.presignPool?.minPoolSize ?? 3,
+      autoReplenish: config.presignPool?.autoReplenish ?? true,
+    }
+    presignPool = new MPCPresignPool(mpcClient, bridge, poolConfig)
+    signingCoordinator = mpcClient.getCoordinator()
+    signingCoordinator.setPresignPool(presignPool)
+  }
+
   // Wrap in MPCAgentWallet for compatibility
   const agentWallet = new MPCAgentWallet({
     walletId: config.walletId,
@@ -465,6 +524,8 @@ async function createNewWallet(
     network: config.network,
     storagePath: config.storagePath,
     mpcWallet: rawWallet as unknown as IMPCWallet,
+    presignPool,
+    signingCoordinator,
   })
   await agentWallet.initialize()
 
@@ -473,5 +534,8 @@ async function createNewWallet(
     rawWallet,
     isNewWallet: true,
     collectivePublicKey,
+    presignPool,
+    signingCoordinator,
+    mpcClient,
   }
 }

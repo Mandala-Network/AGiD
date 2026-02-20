@@ -135,6 +135,10 @@ export interface MPCAgentWalletConfig {
    * This allows injection of the MPC wallet creation logic from wallet-toolbox-mpc.
    */
   mpcWalletFactory?: MPCWalletFactory
+  /** Optional: Presign pool for fast 1-round signing */
+  presignPool?: { generate(keyId: string, count?: number): Promise<void>; availableCount(keyId: string): number; isGenerating(keyId?: string): boolean; isSupported(): Promise<boolean> }
+  /** Optional: Signing coordinator for event-driven signing */
+  signingCoordinator?: { setPresignPool(pool: any): void; getStatus(): any }
 }
 
 /**
@@ -168,6 +172,7 @@ export class MPCAgentWallet implements BRC100Wallet {
 
   // MPC components
   private mpcWallet: IMPCWallet | null = null
+  private presignPool: MPCAgentWalletConfig['presignPool'] | null = null
 
   // Identity
   private identityPublicKey: string | null = null
@@ -203,6 +208,9 @@ export class MPCAgentWallet implements BRC100Wallet {
       const publicKeyResult = await this.mpcWallet.getPublicKey({ identityKey: true })
       this.identityPublicKey = publicKeyResult.publicKey
       this.collectivePublicKey = publicKeyResult.publicKey
+
+      // Store presign pool reference for status/warmup
+      if (this.config.presignPool) this.presignPool = this.config.presignPool
 
       this.initialized = true
       return
@@ -601,6 +609,36 @@ export class MPCAgentWallet implements BRC100Wallet {
    */
   getUnderlyingMPCWallet(): IMPCWallet | null {
     return this.mpcWallet
+  }
+
+  // ============================================================================
+  // Presign Pool
+  // ============================================================================
+
+  /**
+   * Get presign pool status for health checks and identity reporting.
+   * Returns null if presign pool is not configured.
+   */
+  getPresignPoolStatus(): { available: number; generating: boolean; supported: boolean } | null {
+    if (!this.presignPool) return null
+    const keyId = `${this.config.walletId}:0`
+    return {
+      available: this.presignPool.availableCount(keyId),
+      generating: this.presignPool.isGenerating(keyId),
+      supported: true,
+    }
+  }
+
+  /**
+   * Generate presignatures if the pool is empty.
+   * Non-blocking warmup for startup.
+   */
+  async warmupPresignPool(): Promise<void> {
+    if (!this.presignPool) return
+    const keyId = `${this.config.walletId}:0`
+    if (this.presignPool.availableCount(keyId) === 0) {
+      await this.presignPool.generate(keyId)
+    }
   }
 
   // ============================================================================

@@ -14,7 +14,10 @@ export function identityTools(): ToolDescriptor[] {
         const identity = await ctx.wallet.getPublicKey({ identityKey: true });
         const network = await ctx.wallet.getNetwork();
         const messageBoxEnabled = !!ctx.wallet.getMessageBoxClient();
-        return ok({ publicKey: identity.publicKey, network, messageBoxEnabled });
+        const presignPool = ctx.wallet.getPresignPoolStatus();
+        const result: Record<string, unknown> = { publicKey: identity.publicKey, network, messageBoxEnabled };
+        if (presignPool) result.presignPool = presignPool;
+        return ok(result);
       },
     },
     {

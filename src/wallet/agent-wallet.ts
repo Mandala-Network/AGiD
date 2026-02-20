@@ -322,6 +322,13 @@ export class AgentWallet implements BRC100Wallet {
   }
 
   // =========================================================================
+  // Presign Pool (stubs — local wallet doesn't use MPC presigning)
+  // =========================================================================
+
+  getPresignPoolStatus(): null { return null; }
+  async warmupPresignPool(): Promise<void> { /* no-op */ }
+
+  // =========================================================================
   // MessageBox + PeerPay Integration
   // =========================================================================
 
