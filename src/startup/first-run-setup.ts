@@ -119,7 +119,7 @@ export function needsFirstRunSetup(): boolean {
 
 export async function runFirstRunSetup(): Promise<{
   gatewayConfig: GatewayConfig;
-  certConfig: CertConfig;
+  certConfig: CertConfig | null;
 }> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q: string): Promise<string> => new Promise(r => rl.question(q, r));
@@ -308,34 +308,52 @@ export async function runFirstRunSetup(): Promise<{
   if (email.trim()) agentFields.email = email.trim();
   if (capabilities.trim()) agentFields.capabilities = capabilities.trim();
 
-  process.stdout.write('   Issuing certificate to agent... ');
-  const agentCert = await peerCert.issue({
-    certificateType: AGID_CERT_TYPE,
-    subjectIdentityKey: agentPublicKey,
-    fields: agentFields,
-    autoSend: true,
-  });
-  console.log('done');
+  let certConfig: CertConfig | null = null;
+  try {
+    process.stdout.write('   Issuing certificate to agent... ');
+    const agentCert = await peerCert.issue({
+      certificateType: AGID_CERT_TYPE,
+      subjectIdentityKey: agentPublicKey,
+      fields: agentFields,
+      autoSend: true,
+    });
+    console.log('done');
 
-  process.stdout.write('   Issuing self-certificate...     ');
-  const userCert = await peerCert.issue({
-    certificateType: AGID_CERT_TYPE,
-    subjectIdentityKey: userIdentityKey,
-    fields: { name: userName.trim(), role: 'admin' },
-  });
-  console.log('done');
+    process.stdout.write('   Issuing self-certificate...     ');
+    const userCert = await peerCert.issue({
+      certificateType: AGID_CERT_TYPE,
+      subjectIdentityKey: userIdentityKey,
+      fields: { name: userName.trim(), role: 'admin' },
+    });
+    console.log('done');
 
-  const certConfig: CertConfig = {
-    userKey: userIdentityKey,
-    agentKey: agentPublicKey,
-    agentCertSerialNumber: agentCert.serialNumber,
-    userCertSerialNumber: userCert.serialNumber,
-    issuedAt: Date.now(),
-  };
+    certConfig = {
+      userKey: userIdentityKey,
+      agentKey: agentPublicKey,
+      agentCertSerialNumber: agentCert.serialNumber,
+      userCertSerialNumber: userCert.serialNumber,
+      issuedAt: Date.now(),
+    };
 
-  // Save cert config
-  fs.writeFileSync(getCertConfigPath(), JSON.stringify(certConfig, null, 2));
-  console.log(`   Cert config saved to ${getCertConfigPath()}`);
+    // Save cert config
+    fs.writeFileSync(getCertConfigPath(), JSON.stringify(certConfig, null, 2));
+    console.log(`   Cert config saved to ${getCertConfigPath()}`);
+  } catch (err) {
+    console.log('failed');
+    console.log('');
+    console.log('   Certificate issuance failed (overlay network unreachable).');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const cause = (err as any)?.cause;
+    if (cause?.code === 'ENETUNREACH' || cause?.code === 'ECONNREFUSED' || errMsg.includes('fetch failed')) {
+      console.log(`   Network error: ${cause?.address ?? 'unknown'}:${cause?.port ?? ''} (${cause?.code ?? errMsg})`);
+      console.log('   This usually means the SHIP overlay broadcaster is unreachable.');
+    } else {
+      console.log(`   Error: ${errMsg}`);
+    }
+    console.log('');
+    console.log('   Your config will be saved — re-run setup later to issue certs:');
+    console.log('   rm ~/.agidentity/cert-config.json && npx tsx src/start.ts');
+  }
   console.log('');
 
   // -----------------------------------------------------------------------
@@ -349,7 +367,7 @@ export async function runFirstRunSetup(): Promise<{
     try {
       process.stdout.write(`   Sending ${fundAmount} sats to agent... `);
       const { PeerPayClient } = await import('@bsv/message-box-client');
-      const peerPay = new PeerPayClient(walletClient as any);
+      const peerPay = new PeerPayClient({ walletClient: walletClient as any });
       await peerPay.sendPayment({ recipient: agentPublicKey, amount: fundAmount });
       console.log('done');
     } catch (err) {

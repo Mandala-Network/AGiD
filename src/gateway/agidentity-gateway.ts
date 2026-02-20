@@ -114,7 +114,7 @@ export class AGIdentityGateway {
     if (gepaOptimizer.available) {
       console.log(`[AGIdentityGateway] 🧬 GEPA available (v${gepaOptimizer.version}) — optimizing prompts, tools, and memories`);
     } else {
-      console.log('[AGIdentityGateway] GEPA not available — using unoptimized prompts');
+      console.log('[AGIdentityGateway] GEPA not available — using unoptimized prompts. Install with: pip install gepa');
     }
 
     // 3. Set up agent components
