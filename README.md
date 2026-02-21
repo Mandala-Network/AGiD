@@ -247,4 +247,4 @@ npm run format       # Prettier
 
 ## License
 
-MIT
+OpenBSV
