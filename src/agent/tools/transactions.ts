@@ -39,7 +39,7 @@ export function transactionTools(): ToolDescriptor[] {
           outputs: (params.outputs as any[])?.map((o) => ({
             lockingScript: o.lockingScript,
             satoshis: o.satoshis,
-            outputDescription: o.description ?? '',
+            outputDescription: o.description || 'token output',
             basket: o.basket,
             tags: o.tags,
           })),

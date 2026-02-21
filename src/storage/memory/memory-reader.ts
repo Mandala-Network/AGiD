@@ -76,8 +76,22 @@ export async function listMemories(
         continue;
       }
 
-      // 3. Download encrypted content from UHRP
-      const downloadResult = await downloader.download(uhrpUrl);
+      // 3. Download encrypted content from UHRP (or extract embedded data)
+      let ciphertextBytes: Uint8Array;
+
+      if (uhrpUrl === 'embedded' && decoded.fields.length >= 4) {
+        // Embedded mode — encrypted content is in 4th PushDrop field
+        ciphertextBytes = new Uint8Array(decoded.fields[3]);
+      } else {
+        const DOWNLOAD_TIMEOUT_MS = 15_000;
+        const downloadResult = await Promise.race([
+          downloader.download(uhrpUrl),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`UHRP download timed out after ${DOWNLOAD_TIMEOUT_MS}ms`)), DOWNLOAD_TIMEOUT_MS)
+          ),
+        ]);
+        ciphertextBytes = downloadResult.data;
+      }
 
       // 4. Decrypt with wallet
       // Parse customInstructions to get keyID
@@ -92,7 +106,7 @@ export async function listMemories(
       }
 
       const decrypted = await wallet.decrypt({
-        ciphertext: Array.from(downloadResult.data),
+        ciphertext: Array.from(ciphertextBytes),
         protocolID: [2, 'agidentity memory'],
         keyID: keyID || `memory-fallback-${output.outpoint}`,
       });

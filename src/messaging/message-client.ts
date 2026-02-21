@@ -14,7 +14,6 @@ import { getConfig } from '../config/index.js';
  */
 type MessageBoxWallet = BRC100Wallet & {
   getUnderlyingWallet?: () => any;
-  getUnderlyingMPCWallet?: () => any;
   getMessageBoxClient?: () => MessageBoxClient | null;
   getPeerPayClient?: () => PeerPayClient | null;
 };
@@ -131,7 +130,7 @@ export class AGIDMessageClient {
     }
 
     // Fall back to creating new clients from underlying wallet
-    const underlyingWallet = config.wallet.getUnderlyingWallet?.() ?? config.wallet.getUnderlyingMPCWallet?.();
+    const underlyingWallet = config.wallet.getUnderlyingWallet?.();
     if (!underlyingWallet) {
       throw new Error('Wallet not initialized');
     }
@@ -142,22 +141,11 @@ export class AGIDMessageClient {
     const enableLogging = config.enableLogging ?? envConfig.messageBoxLogging;
 
     // MessageBoxClient auto-encrypts messages using BRC-2 ECDH
-    // With MPC support for threshold signature wallets
     this.messageClient = new MessageBoxClient({
       host: messageBoxHost,
       walletClient: underlyingWallet,
       enableLogging,
       networkPreset: config.networkPreset ?? 'mainnet',
-      // MPC options for threshold wallet support
-      mpcOptions: {
-        onSigningProgress: (info: unknown) => {
-          if (enableLogging) console.log('[MessageBox MPC]', info);
-        },
-        onSigningError: (error: unknown) => {
-          console.error('[MessageBox MPC Error]', error);
-        },
-        preDerivationTimeout: 30000
-      }
     });
 
     this.payClient = new PeerPayClient({

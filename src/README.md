@@ -8,7 +8,7 @@
 
 ```
 src/
-├── wallet/          # BRC-100 wallet, MPC wallet, PushDrop token ops
+├── wallet/          # BRC-100 wallet (wallet-toolbox), PushDrop token ops
 ├── identity/        # Certificate authority, verifier, identity gate
 ├── config/          # Environment configuration
 ├── storage/         # Data persistence
@@ -61,7 +61,7 @@ interface ToolDescriptor {
 ### Execution Model
 
 - Read-only tools (`requiresWallet: false`) execute in **parallel** via `Promise.all`
-- Wallet tools (`requiresWallet: true`) execute **sequentially** to respect the MPC signing lock
+- Wallet tools (`requiresWallet: true`) execute **sequentially** to prevent concurrent signing
 - Results are re-ordered to match the original `tool_use_id` order for the Anthropic API
 
 ### VaultStore Interface
@@ -88,7 +88,7 @@ Unified facade for the PushDrop memory system:
 
 | Directory | Purpose |
 |-----------|---------|
-| `wallet/` | MPC wallet, key derivation, PushDrop ops |
+| `wallet/` | Wallet (wallet-toolbox), key derivation, PushDrop ops |
 | `identity/` | Certificate authority, verification, identity gate |
 | `config/` | Environment config loading |
 | `storage/vault/` | Local encrypted vault |

@@ -2,7 +2,10 @@
  * Memory Writer
  *
  * Implements PushDrop-based memory write workflow:
- * encrypt → UHRP upload → PushDrop tokenization → wallet basket storage
+ * encrypt → UHRP upload (with timeout) → PushDrop tokenization → wallet basket storage
+ *
+ * If UHRP upload fails or times out, encrypted content is embedded directly
+ * in the PushDrop token fields (works fine for memories under ~50KB).
  */
 
 import { StorageUploader } from '@bsv/sdk';
@@ -10,11 +13,13 @@ import { PushDrop } from '@bsv/sdk';
 import type { BRC100Wallet } from '../../types/index.js';
 import type { MemoryInput, MemoryToken } from './memory-types.js';
 
+const UHRP_TIMEOUT_MS = 15_000; // 15 seconds max for UHRP upload
+
 /**
  * Store a memory with cryptographic ownership proof
  *
  * Creates a PushDrop token (BRC-48) containing:
- * - Encrypted memory content uploaded to UHRP
+ * - Encrypted memory content (via UHRP URL or embedded directly)
  * - Tags and importance metadata in token fields
  * - Ownership locked to agent's public key
  * - Stored in 'agent-memories' wallet basket
@@ -29,6 +34,11 @@ export async function storeMemory(
   memory: MemoryInput,
   storageUrl: string = 'https://staging-storage.babbage.systems'
 ): Promise<MemoryToken> {
+  const underlyingWallet = wallet.getUnderlyingWallet?.();
+  if (!underlyingWallet) {
+    throw new Error('Cannot access underlying wallet for memory storage');
+  }
+
   // 1. Encrypt content (ALWAYS encrypted for privacy)
   const plaintext = new TextEncoder().encode(memory.content);
   const encrypted = await wallet.encrypt({
@@ -37,34 +47,47 @@ export async function storeMemory(
     keyID: `memory-${Date.now()}`,
   });
 
-  // 2. Upload encrypted content to UHRP
-  const underlyingWallet = wallet.getUnderlyingWallet?.();
-  if (!underlyingWallet) {
-    throw new Error('Cannot access underlying wallet for UHRP upload');
+  // 2. Try UHRP upload with timeout — fall back to embedding in token
+  let uhrpUrl = '';
+  let embeddedData: number[] | null = null;
+
+  try {
+    const uploader = new StorageUploader({
+      storageURL: storageUrl,
+      wallet: underlyingWallet,
+    });
+
+    const uploadResult = await Promise.race([
+      uploader.publishFile({
+        file: {
+          data: new Uint8Array(encrypted.ciphertext),
+          type: 'application/octet-stream',
+        },
+        retentionPeriod: 365 * 24 * 60, // 1 year in minutes
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`UHRP upload timed out after ${UHRP_TIMEOUT_MS}ms`)), UHRP_TIMEOUT_MS)
+      ),
+    ]);
+
+    uhrpUrl = uploadResult.uhrpURL;
+    console.log(`[MemoryWriter] UHRP upload OK: ${uhrpUrl}`);
+  } catch (error) {
+    console.warn(`[MemoryWriter] UHRP upload failed, embedding in token: ${error instanceof Error ? error.message : error}`);
+    embeddedData = Array.from(encrypted.ciphertext);
   }
 
-  const uploader = new StorageUploader({
-    storageURL: storageUrl,
-    wallet: underlyingWallet,
-  });
-
-  const uploadResult = await uploader.publishFile({
-    file: {
-      data: new Uint8Array(encrypted.ciphertext),
-      type: 'application/octet-stream',
-    },
-    retentionPeriod: 365 * 24 * 60, // 1 year in minutes
-  });
-
-  const uhrpUrl = uploadResult.uhrpURL;
-
-  // 3. Create PushDrop token with UHRP URL in data fields
-  // Convert strings to byte arrays for PushDrop fields
+  // 3. Create PushDrop token
   const fields: number[][] = [
-    Array.from(new TextEncoder().encode(uhrpUrl)),
+    Array.from(new TextEncoder().encode(uhrpUrl || 'embedded')),
     Array.from(new TextEncoder().encode(memory.tags.join(','))),
     Array.from(new TextEncoder().encode(memory.importance)),
   ];
+
+  // If UHRP failed, embed encrypted content as a 4th field
+  if (embeddedData) {
+    fields.push(embeddedData);
+  }
 
   const pushDrop = new PushDrop(underlyingWallet);
   const lockingScript = await pushDrop.lock(
@@ -92,7 +115,7 @@ export async function storeMemory(
   // 5. Return memory token
   return {
     txid: result.txid,
-    uhrpUrl,
+    uhrpUrl: uhrpUrl || `embedded:${result.txid}`,
     tags: memory.tags,
     importance: memory.importance,
     createdAt: Date.now(),

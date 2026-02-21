@@ -341,7 +341,8 @@ export class AGIdentityStorageManager {
       description: 'AGIdentity Vault Timestamp',
       outputs: [{
         script,
-        satoshis: 0
+        satoshis: 0,
+        description: 'Vault timestamp anchor',
       }],
       labels: ['agidentity', 'vault-timestamp', 'uhrp']
     });

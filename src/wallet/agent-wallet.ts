@@ -241,7 +241,7 @@ export class AgentWallet implements BRC100Wallet {
       outputs: args.outputs?.map(o => ({
         lockingScript: o.script,
         satoshis: o.satoshis,
-        outputDescription: o.description ?? '',
+        outputDescription: o.description || 'token output',
         basket: o.basket,
         tags: o.tags,
       })),
@@ -322,21 +322,15 @@ export class AgentWallet implements BRC100Wallet {
   }
 
   // =========================================================================
-  // Presign Pool (stubs — local wallet doesn't use MPC presigning)
-  // =========================================================================
-
-  getPresignPoolStatus(): null { return null; }
-  async warmupPresignPool(): Promise<void> { /* no-op */ }
-
-  // =========================================================================
   // MessageBox + PeerPay Integration
   // =========================================================================
 
   async initializeMessageBox(host: string = 'https://messagebox.babbage.systems'): Promise<void> {
     await this.ensureInitialized();
 
+    // `as any` — bundled SDK type mismatch (message-box-client bundles its own @bsv/sdk)
     this.messageBoxClient = new MessageBoxClient({
-      walletClient: this.asWalletInterface(),
+      walletClient: this.asWalletInterface() as any,
       host,
       enableLogging: false,
       networkPreset: 'mainnet',
@@ -345,7 +339,7 @@ export class AgentWallet implements BRC100Wallet {
     await this.messageBoxClient.init();
 
     this.peerPayClient = new PeerPayClient({
-      walletClient: this.asWalletInterface(),
+      walletClient: this.asWalletInterface() as any,
       messageBoxHost: host,
       enableLogging: false,
     });

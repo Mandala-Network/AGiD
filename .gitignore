@@ -36,6 +36,16 @@ vault-cache/
 MPC-DEV/
 mpc/
 
+# Separate repos
+mandalanode/
+mandala-cli/
+
+# Internal planning docs
+.planning/
+
+# Misc
+pitch-deck-prompt.md
+
 # Backup files
 *.bak
 *.bak2

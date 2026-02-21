@@ -163,6 +163,7 @@ export class MessageBoxGateway {
   private running = false;
   private processing = false;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Create a new MessageBoxGateway
@@ -252,9 +253,12 @@ export class MessageBoxGateway {
       };
 
       // Call user's message handler
+      const handlerStart = Date.now();
+      console.log(`[MessageBoxGateway]    Calling onMessage handler...`);
       let response: MessageResponse | null = null;
       try {
         response = await this.onMessage(processedMessage);
+        console.log(`[MessageBoxGateway]    onMessage handler returned [took ${Date.now() - handlerStart}ms]`);
       } catch (error) {
         this.emitError({
           type: 'processing',
@@ -265,6 +269,7 @@ export class MessageBoxGateway {
 
       // Send response if provided
       if (response) {
+        const sendStart = Date.now();
         try {
           console.log(`[MessageBoxGateway] 📤 Sending response to ${message.sender.substring(0, 12)}... (box: ${message.messageBox})`);
           // Prepare the response body with conversation context
@@ -281,7 +286,7 @@ export class MessageBoxGateway {
             preparedBody,
             { skipEncryption: response.encrypt === false }
           );
-          console.log(`[MessageBoxGateway] ✅ Response sent (messageId: ${sendResult.messageId})`);
+          console.log(`[MessageBoxGateway] ✅ Response sent (messageId: ${sendResult.messageId}) [send took ${Date.now() - sendStart}ms]`);
 
           // Track outgoing message in conversation
           this.conversationManager.addMessage(
@@ -318,6 +323,8 @@ export class MessageBoxGateway {
   private startLiveListeners(): void {
     // Queue for messages that arrive while another is being processed
     const messageQueue: VerifiedMessage[] = [];
+    // Track message IDs already queued/processing to avoid duplicates from poll + WebSocket
+    const seenMessageIds = new Set<string>();
 
     const processQueue = async () => {
       if (this.processing || messageQueue.length === 0) return;
@@ -337,16 +344,24 @@ export class MessageBoxGateway {
     for (const messageBox of this.messageBoxes) {
       this.messageClient.onMessage(messageBox, async (rawMessage) => {
         if (!this.running) return;
-        console.log(`[MessageBoxGateway] 📬 Live message in "${messageBox}" from ${rawMessage.sender.substring(0, 12)}...`);
+        if (seenMessageIds.has(rawMessage.messageId)) return;
+        seenMessageIds.add(rawMessage.messageId);
+        const t0 = Date.now();
+        console.log(`[MessageBoxGateway] 📬 Live message in "${messageBox}" from ${rawMessage.sender.substring(0, 12)}... [t=0ms]`);
 
         // Verify sender identity
         const verified = await this.gatedHandler.verifyAndHandle(rawMessage);
+        console.log(`[MessageBoxGateway]    Verification done (verified=${verified.verified}) [t=${Date.now() - t0}ms]`);
         messageQueue.push(verified);
         processQueue();
       });
 
       // Start WebSocket listener (auto-connects AuthSocket)
-      this.messageClient.listenForMessages(messageBox).catch((error) => {
+      this.messageClient.listenForMessages(messageBox).then(() => {
+        console.log(`[MessageBoxGateway] WebSocket listener started for "${messageBox}"`);
+      }).catch((error) => {
+        console.warn(`[MessageBoxGateway] WebSocket listener failed for "${messageBox}": ${error instanceof Error ? error.message : 'Unknown'}`);
+        console.warn(`[MessageBoxGateway] Falling back to polling only for "${messageBox}"`);
         this.emitError({
           type: 'processing',
           message: `WebSocket listener failed for "${messageBox}": ${error instanceof Error ? error.message : 'Unknown'}`,
@@ -361,6 +376,31 @@ export class MessageBoxGateway {
         message: `Initial drain failed: ${error instanceof Error ? error.message : 'Unknown'}`,
       });
     });
+
+    // Periodic polling fallback — WebSocket may silently fail to deliver
+    const pollIntervalMs = 3000;
+    const pollFallback = async () => {
+      if (!this.running) return;
+      try {
+        for (const messageBox of this.messageBoxes) {
+          if (!this.running) break;
+          const messages = await this.gatedHandler.listVerifiedMessages(messageBox);
+          for (const msg of messages) {
+            if (seenMessageIds.has(msg.messageId)) continue;
+            seenMessageIds.add(msg.messageId);
+            console.log(`[MessageBoxGateway] 📬 Polled message in "${messageBox}" from ${msg.sender.substring(0, 12)}...`);
+            messageQueue.push(msg);
+          }
+          if (messageQueue.length > 0) processQueue();
+        }
+      } catch {
+        // Transient poll error — will retry next cycle
+      }
+      if (this.running) {
+        this.pollTimer = setTimeout(pollFallback, pollIntervalMs);
+      }
+    };
+    this.pollTimer = setTimeout(pollFallback, pollIntervalMs);
   }
 
   /**
@@ -421,10 +461,14 @@ export class MessageBoxGateway {
     // Clean up conversation manager
     this.conversationManager.destroy();
 
-    // Clear cleanup interval if any
+    // Clear timers
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
+    }
+    if (this.pollTimer) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
     }
   }
 

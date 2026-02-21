@@ -224,7 +224,8 @@ export class SignedAuditTrail {
       description: 'AGIdentity Audit Anchor',
       outputs: [{
         script: this.createOpReturnScript(JSON.stringify(anchorData)),
-        satoshis: 0
+        satoshis: 0,
+        description: 'Audit chain anchor',
       }],
       labels: ['agidentity', 'audit-anchor']
     });

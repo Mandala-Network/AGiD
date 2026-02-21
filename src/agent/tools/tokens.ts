@@ -12,7 +12,7 @@ export function tokenTools(): ToolDescriptor[] {
           type: 'object',
           properties: {
             fields: { type: 'array', items: { type: 'string' }, description: 'Data fields to store in the token' },
-            protocol: { type: 'string', description: 'Protocol name (default: agidentity-token)' },
+            protocol: { type: 'string', description: 'Protocol name (default: agidentity token)' },
             keyId: { type: 'string', description: 'Key identifier (default: default)' },
             basket: { type: 'string', description: 'Wallet basket name (default: tokens)' },
           },
@@ -79,7 +79,7 @@ export function tokenTools(): ToolDescriptor[] {
           properties: {
             txid: { type: 'string', description: 'Transaction ID of the token' },
             vout: { type: 'number', description: 'Output index (default: 0)' },
-            protocol: { type: 'string', description: 'Protocol name (default: agidentity-token)' },
+            protocol: { type: 'string', description: 'Protocol name (default: agidentity token)' },
             keyId: { type: 'string', description: 'Key identifier (default: default)' },
           },
           required: ['txid'],

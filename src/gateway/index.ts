@@ -1,7 +1,7 @@
 /**
  * Gateway Module
  *
- * AGIdentity Gateway - bridges MessageBox, IdentityGate, native agent loop, and MPC signing.
+ * AGIdentity Gateway - bridges MessageBox, IdentityGate, and native agent loop.
  */
 
 export {

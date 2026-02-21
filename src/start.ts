@@ -30,7 +30,6 @@ import { createAGIdentityGateway } from './gateway/index.js';
 import { createProvider } from './agent/providers/index.js';
 import { createAgentWallet } from './wallet/agent-wallet.js';
 import type { AgentWallet } from './wallet/agent-wallet.js';
-import { startDirectChatREPL } from './cli/repl/direct-chat-repl.js';
 import {
   runFirstRunSetup,
   loadCertConfig,
@@ -155,15 +154,18 @@ async function main() {
   const messageBoxHost = process.env.MESSAGEBOX_HOST || 'https://messagebox.babbage.systems';
   try {
     console.log('Initializing MessageBox...');
-    const mbTimeout = parseInt(process.env.MESSAGEBOX_INIT_TIMEOUT || '10000');
+    const mbTimeout = parseInt(process.env.MESSAGEBOX_INIT_TIMEOUT || '30000');
     await Promise.race([
       (wallet as any).initializeMessageBox(messageBoxHost),
       new Promise((_, reject) => setTimeout(() => reject(new Error(`MessageBox init timed out after ${mbTimeout}ms`)), mbTimeout)),
     ]);
     console.log(`MessageBox initialized (host: ${messageBoxHost})`);
   } catch (error) {
-    console.warn('MessageBox initialization failed:', error instanceof Error ? error.message : error);
-    console.warn('   Continuing without MessageBox wallet integration');
+    console.error('FATAL: MessageBox initialization failed:', error instanceof Error ? error.message : error);
+    console.error('   MessageBox is the only communication channel — cannot start without it.');
+    console.error(`   Host: ${messageBoxHost}`);
+    console.error('   Check network connectivity and MESSAGEBOX_HOST env var.');
+    process.exit(1);
   }
 
   // -----------------------------------------------------------------------
@@ -205,60 +207,54 @@ async function main() {
   // Gateway
   // -----------------------------------------------------------------------
   console.log('Starting native agent gateway...');
-  let gateway = null;
-  try {
-    gateway = await createAGIdentityGateway({
-      wallet,
-      trustedCertifiers,
-      provider,
-      model: process.env.AGID_MODEL,
-      workspacePath: process.env.AGID_WORKSPACE_PATH,
-      sessionsPath: process.env.AGID_SESSIONS_PATH,
-      maxIterations: process.env.AGID_MAX_ITERATIONS ? parseInt(process.env.AGID_MAX_ITERATIONS) : undefined,
-      maxTokens: process.env.AGID_MAX_TOKENS ? parseInt(process.env.AGID_MAX_TOKENS) : undefined,
-      signResponses: true,
-      audit: { enabled: true },
-      messageBoxes: ['inbox', 'chat'],
-    });
-    console.log('Agent gateway initialized');
-  } catch (error) {
-    console.warn('Agent gateway failed to start:', error instanceof Error ? error.message : error);
-    console.warn('   Agent will not respond to messages.');
-  }
+  const gateway = await createAGIdentityGateway({
+    wallet,
+    trustedCertifiers,
+    provider,
+    model: process.env.AGID_MODEL,
+    workspacePath: process.env.AGID_WORKSPACE_PATH,
+    sessionsPath: process.env.AGID_SESSIONS_PATH,
+    maxIterations: process.env.AGID_MAX_ITERATIONS ? parseInt(process.env.AGID_MAX_ITERATIONS) : undefined,
+    maxTokens: process.env.AGID_MAX_TOKENS ? parseInt(process.env.AGID_MAX_TOKENS) : undefined,
+    signResponses: true,
+    audit: { enabled: true },
+    messageBoxes: ['inbox', 'chat'],
+  });
+  console.log('Agent gateway initialized');
 
   // -----------------------------------------------------------------------
   // Health check
   // -----------------------------------------------------------------------
   const healthPort = parseInt(process.env.HEALTH_PORT || '3000');
   let healthServer: http.Server | null = null;
-  try {
-    healthServer = http.createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        status: gateway?.isRunning() ? 'healthy' : 'degraded',
-        agent: identityPublicKey,
-        provider: providerType,
-        model: process.env.AGID_MODEL ?? 'default',
-        gateway: gateway?.isRunning() ?? false,
-        uptime: process.uptime(),
-      }));
-    });
-    healthServer.listen(healthPort, '127.0.0.1');
-    console.log(`Health check on http://127.0.0.1:${healthPort}/`);
-  } catch (error) {
-    console.warn('Health check server failed:', error instanceof Error ? error.message : error);
-  }
+  healthServer = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: gateway.isRunning() ? 'healthy' : 'degraded',
+      agent: identityPublicKey,
+      provider: providerType,
+      model: process.env.AGID_MODEL ?? 'default',
+      gateway: gateway.isRunning(),
+      uptime: process.uptime(),
+    }));
+  });
+  healthServer.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EADDRINUSE') {
+      console.warn(`Health check port ${healthPort} in use — skipping health server`);
+    } else {
+      console.warn('Health check server failed:', error.message);
+    }
+    healthServer = null;
+  });
+  healthServer.listen(healthPort, '127.0.0.1');
+  console.log(`Health check on http://127.0.0.1:${healthPort}/`);
 
   console.log('');
   console.log('===================================================================');
   console.log('Gateway running!');
   console.log('');
-  if (gateway) {
-    console.log(`  MessageBox: Listening for encrypted messages`);
-    console.log(`  Agent Core: ${providerType} (model: ${process.env.AGID_MODEL ?? 'default'})`);
-  } else {
-    console.log('  MessageBox: Not running');
-  }
+  console.log(`  MessageBox: Listening for encrypted messages`);
+  console.log(`  Agent Core: ${providerType} (model: ${process.env.AGID_MODEL ?? 'default'})`);
   console.log('===================================================================');
   console.log('');
 
@@ -269,53 +265,16 @@ async function main() {
     if (healthServer) {
       healthServer.close();
     }
-    if (gateway) {
-      await gateway.shutdown();
-    }
+    await gateway.shutdown();
     console.log('Goodbye!');
     process.exit(0);
   };
 
   process.on('SIGTERM', shutdown);
 
-  // -----------------------------------------------------------------------
-  // Start interactive chat REPL (connects via MetaNet Client)
-  // -----------------------------------------------------------------------
-  // Start interactive chat REPL (direct mode — no MessageBox round-trip)
-  // -----------------------------------------------------------------------
-  if (process.stdin.isTTY && gateway) {
-    try {
-      // Mute background gateway logs so they don't corrupt the REPL
-      const origLog = console.log;
-      const origWarn = console.warn;
-      const origError = console.error;
-      console.log = () => {};
-      console.warn = () => {};
-      console.error = () => {};
-
-      await startDirectChatREPL({
-        gateway,
-        userPublicKey: identityPublicKey,
-      });
-
-      // REPL exited — restore logging for shutdown messages
-      console.log = origLog;
-      console.warn = origWarn;
-      console.error = origError;
-
-      await shutdown();
-    } catch (err) {
-      console.warn('Chat REPL failed to start:', err instanceof Error ? err.message : err);
-      console.log('Gateway continues running. Connect with: agid chat ' + identityPublicKey);
-      console.log('Press Ctrl+C to stop.');
-      process.on('SIGINT', shutdown);
-      await new Promise(() => {});
-    }
-  } else {
-    console.log('Press Ctrl+C to stop.');
-    process.on('SIGINT', shutdown);
-    await new Promise(() => {});
-  }
+  console.log('Press Ctrl+C to stop.');
+  process.on('SIGINT', shutdown);
+  await new Promise(() => {});
 }
 
 main().catch((err) => {

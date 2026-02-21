@@ -121,7 +121,7 @@ export type {
   CreateGatewayConfig,
 } from './messaging/index.js';
 
-// AGIdentity Gateway (native agent loop: MessageBox → Identity → Anthropic API → MPC Sign)
+// AGIdentity Gateway (native agent loop: MessageBox → Identity → Anthropic API → Wallet Sign)
 export {
   AGIdentityGateway,
   createAGIdentityGateway,

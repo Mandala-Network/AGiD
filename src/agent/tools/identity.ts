@@ -1,3 +1,4 @@
+import { IdentityClient } from '@bsv/sdk';
 import type { ToolDescriptor } from './types.js';
 import { ok } from './types.js';
 
@@ -14,10 +15,7 @@ export function identityTools(): ToolDescriptor[] {
         const identity = await ctx.wallet.getPublicKey({ identityKey: true });
         const network = await ctx.wallet.getNetwork();
         const messageBoxEnabled = !!ctx.wallet.getMessageBoxClient();
-        const presignPool = ctx.wallet.getPresignPoolStatus();
-        const result: Record<string, unknown> = { publicKey: identity.publicKey, network, messageBoxEnabled };
-        if (presignPool) result.presignPool = presignPool;
-        return ok(result);
+        return ok({ publicKey: identity.publicKey, network, messageBoxEnabled });
       },
     },
     {
@@ -72,6 +70,50 @@ export function identityTools(): ToolDescriptor[] {
       execute: async (_params, ctx) => {
         const height = await ctx.wallet.getHeight();
         return ok({ height });
+      },
+    },
+    {
+      definition: {
+        name: 'agid_lookup_identity',
+        description:
+          'Look up a person on the BSV identity overlay by name or other attributes. Returns their identity key and profile info. Use this to find someone before sending them a payment.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Person name to search for (e.g. "brayden", "Brayden Langley")',
+            },
+            email: { type: 'string', description: 'Email address to search for' },
+            phoneNumber: { type: 'string', description: 'Phone number to search for' },
+          },
+          required: [],
+        },
+      },
+      requiresWallet: false,
+      execute: async (params, ctx) => {
+        const attributes: Record<string, string> = {};
+        if (params.name) attributes.name = params.name as string;
+        if (params.email) attributes.email = params.email as string;
+        if (params.phoneNumber) attributes.phoneNumber = params.phoneNumber as string;
+
+        if (Object.keys(attributes).length === 0) {
+          return ok({ error: 'At least one attribute (name, email, phoneNumber) must be provided' });
+        }
+
+        const client = new IdentityClient(ctx.wallet.asWalletInterface() as any);
+        const results = await client.resolveByAttributes({ attributes, seekPermission: false });
+
+        return ok({
+          matches: results.map((r) => ({
+            name: r.name,
+            identityKey: r.identityKey,
+            abbreviatedKey: r.abbreviatedKey,
+            avatarURL: r.avatarURL,
+            badgeLabel: r.badgeLabel,
+          })),
+          count: results.length,
+        });
       },
     },
   ];

@@ -104,29 +104,38 @@ export function certTools(): ToolDescriptor[] {
         const received: Array<{ success: boolean; sender: string; issuance: boolean; fields?: Record<string, string>; error?: string }> = [];
 
         for (const cert of incoming) {
-          if (cert.issuance) {
-            const result = await peerCert.receive(cert.serializedCertificate);
-            received.push({
-              success: result.success,
-              sender: cert.sender,
-              issuance: true,
-              fields: result.walletCertificate?.fields,
-              error: result.error,
-            });
-            if (result.success) {
+          try {
+            if (cert.issuance) {
+              const result = await peerCert.receive(cert.serializedCertificate);
+              received.push({
+                success: result.success,
+                sender: cert.sender,
+                issuance: true,
+                fields: result.walletCertificate?.fields,
+                error: result.error,
+              });
+              if (result.success) {
+                await peerCert.acknowledgeCertificate(cert.messageId);
+              }
+            } else {
+              // Shared for inspection — verify but don't store
+              const result = await peerCert.verifyVerifiableCertificate(cert.serializedCertificate);
+              received.push({
+                success: result.verified,
+                sender: cert.sender,
+                issuance: false,
+                fields: result.fields,
+                error: result.error,
+              });
               await peerCert.acknowledgeCertificate(cert.messageId);
             }
-          } else {
-            // Shared for inspection — verify but don't store
-            const result = await peerCert.verifyVerifiableCertificate(cert.serializedCertificate);
+          } catch (err) {
             received.push({
-              success: result.verified,
+              success: false,
               sender: cert.sender,
-              issuance: false,
-              fields: result.fields,
-              error: result.error,
+              issuance: cert.issuance,
+              error: err instanceof Error ? err.message : String(err),
             });
-            await peerCert.acknowledgeCertificate(cert.messageId);
           }
         }
 

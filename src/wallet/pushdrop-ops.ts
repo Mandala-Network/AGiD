@@ -2,7 +2,7 @@
  * PushDrop Token Operations
  *
  * Lock (create), unlock (redeem), and decode PushDrop tokens (BRC-48).
- * Works with both AgentWallet (local) and MPCAgentWallet (threshold).
+ * Works with AgentWallet (wallet-toolbox).
  *
  * PushDrop tokens store arbitrary data fields in a locking script,
  * signed by the wallet's derived key. They're stored in wallet baskets
@@ -60,9 +60,9 @@ export interface DecodedToken {
  * Create a PushDrop token with data fields locked to the wallet's key.
  *
  * PushDrop.lock() internally calls wallet.getPublicKey() and
- * wallet.createSignature(), which work through both local and MPC wallets.
+ * wallet.createSignature().
  *
- * @param wallet - BRC-100 compatible wallet (AgentWallet or MPCAgentWallet)
+ * @param wallet - BRC-100 compatible wallet (AgentWallet)
  * @param params - Token parameters (fields, protocol, basket, etc.)
  * @returns Lock result with txid, vout, and locking script hex
  */
@@ -137,9 +137,9 @@ export async function lockPushDropToken(
  *
  * This requires the underlying wallet (not BRC100Wallet) because the unlock
  * flow may return a signableTransaction that needs BEEF parsing and signAction().
- * Pass wallet.getUnderlyingWallet() or wallet.getUnderlyingMPCWallet().
+ * Pass wallet.getUnderlyingWallet().
  *
- * @param wallet - The underlying wallet instance (Wallet or IMPCWallet)
+ * @param wallet - The underlying wallet instance (Wallet)
  * @param params - Unlock parameters (txid, vout, protocol params)
  * @returns Unlock result with new txid
  */

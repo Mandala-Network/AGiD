@@ -243,8 +243,10 @@ export class AGIdentityGateway {
   // ===========================================================================
 
   private async handleMessage(message: ProcessedMessage): Promise<MessageResponse | null> {
+    const t0 = Date.now();
+    const ts = () => `[t=${Date.now() - t0}ms]`;
     const senderKey = message.original.sender;
-    console.log(`[AGIdentityGateway] 📨 Message from ${senderKey.substring(0, 12)}... (box: ${message.original.messageBox ?? 'unknown'})`);
+    console.log(`[AGIdentityGateway] 📨 Message from ${senderKey.substring(0, 12)}... (box: ${message.original.messageBox ?? 'unknown'}) ${ts()}`);
 
     // Parse ChatRequest protocol
     let content: string;
@@ -271,6 +273,7 @@ export class AGIdentityGateway {
     }
 
     // Audit incoming message
+    console.log(`[AGIdentityGateway]    Audit incoming... ${ts()}`);
     if (this.auditTrail) {
       await this.auditTrail.createEntry({
         action: 'message.received',
@@ -283,6 +286,7 @@ export class AGIdentityGateway {
           certificateType: message.context.certificate?.type,
         },
       });
+      console.log(`[AGIdentityGateway]    Audit done ${ts()}`);
     }
 
     // Certificate enforcement (when AGID_REQUIRE_CERTS=true)
@@ -322,12 +326,15 @@ export class AGIdentityGateway {
     const anchorChain = new AnchorChain(identityContext.conversationId, this.agentPublicKey!);
 
     // Check workspace integrity
+    console.log(`[AGIdentityGateway]    Workspace integrity check... ${ts()}`);
     let workspaceHash: { combinedHash: string } | undefined;
     try {
       const wsIntegrity = new WorkspaceIntegrity(this.workspacePath);
       const currentHash = await wsIntegrity.hashWorkspace();
       workspaceHash = currentHash;
+      console.log(`[AGIdentityGateway]    Workspace hashed ${ts()}`);
       const lastAnchor = await wsIntegrity.getLastAnchor(this.wallet);
+      console.log(`[AGIdentityGateway]    Last anchor retrieved ${ts()}`);
 
       if (lastAnchor) {
         // Compare combined hashes — we only have the combined hash from on-chain
@@ -361,20 +368,21 @@ export class AGIdentityGateway {
     }
 
     // Run agent loop
-    console.log(`[AGIdentityGateway] 🤖 Running agent loop (session: ${identityContext.conversationId})`);
+    console.log(`[AGIdentityGateway] 🤖 Running agent loop (session: ${identityContext.conversationId}) ${ts()}`);
     let aiResponse: string;
     let toolCallCount = 0;
     try {
       const result = await this.agentLoop!.run(content, identityContext.conversationId, identityContext, anchorChain);
       aiResponse = result.response;
       toolCallCount = result.toolCalls.length;
-      console.log(`[AGIdentityGateway] ✅ Agent responded (${aiResponse.length} chars, ${result.iterations} iterations, ${result.toolCalls.length} tool calls, ${result.usage.totalTokens} tokens)`);
+      console.log(`[AGIdentityGateway] ✅ Agent responded (${aiResponse.length} chars, ${result.iterations} iterations, ${result.toolCalls.length} tool calls, ${result.usage.totalTokens} tokens) ${ts()}`);
     } catch (error) {
       console.error('[AGIdentityGateway] ❌ Agent loop error:', error instanceof Error ? error.message : error);
       aiResponse = 'Sorry, I encountered an error processing your request. Please try again.';
     }
 
     // Finalize anchor chain
+    console.log(`[AGIdentityGateway]    Finalizing anchor chain... ${ts()}`);
     try {
       await anchorChain.addAnchor({
         type: 'session_end',
@@ -384,17 +392,21 @@ export class AGIdentityGateway {
 
       // Persist anchor chain to disk
       await this.persistAnchorChain(anchorChain);
+      console.log(`[AGIdentityGateway]    Anchor persisted ${ts()}`);
 
       // Commit on-chain
       await this.commitAnchorOnChain(anchorChain, workspaceHash?.combinedHash ?? '0'.repeat(64));
+      console.log(`[AGIdentityGateway]    Anchor committed on-chain ${ts()}`);
     } catch (error) {
       console.error('[AGIdentityGateway] Anchor chain finalization failed:', error instanceof Error ? error.message : error);
     }
 
     // Sign response
+    console.log(`[AGIdentityGateway]    Signing response... ${ts()}`);
     let signedResponse: SignedResponse;
     if (this.config.signResponses !== false) {
       signedResponse = await this.signResponse(aiResponse);
+      console.log(`[AGIdentityGateway]    Response signed ${ts()}`);
     } else {
       signedResponse = {
         content: aiResponse,
@@ -542,25 +554,4 @@ export class AGIdentityGateway {
     return this.agentPublicKey;
   }
 
-  /**
-   * Direct in-process chat — bypasses MessageBox for local REPL usage.
-   * No encryption, no polling, no network round-trip.
-   */
-  async chat(message: string, senderPublicKey: string): Promise<string> {
-    if (!this.agentLoop) throw new Error('Agent loop not initialized');
-
-    const conversationId = `local-${senderPublicKey.substring(0, 12)}`;
-    const identityContext: IdentityContext = {
-      senderPublicKey,
-      verified: true,
-      conversationId,
-    };
-
-    try {
-      const result = await this.agentLoop.run(message, conversationId, identityContext);
-      return result.response;
-    } catch (error) {
-      return `Error: ${error instanceof Error ? error.message : String(error)}`;
-    }
-  }
 }

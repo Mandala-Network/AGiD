@@ -1,228 +1,249 @@
 # AGIdentity
 
-**Cryptographic Identity for Autonomous AI Agents**
-
-AGIdentity gives your AI agent a cryptographic identity backed by MPC threshold signatures. Every user message is verified, every AI response is signed, and all communication is end-to-end encrypted.
-
-```
-User (BRC-100 Wallet) --> MessageBox (E2E Encrypted) --> AGIdentity Gateway --> Native Agent Loop (LLM)
-                                                                |
-                                                          MPC Wallet
-                                                     (signs, can't leak keys)
-```
-
-## Repository Structure
-
-```
-src/
-├── wallet/          # BRC-100 + MPC wallet, PushDrop token ops
-├── identity/        # Certificate authority, verification, identity gate
-├── config/          # Environment config
-├── storage/         # Vault, UHRP blockchain storage, memory system
-├── agent/           # Agent loop, tool registry, LLM providers, prompt builder
-│   └── tools/       # 25 declarative agent tools (8 domain files)
-├── gateway/         # AGIdentity gateway (orchestrates agent + messaging)
-├── messaging/       # MessageBox client, conversation manager
-├── encryption/      # Per-interaction encryption helpers
-├── integrations/    # External services (Shad, x402, overlay, GEPA, team vault)
-├── server/          # BRC-103/104 authenticated HTTP API
-├── client/          # Authenticated HTTP client SDK
-├── cli/             # Employee-side CLI (chat REPL)
-├── types/           # Shared type definitions
-├── audit/           # Anchor chain, signed audit trail, workspace integrity
-├── index.ts         # Public API exports
-└── start.ts         # Gateway startup script
-```
-
-See `src/README.md` for the full architecture guide.
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone and install
-git clone https://github.com/b1narydt/AGIdentity.git
-cd AGIdentity/agidentity
-npm install
-
-# 2. Configure
-cp .env.example .env
-# Edit .env (see below for MPC vs Local mode)
-
-# 3. Build and run
-npm run build
-npm run gateway
-```
-
-## Two Modes
-
-### MPC Mode (Production)
-
-The AI uses threshold signatures - it can sign but **cannot leak its private key**, even if prompt-injected.
-
-```bash
-# .env for MPC mode
-MPC_COSIGNER_ENDPOINTS=http://cosigner1:3001,http://cosigner2:3002
-MPC_SHARE_SECRET=<generate: openssl rand -hex 32>
-MPC_SHARE_PATH=./agent-mpc-share.json
-TRUSTED_CERTIFIERS=03abc...,03def...
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-First run performs DKG (distributed key generation). Subsequent runs restore from the encrypted share.
-
-### Local Mode (Development Only)
-
-Single private key - **do not use in production**.
-
-```bash
-# .env for local mode
-AGENT_PRIVATE_KEY=<generate: openssl rand -hex 32>
-TRUSTED_CERTIFIERS=03abc...,03def...
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-## Environment Variables
-
-```bash
-# --- MPC Mode (Production) ---
-MPC_COSIGNER_ENDPOINTS=http://host1:3001,http://host2:3002  # Cosigner URLs
-MPC_SHARE_SECRET=<64-hex-chars>       # Encrypts local key share
-MPC_SHARE_PATH=./agent-mpc-share.json # Where to store share
-
-# --- Local Mode (Development) ---
-AGENT_PRIVATE_KEY=<64-hex-chars>      # Single key (insecure)
-
-# --- Common ---
-ANTHROPIC_API_KEY=sk-ant-...          # Required for native agent loop
-AGID_MODEL=claude-sonnet-4-5-20250929 # LLM model (default)
-AGID_MAX_ITERATIONS=25               # Max tool-use iterations per request
-AGID_MAX_TOKENS=8192                 # Max tokens per LLM response
-TRUSTED_CERTIFIERS=03abc...,03def... # CA public keys to trust
-AGID_NETWORK=mainnet                 # or testnet
-MESSAGEBOX_HOST=https://messagebox.babbage.systems
-AGID_ALLOW_UNAUTHENTICATED=false     # HTTP API auth (default: false)
-```
+Autonomous AI agent infrastructure with cryptographic identity, BSV wallet, and encrypted peer-to-peer communication. Every interaction is authenticated, encrypted end-to-end, and signed on-chain.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        ENTERPRISE                            │
-│                                                              │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐         │
-│  │ Employee A   │ │ Employee B   │ │ Employee C   │         │
-│  │ BRC-100      │ │ BRC-100      │ │ BRC-100      │         │
-│  │ Wallet App   │ │ Wallet App   │ │ Wallet App   │         │
-│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘         │
-│         │                │                │                  │
-│         └────────────────┼────────────────┘                  │
-│                          │                                   │
-│                   MessageBox (P2P)                           │
-│              BRC-2 ECDH End-to-End Encrypted                 │
-│                          │                                   │
-│                          v                                   │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │                 AGIdentity Gateway                     │  │
-│  │                                                        │  │
-│  │  ┌─────────────┐    ┌──────────────────────────────┐  │  │
-│  │  │ Identity    │    │     Native Agent Loop         │  │  │
-│  │  │ Gate        │───>│     (Anthropic API)           │  │  │
-│  │  │             │    │                               │  │  │
-│  │  │ - Verify    │    │  25 Tools (8 domain files)    │  │  │
-│  │  │   cert      │    │  Parallel read-only execution │  │  │
-│  │  │ - Check     │    └───────────────┬──────────────┘  │  │
-│  │  │   revocation│                    │                  │  │
-│  │  └─────────────┘                    v                  │  │
-│  │                     ┌──────────────────────────────┐  │  │
-│  │                     │      MPC Wallet               │  │  │
-│  │                     │  (AI signs, CAN'T leak keys)  │  │  │
-│  │                     └──────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │           Certificate Authority (MPC-backed)           │  │
-│  │     Issues employee certs - Revocation on-chain        │  │
-│  └───────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
+CLI / Client
+    ↓  BRC-2 encrypted messages
+MessageBox (P2P)
+    ↓  AuthSocket WebSocket
+AGIdentity Gateway
+    ↓  Native agent loop
+LLM Provider (Anthropic / Ollama / OpenAI-compatible)
+    ↓  Tool execution
+BSV Wallet (sign, pay, certify)
+    ↓  Encrypted response
+MessageBox → Client
 ```
+
+The gateway runs a native agent loop that iterates between LLM calls and tool execution. Read-only tools execute in parallel; wallet-mutating tools execute sequentially for signing safety. All results are re-ordered to match Anthropic's expected `tool_use_id` ordering.
+
+## Features
+
+- **Cryptographic Identity** — BSV key pair as the agent's root identity. BRC-52/53 certificates for trust establishment.
+- **25 Agent Tools** across 9 domains — identity, wallet ops, transactions, tokens, messaging, memory, services, audit, certificates.
+- **Encrypted Memory** — On-chain PushDrop tokens with BRC-42 derived encryption keys. Optional semantic search via Shad.
+- **E2E Encrypted Messaging** — MessageBox with BRC-2 ECDH encryption. AuthSocket WebSocket for live communication.
+- **Audit Trail** — Per-session hash chains with Merkle root commitment on-chain. Workspace integrity verification.
+- **Multi-LLM Support** — Anthropic Claude, Ollama (local), or any OpenAI-compatible endpoint.
+- **Certificate System** — Issue, verify, revoke, and exchange BRC-52/53 certificates via PeerCert.
+- **Mandala Network Integration** — Deploy and manage projects on Mandala Network nodes directly from agent tools.
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js >= 22.0.0
+- BSV private key (generate with `openssl rand -hex 32`)
+- Anthropic API key (or Ollama / OpenAI-compatible endpoint)
+
+### Install & Run
+
+```bash
+npm install
+npm run build
+npm run gateway
+```
+
+On first run, an interactive setup wizard walks through:
+
+1. Private key generation or import
+2. Network selection (mainnet / testnet)
+3. LLM provider configuration
+4. Certificate issuance
+5. Workspace file creation
+
+Configuration is persisted to `~/.agidentity/`.
+
+### Manual Configuration
+
+Create `~/.agidentity/.env`:
+
+```bash
+AGENT_PRIVATE_KEY=<64-char-hex>
+AGID_NETWORK=mainnet
+ANTHROPIC_API_KEY=sk-your-key-here
+TRUSTED_CERTIFIERS=<comma-separated-public-keys>
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_PRIVATE_KEY` | *required* | 64-char hex private key |
+| `ANTHROPIC_API_KEY` | — | Anthropic API key |
+| `AGID_LLM_PROVIDER` | `anthropic` | `anthropic`, `ollama`, or `openai-compatible` |
+| `AGID_MODEL` | `claude-sonnet-4-5-20250929` | Model identifier |
+| `AGID_LLM_BASE_URL` | — | Base URL for Ollama / OpenAI-compatible |
+| `AGID_LLM_API_KEY` | — | API key for OpenAI-compatible |
+| `AGID_NETWORK` | `mainnet` | `mainnet` or `testnet` |
+| `AGID_STORAGE_MODE` | `local` | `local` or `remote` |
+| `AGID_WORKSPACE_PATH` | `~/.agidentity/workspace/` | Workspace files directory |
+| `AGID_SESSIONS_PATH` | `~/.agidentity/sessions/` | Session transcript directory |
+| `AGID_MAX_ITERATIONS` | `25` | Max tool-use iterations per request |
+| `AGID_MAX_TOKENS` | `8192` | Max tokens per LLM response |
+| `AGID_REQUIRE_CERTS` | `false` | Reject messages from uncertified senders |
+| `AGID_ALLOW_UNAUTHENTICATED` | `false` | Allow unauthenticated HTTP endpoints |
+| `MESSAGEBOX_HOST` | `https://messagebox.babbage.systems` | MessageBox server URL |
+| `UHRP_STORAGE_URL` | `https://go-uhrp.b1nary.cloud` | UHRP storage endpoint |
 
 ## Agent Tools
 
-The native agent loop exposes 25 tools across 8 domains, defined declaratively in `src/agent/tools/`:
+### Identity (5 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_identity` | Get agent's public key, network, and balance |
+| `agid_balance` | Check BSV wallet balance in satoshis |
+| `agid_get_public_key` | Derive protocol-specific keys (BRC-42) |
+| `agid_get_height` | Get current blockchain block height |
+| `agid_lookup_identity` | Look up people on the BSV identity overlay |
 
-| Domain | Tools | Wallet Required |
-|--------|-------|-----------------|
-| **Identity** | `agid_identity`, `agid_balance`, `agid_get_public_key`, `agid_get_height` | No |
-| **Wallet Ops** | `agid_sign`, `agid_encrypt`, `agid_decrypt` | Yes |
-| **Transactions** | `agid_create_action`, `agid_internalize_action`, `agid_send_payment`, `agid_list_outputs` | Mixed |
-| **Tokens** | `agid_token_create`, `agid_token_list`, `agid_token_redeem` | Mixed |
-| **Messaging** | `agid_message_send`, `agid_message_list`, `agid_message_ack` | Mixed |
-| **Memory** | `agid_store_memory`, `agid_recall_memories` | Mixed |
-| **Services** | `agid_optimize_prompt`, `agid_discover_services`, `agid_x402_request`, `agid_overlay_lookup` | Mixed |
-| **Audit** | `agid_verify_workspace`, `agid_verify_session` | No |
+### Wallet Operations (3 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_sign` | Sign messages to prove authorship |
+| `agid_encrypt` | Encrypt data for secure storage |
+| `agid_decrypt` | Decrypt previously encrypted data |
 
-Read-only tools execute in parallel. Wallet tools execute sequentially to respect the MPC signing lock.
+### Transactions (4 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_create_action` | Create BSV transactions |
+| `agid_internalize_action` | Accept incoming transactions |
+| `agid_list_outputs` | List wallet UTXOs |
+| `agid_send_payment` | Send payments via PeerPay |
 
-## Key Security Properties
+### Tokens (3 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_token_create` | Create PushDrop tokens with arbitrary data |
+| `agid_token_list` | List tokens from wallet baskets |
+| `agid_token_redeem` | Redeem tokens to reclaim satoshis |
 
-| Property | How |
-|----------|-----|
-| **End-to-end encryption** | BRC-2 ECDH between employee wallet and AI |
-| **Verified identity** | Employees present certificates, checked against CA |
-| **Signed responses** | Every AI response signed with MPC wallet |
-| **MPC protection** | AI can't leak its private key, even if prompt-injected |
-| **Audit trail** | Per-session hash chain with Merkle root anchored on-chain |
-| **Workspace integrity** | Workspace files verified against on-chain anchors |
+### Certificates (8 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_cert_issue` | Issue certificates to other identities |
+| `agid_cert_receive` | Receive incoming certificates |
+| `agid_cert_list` | List certificates in wallet |
+| `agid_cert_verify` | Verify serialized certificates |
+| `agid_cert_revoke` | Revoke issued certificates |
+| `agid_cert_reveal` | Publicly reveal certificate fields |
+| `agid_cert_check_revocation` | Check revocation status |
+| `agid_cert_send` | Send certificates via MessageBox |
 
-## Programmatic Usage
+### Memory (2 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_store_memory` | Store encrypted memories on-chain |
+| `agid_recall_memories` | Recall with optional semantic search |
 
-```typescript
-import { createAGIdentityGateway, createAgentWallet } from 'agidentity';
+### Messaging (5 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_message_send` | Send encrypted MessageBox messages |
+| `agid_message_list` | List messages in a box |
+| `agid_message_ack` | Acknowledge processed messages |
+| `agid_list_payments` | List incoming payments |
+| `agid_accept_payment` | Accept PeerPay payments |
 
-const wallet = await createAgentWallet({
-  privateKey: process.env.AGENT_PRIVATE_KEY,
-  network: 'mainnet',
-});
+### Services (4 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_optimize_prompt` | GEPA evolutionary prompt optimization |
+| `agid_discover_services` | Discover x402 AI services |
+| `agid_x402_request` | Authenticated x402 HTTP requests |
+| `agid_overlay_lookup` | Query BSV overlay networks |
 
-const gateway = await createAGIdentityGateway({
-  wallet,
-  trustedCertifiers: ['03abc...'],
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-});
+### Audit (2 tools)
+| Tool | Description |
+|------|-------------|
+| `agid_verify_workspace` | Verify workspace file integrity |
+| `agid_verify_session` | Verify anchor chain integrity |
 
-// Gateway is now listening on MessageBox
-// Employees send encrypted messages -> verified -> AI responds -> signed
-```
+## Workspace Files
 
-## CLI (Employee Side)
+The agent's persona and context are defined by workspace files in `~/.agidentity/workspace/`:
+
+| File | Purpose |
+|------|---------|
+| `SOUL.md` | Core persona, behavioral rules, and values |
+| `IDENTITY.md` | Agent's self-description and capabilities |
+| `TOOLS.md` | Tool usage guidelines and preferences |
+| `MEMORY.md` | Persistent memory context across sessions |
+
+These files are loaded into the system prompt on every request. Edit them to shape the agent's behavior.
+
+## API Endpoints
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /` | No | Health check (status, public key, model, uptime) |
+| `GET /health` | No | Health check |
+| `/identity/*` | BRC-103/104 | Identity operations |
+| `/vault/*` | BRC-103/104 | Vault storage operations |
+| `/team/*` | BRC-103/104 | Team vault operations |
+
+All wallet operations are executed in-process via the ToolRegistry — no external API surface for wallet actions.
+
+## Docker
 
 ```bash
-# Chat with the AI agent
-npm run cli:chat <agent-pubkey>
+docker build -t agidentity .
+
+docker run -d \
+  -p 3000:3000 \
+  -v agid-data:/data \
+  -e AGENT_PRIVATE_KEY=<key> \
+  -e ANTHROPIC_API_KEY=<key> \
+  -e TRUSTED_CERTIFIERS=<keys> \
+  agidentity
 ```
 
-## Scripts
+## Project Structure
 
-| Command | Description |
-|---------|-------------|
-| `npm run build` | Compile TypeScript |
-| `npm run gateway` | Start the gateway |
-| `npm run start` | Same as gateway |
-| `npm test` | Run tests |
-| `npm run cli:chat` | Chat with agent |
+```
+src/
+├── agent/           # Agent loop, tool registry, prompt builder
+│   └── tools/       # 9 domain tool files (25 tools)
+├── audit/           # Signed audit trail, anchor chains
+├── config/          # Configuration loading
+├── encryption/      # Encryption helpers
+├── gateway/         # MessageBox gateway, agent orchestration
+├── identity/        # Certificate verification
+├── integrations/    # PeerCert, GEPA, Shad, Mandala
+├── messaging/       # MessageBox client, AuthSocket
+├── server/          # BRC-103/104 authenticated HTTP server
+├── startup/         # First-run interactive setup
+├── storage/         # Vaults, UHRP, memory manager
+├── wallet/          # Wallet-toolbox adapter, PushDrop ops
+├── types/           # Shared TypeScript types
+├── start.ts         # Gateway entry point
+└── index.ts         # Public API exports
+```
 
-## BRC Standards
+## Development
 
-| Standard | Purpose |
-|----------|---------|
-| BRC-2 | ECDH encryption |
-| BRC-42 | Key derivation |
-| BRC-48 | PushDrop tokens (on-chain memory) |
-| BRC-52 | Identity certificates |
-| BRC-100 | Wallet interface |
-| BRC-103/104 | HTTP authentication |
+```bash
+npm run build        # Compile TypeScript
+npm run dev          # Watch mode
+npm test             # Run tests (vitest)
+npm run test:watch   # Watch mode tests
+npm run lint         # ESLint
+npm run format       # Prettier
+```
+
+## Security Model
+
+- **Authentication**: BRC-103/104 mutual authentication for all HTTP endpoints
+- **Encryption**: BRC-2 ECDH end-to-end encryption for all MessageBox communication
+- **Key Derivation**: BRC-42 per-counterparty key derivation
+- **At-Rest Encryption**: AES-256-GCM for local vault storage
+- **Audit**: Cryptographic hash chains with on-chain Merkle root anchoring
+- **Certificate Enforcement**: Optional mode to reject uncertified senders
+- **No External Wallet API**: All wallet operations are in-process only
 
 ## License
 

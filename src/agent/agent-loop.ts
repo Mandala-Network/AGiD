@@ -2,7 +2,7 @@
  * Agent Loop
  *
  * Iterative LLM call → tool execution cycle using a pluggable LLMProvider.
- * Non-streaming, sequential tool execution to respect MPC signing lock.
+ * Non-streaming, sequential tool execution to respect wallet signing safety.
  */
 
 import type { LLMProvider, LLMMessage } from './llm-provider.js';
@@ -104,7 +104,7 @@ export class AgentLoop {
         // Append assistant response to messages
         messages = [...messages, { role: 'assistant', content: response.rawContent }];
 
-        // Partition: wallet tools must be sequential (MPC signing lock), rest can be parallel
+        // Partition: wallet tools must be sequential (wallet signing safety), rest can be parallel
         const walletCalls = response.toolCalls.filter(c => this.toolRegistry.requiresWallet(c.name));
         const readOnlyCalls = response.toolCalls.filter(c => !this.toolRegistry.requiresWallet(c.name));
 
@@ -118,7 +118,12 @@ export class AgentLoop {
           toolCalls.push({ name: call.name, input: call.input, result });
           resultMap.set(call.id, { toolUseId: call.id, content: result.content, isError: result.isError });
 
-          console.log(`[AgentLoop] ${result.isError ? '❌' : '✅'} ${call.name} completed`);
+          if (result.isError) {
+            const errStr = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+            console.log(`[AgentLoop] ❌ ${call.name} FAILED: ${errStr.substring(0, 300)}`);
+          } else {
+            console.log(`[AgentLoop] ✅ ${call.name} completed`);
+          }
 
           // Anchor tool execution if chain provided
           if (anchorChain) {
@@ -140,7 +145,7 @@ export class AgentLoop {
           await Promise.all(readOnlyCalls.map(executeSingle));
         }
 
-        // Execute wallet tools sequentially (MPC signing lock)
+        // Execute wallet tools sequentially (wallet signing safety)
         for (const call of walletCalls) {
           await executeSingle(call);
         }

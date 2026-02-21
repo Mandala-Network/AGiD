@@ -30,9 +30,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@bsv/auth-express-middleware": "^2.0.2",
-    "@bsv/message-box-client": "file:./mpc/message-box-client",
+    "@bsv/message-box-client": "^1.4.5",
     "@bsv/sdk": "^2.0.3",
-    "@bsv/wallet-toolbox": "^2.0.14",
+    "@bsv/wallet-toolbox": "^2.0.19",
     "@types/jsonwebtoken": "^9.0.10",
     "commander": "^12.0.0",
     "curvepoint": "github:p2ppsr/curvepoint",
