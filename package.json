@@ -12,6 +12,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./tools": {
+      "types": "./dist/agent/tools/types.d.ts",
+      "default": "./dist/agent/tools/types.js"
     }
   },
   "scripts": {

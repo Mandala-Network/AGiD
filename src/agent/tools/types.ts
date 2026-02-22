@@ -24,3 +24,10 @@ export interface ToolContext {
 export function ok(data: Record<string, unknown>): ToolResult {
   return { content: JSON.stringify(data, null, 2) };
 }
+
+export interface ToolPlugin {
+  name: string;
+  version: string;
+  description: string;
+  createTools: (ctx: ToolContext) => ToolDescriptor[];
+}

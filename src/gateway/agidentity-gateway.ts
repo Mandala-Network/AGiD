@@ -18,6 +18,7 @@ import { AnchorChain } from '../audit/anchor-chain.js';
 import { WorkspaceIntegrity } from '../audit/workspace-integrity.js';
 import { lockPushDropToken } from '../wallet/pushdrop-ops.js';
 import { ToolRegistry } from '../agent/tool-registry.js';
+import type { ToolPlugin } from '../agent/tools/types.js';
 import { PromptBuilder } from '../agent/prompt-builder.js';
 import { SessionStore } from '../agent/session-store.js';
 import { AgentLoop } from '../agent/agent-loop.js';
@@ -55,6 +56,8 @@ export interface AGIdentityGatewayConfig {
   signResponses?: boolean;
   /** Audit trail configuration */
   audit?: { enabled?: boolean };
+  /** External tool plugins to register */
+  plugins?: ToolPlugin[];
 }
 
 export interface SignedResponse {
@@ -121,6 +124,12 @@ export class AGIdentityGateway {
     const memoryManager = new MemoryManager(this.wallet, { workspacePath, gepaOptimizer });
     const toolRegistry = new ToolRegistry();
     toolRegistry.registerBuiltinTools(this.wallet, workspacePath, sessionsPath, memoryManager);
+
+    // Register external plugins
+    if (this.config.plugins?.length) {
+      const ctx = { wallet: this.wallet, workspacePath, sessionsPath, memoryManager };
+      toolRegistry.registerPlugins(this.config.plugins, ctx);
+    }
 
     // GEPA-optimize tool descriptions at registration time
     if (gepaOptimizer.available) {

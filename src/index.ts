@@ -144,6 +144,10 @@ export type {
   ProviderConfig, ProviderType, OllamaProviderConfig,
 } from './agent/index.js';
 
+// Tool Plugin System
+export type { ToolPlugin, ToolDescriptor, ToolContext } from './agent/tools/types.js';
+export { ok } from './agent/tools/types.js';
+
 // Client SDK
 export { AGIDClient, createAGIDClient } from './client/index.js';
 export type {

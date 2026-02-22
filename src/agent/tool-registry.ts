@@ -9,7 +9,7 @@ import type { AgentWallet } from '../wallet/agent-wallet.js';
 import type { AgentToolDefinition, RegisteredTool, ToolResult } from '../types/agent-types.js';
 import type { MemoryManager } from '../storage/memory/memory-manager.js';
 import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
-import { createAllTools, type ToolDescriptor, type ToolContext } from './tools/index.js';
+import { corePlugin, type ToolDescriptor, type ToolContext, type ToolPlugin } from './tools/index.js';
 
 export class ToolRegistry {
   private tools = new Map<string, RegisteredTool>();
@@ -44,7 +44,17 @@ export class ToolRegistry {
 
   registerBuiltinTools(wallet: AgentWallet, workspacePath?: string, sessionsPath?: string, memoryManager?: MemoryManager): void {
     const ctx: ToolContext = { wallet, workspacePath, sessionsPath, memoryManager };
-    this.registerAll(createAllTools(ctx), ctx);
+    this.registerPlugin(corePlugin, ctx);
+  }
+
+  registerPlugin(plugin: ToolPlugin, ctx: ToolContext): void {
+    this.registerAll(plugin.createTools(ctx), ctx);
+  }
+
+  registerPlugins(plugins: ToolPlugin[], ctx: ToolContext): void {
+    for (const plugin of plugins) {
+      this.registerPlugin(plugin, ctx);
+    }
   }
 
   registerAll(descriptors: ToolDescriptor[], ctx: ToolContext): void {
