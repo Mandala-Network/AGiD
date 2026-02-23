@@ -48,3 +48,13 @@ export type {
   MessageBoxGatewayConfig,
   CreateGatewayConfig,
 } from './messagebox-gateway.js';
+
+// Progress event emitter for agent loop execution updates
+export { ProgressEmitter } from './progress-emitter.js';
+export type {
+  ProgressEvent,
+  ToolStartEvent,
+  ToolResultEvent,
+  ThinkingEvent,
+  CompletionEvent,
+} from './progress-emitter.js';
