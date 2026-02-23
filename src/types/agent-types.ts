@@ -93,3 +93,43 @@ export interface AgentUsageStats {
   outputTokens: number;
   totalTokens: number;
 }
+
+// ============================================================================
+// Direct Tool Invocation Types (MessageBox protocol)
+// ============================================================================
+
+/**
+ * A direct tool invocation request sent via MessageBox.
+ * Allows the frontend to invoke individual agent tools without going through the LLM.
+ */
+export interface ToolRequest {
+  type: 'tool_request';
+  /** Request ID for correlation */
+  id: string;
+  /** Tool name, e.g. "agid_wallet_balance" */
+  toolName: string;
+  /** Tool input parameters */
+  parameters: Record<string, unknown>;
+  timestamp: number;
+}
+
+/**
+ * Response to a direct tool invocation, returned via MessageBox.
+ */
+export interface ToolResponse {
+  type: 'tool_response';
+  /** Response ID */
+  id: string;
+  /** Correlates to the originating tool_request.id */
+  requestId: string;
+  toolName: string;
+  /** Tool execution result */
+  result: string;
+  isError: boolean;
+  timestamp: number;
+  /** Agent public key */
+  agent: string;
+  /** Wallet signature of the response */
+  signature: string;
+  signed: boolean;
+}

@@ -22,7 +22,9 @@ import type { ToolPlugin } from '../agent/tools/types.js';
 import { PromptBuilder } from '../agent/prompt-builder.js';
 import { SessionStore } from '../agent/session-store.js';
 import { AgentLoop } from '../agent/agent-loop.js';
+import { ProgressEmitter } from '../messaging/progress-emitter.js';
 import type { ProgressEvent } from '../messaging/progress-emitter.js';
+import type { ToolRequest, ToolResponse } from '../types/agent-types.js';
 import { createProvider } from '../agent/providers/index.js';
 import type { LLMProvider } from '../agent/llm-provider.js';
 import { MemoryManager } from '../storage/memory/memory-manager.js';
@@ -79,6 +81,7 @@ export class AGIdentityGateway {
   private identityGate: IdentityGate | null = null;
   private auditTrail: SignedAuditTrail | null = null;
   private agentLoop: AgentLoop | null = null;
+  private toolRegistry: ToolRegistry | null = null;
   private running = false;
   private agentPublicKey: string | null = null;
   private workspacePath: string = '';
@@ -124,6 +127,7 @@ export class AGIdentityGateway {
     // 3. Set up agent components
     const memoryManager = new MemoryManager(this.wallet, { workspacePath, gepaOptimizer });
     const toolRegistry = new ToolRegistry();
+    this.toolRegistry = toolRegistry;
     toolRegistry.registerBuiltinTools(this.wallet, workspacePath, sessionsPath, memoryManager);
 
     // Register external plugins
@@ -256,58 +260,58 @@ export class AGIdentityGateway {
     const t0 = Date.now();
     const ts = () => `[t=${Date.now() - t0}ms]`;
     const senderKey = message.original.sender;
-    console.log(`[AGIdentityGateway] 📨 Message from ${senderKey.substring(0, 12)}... (box: ${message.original.messageBox ?? 'unknown'}) ${ts()}`);
+    console.log(`[AGIdentityGateway] Message from ${senderKey.substring(0, 12)}... (box: ${message.original.messageBox ?? 'unknown'}) ${ts()}`);
 
-    // Parse ChatRequest protocol
-    let content: string;
-    let requestId: string | undefined;
+    // -----------------------------------------------------------------------
+    // 1. Parse raw body to determine message type
+    // -----------------------------------------------------------------------
     const rawBody = message.original.body;
+    let parsed: Record<string, unknown> | null = null;
 
-    if (typeof rawBody === 'object' && rawBody !== null && 'type' in rawBody && (rawBody as any).type === 'chat_request') {
-      content = (rawBody as any).content ?? JSON.stringify(rawBody);
-      requestId = (rawBody as any).id;
+    if (typeof rawBody === 'object' && rawBody !== null) {
+      parsed = rawBody as Record<string, unknown>;
     } else if (typeof rawBody === 'string') {
       try {
-        const parsed = JSON.parse(rawBody);
-        if (parsed.type === 'chat_request') {
-          content = parsed.content ?? rawBody;
-          requestId = parsed.id;
-        } else {
-          content = rawBody;
-        }
+        parsed = JSON.parse(rawBody);
       } catch {
-        content = rawBody;
+        // Not JSON -- treat as plain text chat
       }
-    } else {
-      content = JSON.stringify(rawBody);
     }
 
-    // Audit incoming message
+    const messageType = parsed?.type as string | undefined;
+
+    // -----------------------------------------------------------------------
+    // 2. Audit incoming message
+    // -----------------------------------------------------------------------
+    const contentSummary = typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody);
     console.log(`[AGIdentityGateway]    Audit incoming... ${ts()}`);
     if (this.auditTrail) {
       await this.auditTrail.createEntry({
         action: 'message.received',
         userPublicKey: senderKey,
         agentPublicKey: this.agentPublicKey!,
-        input: content,
+        input: contentSummary,
         metadata: {
           conversationId: message.context.conversationId,
           verified: message.context.identityVerified,
           certificateType: message.context.certificate?.type,
+          messageType,
         },
       });
       console.log(`[AGIdentityGateway]    Audit done ${ts()}`);
     }
 
-    // Certificate enforcement (when AGID_REQUIRE_CERTS=true)
+    // -----------------------------------------------------------------------
+    // 3. Certificate enforcement (when AGID_REQUIRE_CERTS=true)
+    // -----------------------------------------------------------------------
     if (process.env.AGID_REQUIRE_CERTS === 'true') {
       if (!message.context.identityVerified || !message.context.certificate) {
         console.log(`[AGIdentityGateway] Rejected uncertified sender: ${senderKey.substring(0, 12)}...`);
         return {
           body: {
-            type: 'chat_response',
+            type: messageType === 'tool_request' ? 'tool_response' : 'chat_response',
             id: crypto.randomUUID(),
-            requestId,
+            requestId: parsed?.id as string | undefined,
             timestamp: Date.now(),
             content: 'Access denied: a valid certificate from a trusted certifier is required to communicate with this agent.',
             agent: this.agentPublicKey,
@@ -315,6 +319,197 @@ export class AGIdentityGateway {
           },
         };
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. Route by message type
+    // -----------------------------------------------------------------------
+    if (messageType === 'tool_request') {
+      return this.handleToolRequest(message, parsed as unknown as ToolRequest, ts);
+    }
+
+    // Default: chat_request or plain text
+    return this.handleChatRequest(message, parsed, rawBody, ts);
+  }
+
+  // ===========================================================================
+  // Tool Request Handler (direct tool invocation via MessageBox)
+  // ===========================================================================
+
+  private async handleToolRequest(
+    message: ProcessedMessage,
+    request: ToolRequest,
+    ts: () => string,
+  ): Promise<MessageResponse | null> {
+    const senderKey = message.original.sender;
+    const senderMessageBox = message.original.messageBox ?? 'inbox';
+    const requestId = request.id ?? crypto.randomUUID();
+    const toolName = request.toolName;
+    const parameters = request.parameters;
+
+    console.log(`[AGIdentityGateway] Tool request: ${toolName} (id: ${requestId}) ${ts()}`);
+
+    // Validate toolName exists in the registry
+    const definitions = this.toolRegistry!.getDefinitions();
+    const toolExists = definitions.some((d) => d.name === toolName);
+    if (!toolExists) {
+      console.log(`[AGIdentityGateway] Unknown tool: ${toolName} ${ts()}`);
+      const errorResponse = await this.buildToolResponse(requestId, toolName, `Unknown tool: ${toolName}`, true);
+      return { body: { ...errorResponse } };
+    }
+
+    // Validate parameters is a non-null, non-array object
+    if (parameters === null || parameters === undefined || typeof parameters !== 'object' || Array.isArray(parameters)) {
+      console.log(`[AGIdentityGateway] Invalid parameters for ${toolName} ${ts()}`);
+      const errorResponse = await this.buildToolResponse(requestId, toolName, 'Invalid parameters: expected a non-null object', true);
+      return { body: { ...errorResponse } };
+    }
+
+    // Create ProgressEmitter for tool execution events (same pattern as chat_request)
+    const onEvent = async (event: ProgressEvent) => {
+      try {
+        await this.messageBoxGateway!.getMessageClient().sendMessage(
+          senderKey,
+          senderMessageBox,
+          JSON.stringify(event),
+        );
+      } catch (eventError) {
+        // Progress events are best-effort
+        console.error('[AGIdentityGateway] Failed to send progress event:', eventError instanceof Error ? eventError.message : eventError);
+      }
+    };
+    const emitter = new ProgressEmitter(onEvent);
+
+    // Emit tool_start
+    try {
+      await emitter.emitToolStart(requestId, toolName);
+    } catch {
+      // best-effort
+    }
+
+    // Execute the tool
+    let resultContent: string;
+    let isError = false;
+    try {
+      const toolResult = await this.toolRegistry!.execute(toolName, parameters);
+      resultContent = toolResult.content;
+      isError = toolResult.isError ?? false;
+      console.log(`[AGIdentityGateway] Tool ${toolName} ${isError ? 'failed' : 'completed'} (${resultContent.length} chars) ${ts()}`);
+    } catch (error) {
+      resultContent = error instanceof Error ? error.message : String(error);
+      isError = true;
+      console.error(`[AGIdentityGateway] Tool ${toolName} threw:`, resultContent, ts());
+    }
+
+    // Emit tool_result
+    try {
+      const errorType = isError ? this.extractErrorType(resultContent) : undefined;
+      await emitter.emitToolResult(requestId, toolName, isError ? 'failed' : 'completed', errorType);
+    } catch {
+      // best-effort
+    }
+
+    // Build signed ToolResponse
+    const toolResponse = await this.buildToolResponse(requestId, toolName, resultContent, isError);
+
+    // Audit outgoing tool response
+    if (this.auditTrail) {
+      await this.auditTrail.createEntry({
+        action: 'tool_response.sent',
+        userPublicKey: senderKey,
+        agentPublicKey: this.agentPublicKey!,
+        output: resultContent,
+        metadata: {
+          conversationId: message.context.conversationId,
+          toolName,
+          isError,
+          signed: toolResponse.signed,
+        },
+      });
+    }
+
+    return { body: { ...toolResponse } };
+  }
+
+  /**
+   * Build a signed ToolResponse message.
+   */
+  private async buildToolResponse(
+    requestId: string,
+    toolName: string,
+    result: string,
+    isError: boolean,
+  ): Promise<ToolResponse> {
+    let signature = '';
+    let signed = false;
+
+    if (this.config.signResponses !== false) {
+      try {
+        const signedResult = await this.signResponse(result);
+        signature = signedResult.signature;
+        signed = signedResult.signed;
+      } catch {
+        // Signing failed -- return unsigned response
+      }
+    }
+
+    return {
+      type: 'tool_response',
+      id: crypto.randomUUID(),
+      requestId,
+      toolName,
+      result,
+      isError,
+      timestamp: Date.now(),
+      agent: this.agentPublicKey!,
+      signature,
+      signed,
+    };
+  }
+
+  /**
+   * Extract a PascalCase error type name from an error string.
+   * Same approach as the extractErrorType() in agent-loop -- provides summary-level
+   * error transparency without exposing stack traces.
+   */
+  private extractErrorType(errorStr: string): string | undefined {
+    // Try to extract from JSON-wrapped errors
+    try {
+      const parsed = JSON.parse(errorStr);
+      if (parsed.error && typeof parsed.error === 'string') {
+        errorStr = parsed.error;
+      }
+    } catch {
+      // Not JSON
+    }
+    // Match PascalCase error class names (e.g. "InsufficientFunds", "TypeError")
+    const match = errorStr.match(/\b([A-Z][a-zA-Z]*(?:Error|Exception|Fault))\b/);
+    return match?.[1];
+  }
+
+  // ===========================================================================
+  // Chat Request Handler (LLM-driven agent loop)
+  // ===========================================================================
+
+  private async handleChatRequest(
+    message: ProcessedMessage,
+    parsed: Record<string, unknown> | null,
+    rawBody: string | Record<string, unknown>,
+    ts: () => string,
+  ): Promise<MessageResponse | null> {
+    const senderKey = message.original.sender;
+
+    // Extract content and requestId from chat_request or plain text
+    let content: string;
+    let requestId: string | undefined;
+
+    if (parsed && parsed.type === 'chat_request') {
+      content = (parsed.content as string) ?? JSON.stringify(rawBody);
+      requestId = parsed.id as string | undefined;
+    } else if (typeof rawBody === 'string') {
+      content = rawBody;
+    } else {
+      content = JSON.stringify(rawBody);
     }
 
     // Build identity context
@@ -347,7 +542,7 @@ export class AGIdentityGateway {
       console.log(`[AGIdentityGateway]    Last anchor retrieved ${ts()}`);
 
       if (lastAnchor) {
-        // Compare combined hashes — we only have the combined hash from on-chain
+        // Compare combined hashes -- we only have the combined hash from on-chain
         if (currentHash.combinedHash !== lastAnchor.workspaceHash) {
           identityContext.workspaceIntegrity = {
             verified: false,
