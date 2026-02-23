@@ -26,13 +26,13 @@ const UHRP_TIMEOUT_MS = 15_000; // 15 seconds max for UHRP upload
  *
  * @param wallet - Agent's BRC-100 wallet
  * @param memory - Memory content, tags, and importance
- * @param storageUrl - UHRP storage server URL (default: https://staging-storage.babbage.systems)
+ * @param storageUrl - UHRP storage server URL (default: https://go-uhrp.b1nary.cloud)
  * @returns Memory token with txid and UHRP URL
  */
 export async function storeMemory(
   wallet: BRC100Wallet & { getUnderlyingWallet?: () => any },
   memory: MemoryInput,
-  storageUrl: string = 'https://staging-storage.babbage.systems'
+  storageUrl: string = 'https://go-uhrp.b1nary.cloud'
 ): Promise<MemoryToken> {
   const underlyingWallet = wallet.getUnderlyingWallet?.();
   if (!underlyingWallet) {

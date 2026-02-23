@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+*.tgz
 
 # IDE
 .idea/
@@ -70,3 +71,8 @@ logs/
 
 # Test artifacts
 .agid-demo/
+
+# .json
+package-lock.json
+mandala.json
+agent-manifest.json

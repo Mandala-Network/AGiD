@@ -246,8 +246,8 @@ async function main() {
     }
     healthServer = null;
   });
-  healthServer.listen(healthPort, '127.0.0.1');
-  console.log(`Health check on http://127.0.0.1:${healthPort}/`);
+  healthServer.listen(healthPort, '0.0.0.0');
+  console.log(`Health check on http://0.0.0.0:${healthPort}/`);
 
   console.log('');
   console.log('===================================================================');
