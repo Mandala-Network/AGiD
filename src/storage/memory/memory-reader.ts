@@ -44,24 +44,30 @@ export async function listMemories(
   }
 
   const network = await wallet.getNetwork();
-  const result = await underlyingWallet.listOutputs({
+  const listArgs = {
     basket: 'agent-memories',
     tags: options?.tags ? ['agidentity memory', ...options.tags] : ['agidentity memory'],
-    include: 'entire transactions', // Include BEEF for validation
+    include: 'locking scripts',
     includeCustomInstructions: true,
-  });
+  };
+  console.log(`[MemoryReader] listOutputs args: ${JSON.stringify(listArgs)}`);
+  const result = await underlyingWallet.listOutputs(listArgs);
+  console.log(`[MemoryReader] listOutputs returned ${result.outputs.length} outputs, totalOutputs: ${result.totalOutputs}`);
 
   // 2. Extract UHRP URLs from PushDrop fields and download
   const memories: Memory[] = [];
   const downloader = new StorageDownloader({ networkPreset: network });
 
-  for (const output of result.outputs) {
+  for (let idx = 0; idx < result.outputs.length; idx++) {
+    const output = result.outputs[idx];
     try {
+      console.log(`[MemoryReader] Output ${idx}: outpoint=${output.outpoint}, spendable=${output.spendable}, hasLockingScript=${!!output.lockingScript}, customInstructions=${output.customInstructions}`);
+
       // Skip if not spendable (already spent/deleted)
-      if (!output.spendable) continue;
+      if (!output.spendable) { console.log(`[MemoryReader] Output ${idx}: skipped (not spendable)`); continue; }
 
       // Extract fields from PushDrop token
-      if (!output.lockingScript) continue;
+      if (!output.lockingScript) { console.log(`[MemoryReader] Output ${idx}: skipped (no lockingScript)`); continue; }
 
       const decoded = PushDrop.decode(LockingScript.fromHex(output.lockingScript), 'before');
       const [uhrpUrlBytes, tagsBytes, importanceBytes] = decoded.fields;
@@ -70,9 +76,11 @@ export async function listMemories(
       const uhrpUrl = new TextDecoder().decode(new Uint8Array(uhrpUrlBytes));
       const tagsStr = new TextDecoder().decode(new Uint8Array(tagsBytes));
       const importance = new TextDecoder().decode(new Uint8Array(importanceBytes));
+      console.log(`[MemoryReader] Output ${idx}: uhrpUrl=${uhrpUrl}, tags=${tagsStr}, importance=${importance}`);
 
       // Apply importance filter if specified
       if (options?.importance && importance !== options.importance) {
+        console.log(`[MemoryReader] Output ${idx}: skipped (importance filter)`);
         continue;
       }
 
@@ -82,7 +90,9 @@ export async function listMemories(
       if (uhrpUrl === 'embedded' && decoded.fields.length >= 4) {
         // Embedded mode — encrypted content is in 4th PushDrop field
         ciphertextBytes = new Uint8Array(decoded.fields[3]);
+        console.log(`[MemoryReader] Output ${idx}: using embedded data (${ciphertextBytes.length} bytes)`);
       } else {
+        console.log(`[MemoryReader] Output ${idx}: downloading from UHRP...`);
         const DOWNLOAD_TIMEOUT_MS = 15_000;
         const downloadResult = await Promise.race([
           downloader.download(uhrpUrl),
@@ -91,6 +101,7 @@ export async function listMemories(
           ),
         ]);
         ciphertextBytes = downloadResult.data;
+        console.log(`[MemoryReader] Output ${idx}: downloaded ${ciphertextBytes.length} bytes`);
       }
 
       // 4. Decrypt with wallet
@@ -104,11 +115,13 @@ export async function listMemories(
           // If parsing fails, keyID will be undefined
         }
       }
+      const effectiveKeyID = keyID || `memory-fallback-${output.outpoint}`;
+      console.log(`[MemoryReader] Output ${idx}: decrypting with keyID=${effectiveKeyID} (from customInstructions: ${!!keyID})`);
 
       const decrypted = await wallet.decrypt({
         ciphertext: Array.from(ciphertextBytes),
         protocolID: [2, 'agidentity memory'],
-        keyID: keyID || `memory-fallback-${output.outpoint}`,
+        keyID: effectiveKeyID,
       });
 
       // 5. Extract txid from outpoint and fetch timestamp
@@ -116,21 +129,24 @@ export async function listMemories(
       const createdAt = await getTransactionTimestamp(txid);
 
       // 6. Build Memory object
+      const content = Buffer.from(decrypted.plaintext).toString('utf-8');
+      console.log(`[MemoryReader] Output ${idx}: decrypted OK, content length=${content.length}, preview="${content.substring(0, 80)}..."`);
       memories.push({
         outpoint: output.outpoint,
         txid,
         uhrpUrl,
-        content: Buffer.from(decrypted.plaintext).toString('utf-8'),
+        content,
         tags: tagsStr.split(',').filter(t => t.length > 0),
         importance,
         createdAt, // Block timestamp from ARC API
-        beef: result.BEEF ? (Array.isArray(result.BEEF) ? result.BEEF : Array.from(result.BEEF)) : undefined, // Full transaction BEEF for validation
+        beef: undefined,
       });
     } catch (error) {
       // Skip tokens that fail to decrypt/download (may be corrupted)
-      console.warn(`Failed to retrieve memory ${output.outpoint}:`, error);
+      console.warn(`[MemoryReader] Output ${idx} FAILED:`, error);
     }
   }
 
+  console.log(`[MemoryReader] Returning ${memories.length} memories (from ${result.outputs.length} outputs)`);
   return memories;
 }

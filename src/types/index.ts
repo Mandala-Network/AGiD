@@ -154,6 +154,7 @@ export interface TransactionOutput {
   description?: string;
   basket?: string;
   tags?: string[];
+  customInstructions?: string;
 }
 
 export interface TransactionInput {

@@ -244,6 +244,7 @@ export class AgentWallet implements BRC100Wallet {
         outputDescription: o.description || 'token output',
         basket: o.basket,
         tags: o.tags,
+        customInstructions: o.customInstructions,
       })),
       inputs: args.inputs?.map(i => ({
         outpoint: i.outpoint,

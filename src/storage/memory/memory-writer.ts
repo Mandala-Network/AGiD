@@ -40,12 +40,15 @@ export async function storeMemory(
   }
 
   // 1. Encrypt content (ALWAYS encrypted for privacy)
+  const encryptionKeyID = `memory-${Date.now()}`;
+  console.log(`[MemoryWriter] Encrypting with keyID: ${encryptionKeyID}`);
   const plaintext = new TextEncoder().encode(memory.content);
   const encrypted = await wallet.encrypt({
     plaintext: Array.from(plaintext),
     protocolID: [2, 'agidentity memory'],
-    keyID: `memory-${Date.now()}`,
+    keyID: encryptionKeyID,
   });
+  console.log(`[MemoryWriter] Encrypted OK, ciphertext length: ${encrypted.ciphertext.length}`);
 
   // 2. Try UHRP upload with timeout — fall back to embedding in token
   let uhrpUrl = '';
@@ -101,6 +104,9 @@ export async function storeMemory(
   );
 
   // 4. Create transaction with token output stored in basket
+  const customInstr = JSON.stringify({ keyID: encryptionKeyID });
+  console.log(`[MemoryWriter] Creating action with customInstructions: ${customInstr}`);
+  console.log(`[MemoryWriter] basket: agent-memories, tags: ${JSON.stringify(['agidentity memory', memory.importance, ...memory.tags])}`);
   const result = await wallet.createAction({
     description: `Memory: ${memory.tags.join(', ')}`,
     outputs: [{
@@ -108,9 +114,11 @@ export async function storeMemory(
       satoshis: 1, // Minimum UTXO value
       basket: 'agent-memories', // Store in basket for retrieval
       tags: ['agidentity memory', memory.importance, ...memory.tags],
+      customInstructions: customInstr,
     }],
     labels: ['agidentity memory', memory.importance, ...memory.tags],
   });
+  console.log(`[MemoryWriter] createAction result txid: ${result.txid}`);
 
   // 5. Return memory token
   return {
