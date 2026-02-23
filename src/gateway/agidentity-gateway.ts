@@ -22,6 +22,7 @@ import type { ToolPlugin } from '../agent/tools/types.js';
 import { PromptBuilder } from '../agent/prompt-builder.js';
 import { SessionStore } from '../agent/session-store.js';
 import { AgentLoop } from '../agent/agent-loop.js';
+import type { ProgressEvent } from '../messaging/progress-emitter.js';
 import { createProvider } from '../agent/providers/index.js';
 import type { LLMProvider } from '../agent/llm-provider.js';
 import { MemoryManager } from '../storage/memory/memory-manager.js';
@@ -376,17 +377,33 @@ export class AGIdentityGateway {
       console.error('[AGIdentityGateway] Workspace integrity check failed:', error instanceof Error ? error.message : error);
     }
 
-    // Run agent loop
-    console.log(`[AGIdentityGateway] 🤖 Running agent loop (session: ${identityContext.conversationId}) ${ts()}`);
+    // Run agent loop with progress event emission
+    console.log(`[AGIdentityGateway] Running agent loop with events (session: ${identityContext.conversationId}) ${ts()}`);
     let aiResponse: string;
     let toolCallCount = 0;
+
+    // Progress event callback: send each event as a MessageBox message to the original sender
+    const senderMessageBox = message.original.messageBox ?? 'inbox';
+    const onEvent = async (event: ProgressEvent) => {
+      try {
+        await this.messageBoxGateway!.getMessageClient().sendMessage(
+          senderKey,
+          senderMessageBox,
+          JSON.stringify(event),
+        );
+      } catch (eventError) {
+        // Progress events are best-effort; do not fail the agent loop
+        console.error('[AGIdentityGateway] Failed to send progress event:', eventError instanceof Error ? eventError.message : eventError);
+      }
+    };
+
     try {
-      const result = await this.agentLoop!.run(content, identityContext.conversationId, identityContext, anchorChain);
+      const result = await this.agentLoop!.runWithEvents(content, identityContext.conversationId, onEvent, identityContext, anchorChain);
       aiResponse = result.response;
       toolCallCount = result.toolCalls.length;
-      console.log(`[AGIdentityGateway] ✅ Agent responded (${aiResponse.length} chars, ${result.iterations} iterations, ${result.toolCalls.length} tool calls, ${result.usage.totalTokens} tokens) ${ts()}`);
+      console.log(`[AGIdentityGateway] Agent responded (${aiResponse.length} chars, ${result.iterations} iterations, ${result.toolCalls.length} tool calls, ${result.usage.totalTokens} tokens) ${ts()}`);
     } catch (error) {
-      console.error('[AGIdentityGateway] ❌ Agent loop error:', error instanceof Error ? error.message : error);
+      console.error('[AGIdentityGateway] Agent loop error:', error instanceof Error ? error.message : error);
       aiResponse = 'Sorry, I encountered an error processing your request. Please try again.';
     }
 
