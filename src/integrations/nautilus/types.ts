@@ -57,7 +57,9 @@ export const BridgeAuthOkSchema = z.object({
   ts: z.number().int(),
   version: z.string(),
   agentId: z.string(),
-  venues: z.array(z.string()),
+  venue: z.string(),
+  mode: z.string(),
+  instruments: z.array(z.string()),
 });
 export type BridgeAuthOk = z.infer<typeof BridgeAuthOkSchema>;
 
@@ -188,6 +190,8 @@ export const InstrumentInfoSchema = z.object({
   lotSize: z.string(),
   minQuantity: z.string(),
   maxQuantity: z.string(),
+  assetClass: z.string(),
+  venueDetails: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 export type InstrumentInfo = z.infer<typeof InstrumentInfoSchema>;
 
