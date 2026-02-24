@@ -131,5 +131,7 @@ export interface ToolResponse {
   agent: string;
   /** Wallet signature of the response */
   signature: string;
+  /** Key ID used for signing (pass to WalletClient.verifySignature) */
+  signatureKeyID?: string;
   signed: boolean;
 }

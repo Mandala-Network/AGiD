@@ -67,6 +67,7 @@ export interface SignedResponse {
   content: string;
   signature: string;
   signerPublicKey: string;
+  signatureKeyID: string;
   signed: boolean;
 }
 
@@ -324,12 +325,56 @@ export class AGIdentityGateway {
     // -----------------------------------------------------------------------
     // 4. Route by message type
     // -----------------------------------------------------------------------
+    if (messageType === 'tool_list_request') {
+      return this.handleToolListRequest(parsed, ts);
+    }
+
     if (messageType === 'tool_request') {
       return this.handleToolRequest(message, parsed as unknown as ToolRequest, ts);
     }
 
     // Default: chat_request or plain text
     return this.handleChatRequest(message, parsed, rawBody, ts);
+  }
+
+  // ===========================================================================
+  // Tool List Request Handler (tool discovery via MessageBox)
+  // ===========================================================================
+
+  private async handleToolListRequest(
+    parsed: Record<string, unknown> | null,
+    ts: () => string,
+  ): Promise<MessageResponse | null> {
+    const requestId = (parsed?.id as string) ?? crypto.randomUUID();
+    const definitions = this.toolRegistry!.getDefinitions();
+
+    console.log(`[AGIdentityGateway] Tool list request (id: ${requestId}, ${definitions.length} tools) ${ts()}`);
+
+    // Build response payload
+    const responsePayload: Record<string, unknown> = {
+      type: 'tool_list_response',
+      id: crypto.randomUUID(),
+      requestId,
+      tools: definitions,
+      agent: this.agentPublicKey,
+      timestamp: Date.now(),
+    };
+
+    // Sign if configured
+    if (this.config.signResponses !== false) {
+      try {
+        const content = JSON.stringify(definitions);
+        const signedResult = await this.signResponse(content);
+        responsePayload.signature = signedResult.signature;
+        responsePayload.signerPublicKey = signedResult.signerPublicKey;
+        responsePayload.signatureKeyID = signedResult.signatureKeyID;
+        responsePayload.signed = signedResult.signed;
+      } catch {
+        responsePayload.signed = false;
+      }
+    }
+
+    return { body: responsePayload };
   }
 
   // ===========================================================================
@@ -441,12 +486,14 @@ export class AGIdentityGateway {
     isError: boolean,
   ): Promise<ToolResponse> {
     let signature = '';
+    let signatureKeyID = '';
     let signed = false;
 
     if (this.config.signResponses !== false) {
       try {
         const signedResult = await this.signResponse(result);
         signature = signedResult.signature;
+        signatureKeyID = signedResult.signatureKeyID;
         signed = signedResult.signed;
       } catch {
         // Signing failed -- return unsigned response
@@ -463,6 +510,7 @@ export class AGIdentityGateway {
       timestamp: Date.now(),
       agent: this.agentPublicKey!,
       signature,
+      signatureKeyID,
       signed,
     };
   }
@@ -633,6 +681,7 @@ export class AGIdentityGateway {
         content: aiResponse,
         signature: '',
         signerPublicKey: this.agentPublicKey!,
+        signatureKeyID: '',
         signed: false,
       };
     }
@@ -662,6 +711,7 @@ export class AGIdentityGateway {
         agent: this.agentPublicKey,
         signature: signedResponse.signature,
         signerPublicKey: signedResponse.signerPublicKey,
+        signatureKeyID: signedResponse.signatureKeyID,
         signed: signedResponse.signed,
       },
     };
@@ -725,6 +775,7 @@ export class AGIdentityGateway {
         content: response,
         signature: signatureHex,
         signerPublicKey: this.agentPublicKey!,
+        signatureKeyID: keyId,
         signed: true,
       };
     } catch (error) {
@@ -733,6 +784,7 @@ export class AGIdentityGateway {
         content: response,
         signature: '',
         signerPublicKey: this.agentPublicKey!,
+        signatureKeyID: '',
         signed: false,
       };
     }
