@@ -85,6 +85,15 @@ export type {
   OrderState,
 } from "./portfolio-cache.js";
 
+// Phase 4: Trading Plugin modules
+export { NautilusTradingPlugin } from "./trading-plugin.js";
+export { createTradingTools } from "./trading-tools.js";
+export { TradingContextBuilder } from "./trading-context.js";
+export { TradingAuditTrail } from "./trading-audit.js";
+export type { AuditLogEntry, TradeEventType } from "./trading-audit.js";
+export { computeReasoningHash } from "./reasoning-hash.js";
+export type { ReasoningContext } from "./reasoning-hash.js";
+
 export type {
   // Shared types
   Severity,
