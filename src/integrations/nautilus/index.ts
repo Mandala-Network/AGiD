@@ -62,6 +62,17 @@ export {
   AgentToBridgeMessageSchema,
 } from "./types.js";
 
+// Data layer modules
+export { RingBuffer } from "./ring-buffer.js";
+export { MarketDataCache } from "./market-data-cache.js";
+export {
+  BackpressureMonitor,
+} from "./backpressure.js";
+export type {
+  BackpressureConfig,
+  BackpressureEvent,
+} from "./backpressure.js";
+
 export type {
   // Shared types
   Severity,
