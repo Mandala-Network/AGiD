@@ -62,6 +62,9 @@ export {
   AgentToBridgeMessageSchema,
 } from "./types.js";
 
+// Consumer-facing client
+export { BridgeClient } from "./bridge-client.js";
+
 // Connection manager
 export { ConnectionManager } from "./connection-manager.js";
 
