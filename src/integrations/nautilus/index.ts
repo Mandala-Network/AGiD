@@ -72,6 +72,12 @@ export type {
   BackpressureConfig,
   BackpressureEvent,
 } from "./backpressure.js";
+export { PortfolioCache } from "./portfolio-cache.js";
+export type {
+  AccountState,
+  PositionState,
+  OrderState,
+} from "./portfolio-cache.js";
 
 export type {
   // Shared types
