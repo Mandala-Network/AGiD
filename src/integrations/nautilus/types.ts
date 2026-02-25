@@ -168,6 +168,8 @@ export const ErrResponseSchema = z.object({
   current: z.number().int().nullable().optional(),
   limit: z.number().int().nullable().optional(),
   windowMs: z.number().int().nullable().optional(),
+  suggestedAction: z.string().nullable().optional(),
+  originalCommand: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 export type ErrResponse = z.infer<typeof ErrResponseSchema>;
 
@@ -208,6 +210,171 @@ export type ListInstrumentsResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// Phase 2: Order Commands (agent -> bridge)
+// ---------------------------------------------------------------------------
+
+export const SubmitOrderCmdSchema = z.object({
+  type: z.literal("submit_order"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  symbol: z.string(),
+  orderSide: z.string(),
+  orderType: z.string(),
+  quantity: z.string(),
+  price: z.string().nullable().optional(),
+  triggerPrice: z.string().nullable().optional(),
+  timeInForce: z.string().nullable().optional(),
+  postOnly: z.boolean().nullable().optional(),
+  clientOrderId: z.string().nullable().optional(),
+});
+export type SubmitOrderCmd = z.infer<typeof SubmitOrderCmdSchema>;
+
+export const CancelOrderCmdSchema = z.object({
+  type: z.literal("cancel_order"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  clientOrderId: z.string(),
+});
+export type CancelOrderCmd = z.infer<typeof CancelOrderCmdSchema>;
+
+export const ModifyOrderCmdSchema = z.object({
+  type: z.literal("modify_order"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  clientOrderId: z.string(),
+  quantity: z.string().nullable().optional(),
+  price: z.string().nullable().optional(),
+  triggerPrice: z.string().nullable().optional(),
+});
+export type ModifyOrderCmd = z.infer<typeof ModifyOrderCmdSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 2: Safety Commands (agent -> bridge)
+// ---------------------------------------------------------------------------
+
+export const EmergencyHaltCmdSchema = z.object({
+  type: z.literal("emergency_halt"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  reason: z.string().nullable().optional(),
+  cancelOrders: z.boolean().nullable().optional(),
+  closePositions: z.boolean().nullable().optional(),
+});
+export type EmergencyHaltCmd = z.infer<typeof EmergencyHaltCmdSchema>;
+
+export const ResumeTradingCmdSchema = z.object({
+  type: z.literal("resume_trading"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  reason: z.string().nullable().optional(),
+});
+export type ResumeTradingCmd = z.infer<typeof ResumeTradingCmdSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 2: Portfolio Query (agent -> bridge)
+// ---------------------------------------------------------------------------
+
+export const GetPortfolioQuerySchema = z.object({
+  type: z.literal("get_portfolio"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+});
+export type GetPortfolioQuery = z.infer<typeof GetPortfolioQuerySchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 2: Portfolio Response (bridge -> agent)
+// ---------------------------------------------------------------------------
+
+export const PortfolioResponseSchema = z.object({
+  type: z.literal("portfolio_response"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  correlationId: z.string(),
+  accounts: z.array(z.record(z.string(), z.unknown())),
+  positions: z.array(z.record(z.string(), z.unknown())),
+  openOrders: z.array(z.record(z.string(), z.unknown())),
+  riskEngineState: z.string(),
+});
+export type PortfolioResponse = z.infer<typeof PortfolioResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 2: Order Events (bridge -> agent)
+// ---------------------------------------------------------------------------
+
+export const OrderEventSchema = z.object({
+  type: z.literal("evt_order"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  seq: z.number().int(),
+  correlationId: z.string().nullable().optional(),
+  eventType: z.string(),
+  clientOrderId: z.string(),
+  instrumentId: z.string(),
+  venueOrderId: z.string().nullable().optional(),
+  orderSide: z.string(),
+  orderType: z.string(),
+  quantity: z.string(),
+  filledQty: z.string(),
+  avgPrice: z.string().nullable().optional(),
+  status: z.string(),
+  tsEvent: z.number().int(),
+  reason: z.string().nullable().optional(),
+});
+export type OrderEvent = z.infer<typeof OrderEventSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 2: Position Events (bridge -> agent)
+// ---------------------------------------------------------------------------
+
+export const PositionEventSchema = z.object({
+  type: z.literal("evt_position"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  seq: z.number().int(),
+  correlationId: z.string().nullable().optional(),
+  eventType: z.string(),
+  positionId: z.string(),
+  instrumentId: z.string(),
+  side: z.string(),
+  quantity: z.string(),
+  avgOpenPrice: z.string(),
+  unrealizedPnl: z.string(),
+  realizedPnl: z.string(),
+  currentPrice: z.string().nullable().optional(),
+  entryPrice: z.string(),
+  tsEvent: z.number().int(),
+});
+export type PositionEvent = z.infer<typeof PositionEventSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 2: Halt Response (bridge -> agent)
+// ---------------------------------------------------------------------------
+
+export const HaltResponseSchema = z.object({
+  type: z.literal("halt_response"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  correlationId: z.string(),
+  riskEngineState: z.string(),
+  reason: z.string(),
+  accounts: z.array(z.record(z.string(), z.unknown())),
+  positions: z.array(z.record(z.string(), z.unknown())),
+  openOrders: z.array(z.record(z.string(), z.unknown())),
+  failedCloses: z.array(z.record(z.string(), z.unknown())),
+});
+export type HaltResponse = z.infer<typeof HaltResponseSchema>;
+
+// ---------------------------------------------------------------------------
 // Discriminated unions
 // ---------------------------------------------------------------------------
 
@@ -225,6 +392,10 @@ export const BridgeToAgentMessageSchema = z.discriminatedUnion("type", [
   BridgeHealthSchema,
   ErrResponseSchema,
   ListInstrumentsResponseSchema,
+  PortfolioResponseSchema,
+  OrderEventSchema,
+  PositionEventSchema,
+  HaltResponseSchema,
 ]);
 export type BridgeToAgentMessage = z.infer<typeof BridgeToAgentMessageSchema>;
 
@@ -235,5 +406,11 @@ export const AgentToBridgeMessageSchema = z.discriminatedUnion("type", [
   BridgeAuthSchema,
   BridgePongSchema,
   ListInstrumentsQuerySchema,
+  SubmitOrderCmdSchema,
+  CancelOrderCmdSchema,
+  ModifyOrderCmdSchema,
+  EmergencyHaltCmdSchema,
+  ResumeTradingCmdSchema,
+  GetPortfolioQuerySchema,
 ]);
 export type AgentToBridgeMessage = z.infer<typeof AgentToBridgeMessageSchema>;
