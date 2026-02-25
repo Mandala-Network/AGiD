@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import type { PrivateKey } from "@bsv/sdk";
 
 // ---------------------------------------------------------------------------
 // Protocol version
@@ -375,6 +376,144 @@ export const HaltResponseSchema = z.object({
 export type HaltResponse = z.infer<typeof HaltResponseSchema>;
 
 // ---------------------------------------------------------------------------
+// Market Data Subscription Schemas (wire protocol)
+// ---------------------------------------------------------------------------
+
+export const SubscribeBarsSchema = z.object({
+  type: z.literal("subscribe_bars"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  instrumentId: z.string(),
+  timeframe: z.string(),
+});
+export type SubscribeBars = z.infer<typeof SubscribeBarsSchema>;
+
+export const UnsubscribeBarsSchema = z.object({
+  type: z.literal("unsubscribe_bars"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  instrumentId: z.string(),
+  timeframe: z.string(),
+});
+export type UnsubscribeBars = z.infer<typeof UnsubscribeBarsSchema>;
+
+export const DataBarEventSchema = z.object({
+  type: z.literal("data_bar"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  seq: z.number().int(),
+  instrumentId: z.string(),
+  timeframe: z.string(),
+  open: z.string(),
+  high: z.string(),
+  low: z.string(),
+  close: z.string(),
+  volume: z.string(),
+  tsEvent: z.number().int(),
+});
+export type DataBarEvent = z.infer<typeof DataBarEventSchema>;
+
+// ---------------------------------------------------------------------------
+// Client-specific types (TypeScript only, not in Python protocol)
+// ---------------------------------------------------------------------------
+
+/**
+ * Connection state enum mirroring Python ConnectionStateMachine.
+ */
+export enum ConnectionState {
+  DISCONNECTED = "DISCONNECTED",
+  CONNECTING = "CONNECTING",
+  AUTHENTICATING = "AUTHENTICATING",
+  CONNECTED = "CONNECTED",
+  SYNCHRONIZING = "SYNCHRONIZING",
+  READY = "READY",
+}
+
+/**
+ * Valid state transitions for the connection state machine.
+ */
+export const CONNECTION_TRANSITIONS: Record<
+  ConnectionState,
+  Set<ConnectionState>
+> = {
+  [ConnectionState.DISCONNECTED]: new Set([ConnectionState.CONNECTING]),
+  [ConnectionState.CONNECTING]: new Set([
+    ConnectionState.AUTHENTICATING,
+    ConnectionState.DISCONNECTED,
+  ]),
+  [ConnectionState.AUTHENTICATING]: new Set([
+    ConnectionState.CONNECTED,
+    ConnectionState.DISCONNECTED,
+  ]),
+  [ConnectionState.CONNECTED]: new Set([
+    ConnectionState.SYNCHRONIZING,
+    ConnectionState.DISCONNECTED,
+  ]),
+  [ConnectionState.SYNCHRONIZING]: new Set([
+    ConnectionState.READY,
+    ConnectionState.CONNECTED,
+    ConnectionState.DISCONNECTED,
+  ]),
+  [ConnectionState.READY]: new Set([ConnectionState.DISCONNECTED]),
+};
+
+/**
+ * Configuration for the BridgeClient WebSocket connection.
+ */
+export interface BridgeClientConfig {
+  /** WebSocket URL (default ws://127.0.0.1:9500) */
+  url: string;
+  /** @bsv/sdk PrivateKey for auth signing */
+  privateKey: PrivateKey;
+  /** Reconnection settings */
+  reconnect?: {
+    /** Whether to reconnect automatically (default true) */
+    enabled?: boolean;
+    /** Maximum reconnect delay in ms (default 15000) */
+    maxDelay?: number;
+    /** Backoff delay sequence in ms (default [0, 1000, 2000, 4000, 8000]) */
+    backoffDelays?: number[];
+  };
+  /** Command response timeout in ms (default 10000) */
+  commandTimeout?: number;
+  /** Missed pongs before disconnect (default 3) */
+  heartbeatTimeout?: number;
+  /** Market data configuration */
+  marketData?: {
+    /** Bars per instrument/timeframe ring buffer (default 50) */
+    ringBufferSize?: number;
+  };
+  /** Maximum queued commands (default 100) */
+  commandQueueMax?: number;
+}
+
+/**
+ * Error thrown when a command response is not received within the timeout.
+ */
+export class TimeoutError extends Error {
+  public readonly commandId: string;
+  constructor(message: string, commandId: string) {
+    super(message);
+    this.name = "TimeoutError";
+    this.commandId = commandId;
+  }
+}
+
+/**
+ * Backpressure stage for flow control.
+ */
+export enum BackpressureStage {
+  NORMAL = "NORMAL",
+  WARN = "WARN",
+  THROTTLE = "THROTTLE",
+  DROP = "DROP",
+  DISCONNECT = "DISCONNECT",
+}
+
+// ---------------------------------------------------------------------------
 // Discriminated unions
 // ---------------------------------------------------------------------------
 
@@ -396,6 +535,7 @@ export const BridgeToAgentMessageSchema = z.discriminatedUnion("type", [
   OrderEventSchema,
   PositionEventSchema,
   HaltResponseSchema,
+  DataBarEventSchema,
 ]);
 export type BridgeToAgentMessage = z.infer<typeof BridgeToAgentMessageSchema>;
 
@@ -412,5 +552,7 @@ export const AgentToBridgeMessageSchema = z.discriminatedUnion("type", [
   EmergencyHaltCmdSchema,
   ResumeTradingCmdSchema,
   GetPortfolioQuerySchema,
+  SubscribeBarsSchema,
+  UnsubscribeBarsSchema,
 ]);
 export type AgentToBridgeMessage = z.infer<typeof AgentToBridgeMessageSchema>;

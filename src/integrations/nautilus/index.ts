@@ -32,6 +32,31 @@ export {
   ListInstrumentsQuerySchema,
   InstrumentInfoSchema,
   ListInstrumentsResponseSchema,
+  // Phase 2: Order Commands
+  SubmitOrderCmdSchema,
+  CancelOrderCmdSchema,
+  ModifyOrderCmdSchema,
+  // Phase 2: Safety Commands
+  EmergencyHaltCmdSchema,
+  ResumeTradingCmdSchema,
+  // Phase 2: Portfolio
+  GetPortfolioQuerySchema,
+  PortfolioResponseSchema,
+  // Phase 2: Events
+  OrderEventSchema,
+  PositionEventSchema,
+  // Phase 2: Halt Response
+  HaltResponseSchema,
+  // Market Data Subscriptions
+  SubscribeBarsSchema,
+  UnsubscribeBarsSchema,
+  DataBarEventSchema,
+  // Client-specific enums
+  ConnectionState,
+  CONNECTION_TRANSITIONS,
+  BackpressureStage,
+  // Client-specific classes
+  TimeoutError,
   // Discriminated unions
   BridgeToAgentMessageSchema,
   AgentToBridgeMessageSchema,
@@ -62,6 +87,27 @@ export type {
   ListInstrumentsQuery,
   InstrumentInfo,
   ListInstrumentsResponse,
+  // Phase 2: Order Command types
+  SubmitOrderCmd,
+  CancelOrderCmd,
+  ModifyOrderCmd,
+  // Phase 2: Safety Command types
+  EmergencyHaltCmd,
+  ResumeTradingCmd,
+  // Phase 2: Portfolio types
+  GetPortfolioQuery,
+  PortfolioResponse,
+  // Phase 2: Event types
+  OrderEvent,
+  PositionEvent,
+  // Phase 2: Halt Response type
+  HaltResponse,
+  // Market Data Subscription types
+  SubscribeBars,
+  UnsubscribeBars,
+  DataBarEvent,
+  // Client-specific types
+  BridgeClientConfig,
   // Union types
   BridgeToAgentMessage,
   AgentToBridgeMessage,
