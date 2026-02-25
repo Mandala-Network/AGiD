@@ -10,6 +10,13 @@ import * as path from 'path';
 import type { IntegrityStatus } from '../audit/workspace-integrity.js';
 import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
 
+/**
+ * A dynamic context provider that returns a string section to append to the
+ * system prompt, or null to skip. Providers are called on every
+ * buildSystemPrompt() invocation and are NOT part of the file-based mtime cache.
+ */
+export type ContextProvider = () => string | null;
+
 export interface PromptBuilderConfig {
   workspacePath: string;
   agentPublicKey: string;
@@ -44,19 +51,44 @@ const DEFAULT_TOOLS_GUIDE = `Tool usage guidelines:
 export class PromptBuilder {
   private config: PromptBuilderConfig;
   private cache: { content: string; mtimes: Map<string, number> } | null = null;
+  private contextProviders: ContextProvider[] = [];
 
   constructor(config: PromptBuilderConfig) {
     this.config = config;
     this.ensureWorkspace();
   }
 
+  /**
+   * Register a dynamic context provider. Providers are called on every
+   * buildSystemPrompt() invocation -- they are NOT part of the mtime cache.
+   * This ensures trading context (and other dynamic data) always reflects
+   * the latest state.
+   */
+  addContextProvider(provider: ContextProvider): void {
+    this.contextProviders.push(provider);
+  }
+
   async buildSystemPrompt(identityContext?: IdentityContext): Promise<string> {
     const staticPrompt = await this.getStaticPrompt();
-    if (!identityContext) return staticPrompt;
 
-    const senderBlock = this.buildSenderBlock(identityContext);
-    const integrityBlock = this.buildIntegrityBlock(identityContext);
-    return staticPrompt + '\n\n' + senderBlock + (integrityBlock ? '\n\n' + integrityBlock : '');
+    let result: string;
+    if (!identityContext) {
+      result = staticPrompt;
+    } else {
+      const senderBlock = this.buildSenderBlock(identityContext);
+      const integrityBlock = this.buildIntegrityBlock(identityContext);
+      result = staticPrompt + '\n\n' + senderBlock + (integrityBlock ? '\n\n' + integrityBlock : '');
+    }
+
+    // Append dynamic context providers (never cached)
+    for (const provider of this.contextProviders) {
+      const section = provider();
+      if (section) {
+        result += '\n\n' + section;
+      }
+    }
+
+    return result;
   }
 
   private async getStaticPrompt(): Promise<string> {
