@@ -621,11 +621,13 @@ export class ConnectionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   /**
-   * Send a message immediately if READY, or queue it for later.
+   * Send a message immediately if READY or SYNCHRONIZING (sync needs
+   * to send get_portfolio), or queue it for later.
    */
   private enqueueOrSend(payload: string, id: string): void {
     if (
-      this._state === ConnectionState.READY &&
+      (this._state === ConnectionState.READY ||
+        this._state === ConnectionState.SYNCHRONIZING) &&
       this._ws !== null &&
       this._ws.readyState === WebSocket.OPEN
     ) {
