@@ -62,6 +62,9 @@ export {
   AgentToBridgeMessageSchema,
 } from "./types.js";
 
+// Connection manager
+export { ConnectionManager } from "./connection-manager.js";
+
 // Data layer modules
 export { RingBuffer } from "./ring-buffer.js";
 export { MarketDataCache } from "./market-data-cache.js";

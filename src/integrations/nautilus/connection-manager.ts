@@ -237,14 +237,14 @@ export class ConnectionManager extends EventEmitter {
     // Clear heartbeat timer
     this.clearHeartbeatTimer();
 
-    // Reject all pending requests
-    for (const [id, req] of this._pendingRequests) {
+    // Reject all pending requests (includes queued commands' pending entries)
+    for (const [, req] of this._pendingRequests) {
       clearTimeout(req.timer);
       req.reject(new Error("Connection closed"));
-      this._pendingRequests.delete(id);
     }
+    this._pendingRequests.clear();
 
-    // Reject and clear command queue
+    // Clear command queue
     this._commandQueue = [];
 
     // Close WebSocket
@@ -402,6 +402,7 @@ export class ConnectionManager extends EventEmitter {
 
     // CONNECTED -> SYNCHRONIZING
     this.transition(ConnectionState.SYNCHRONIZING);
+    this.startSyncBuffering();
     this.emit("synchronizing");
   }
 
@@ -434,7 +435,15 @@ export class ConnectionManager extends EventEmitter {
       this._pendingRequests.delete(id);
     }
 
-    // Reject and clear command queue
+    // Reject queued commands that have pending requests, then clear queue
+    for (const queued of this._commandQueue) {
+      const pending = this._pendingRequests.get(queued.id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error("Authentication failed"));
+        this._pendingRequests.delete(queued.id);
+      }
+    }
     this._commandQueue = [];
 
     this.emit("authFailed", { reason });
