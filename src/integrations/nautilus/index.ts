@@ -94,6 +94,16 @@ export type { AuditLogEntry, TradeEventType } from "./trading-audit.js";
 export { computeReasoningHash } from "./reasoning-hash.js";
 export type { ReasoningContext } from "./reasoning-hash.js";
 
+// Phase 6: Strategy modules
+export { createStrategyTools } from "./strategy-tools.js";
+export { StrategyContextBuilder } from "./strategy-context.js";
+export type {
+  StrategyState,
+  BacktestMetrics,
+  LiveMetrics as StrategyLiveMetrics,
+  DegradationInfo,
+} from "./strategy-context.js";
+
 export type {
   // Shared types
   Severity,

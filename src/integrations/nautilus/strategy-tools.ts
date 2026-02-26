@@ -16,6 +16,7 @@ import type { ToolDescriptor, ToolContext } from "../../agent/tools/types.js";
 import type { ToolResult } from "../../types/agent-types.js";
 import type { BridgeClient } from "./bridge-client.js";
 import type { TradeMemoryRecorder } from "./trade-memory.js";
+import type { StrategyContextBuilder } from "./strategy-context.js";
 import type {
   CreateStrategyResponse,
   BacktestResult,
@@ -60,26 +61,31 @@ function checkBridgeState(client: BridgeClient): ToolResult | null {
  * @param bridgeClient - The BridgeClient instance for bridge communication
  * @param getReasoningText - Closure returning the current turn's assistant text (or null)
  * @param tradeMemoryRecorder - Optional recorder for on-chain trade event storage
+ * @param strategyContextBuilder - Optional context builder to update after each operation
  * @returns Array of 6 ToolDescriptor objects
  */
 export function createStrategyTools(
   bridgeClient: BridgeClient,
   getReasoningText?: () => string | null,
   tradeMemoryRecorder?: TradeMemoryRecorder,
+  strategyContextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor[] {
+  // Context builder reference for strategy state updates (wired in Task 3)
+  const _ctxBuilder = strategyContextBuilder;
+
   return [
     // 1. Create Strategy
-    createCreateStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder),
+    createCreateStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, _ctxBuilder),
     // 2. Backtest Strategy
-    createBacktestStrategy(bridgeClient),
+    createBacktestStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, _ctxBuilder),
     // 3. Optimize Strategy
-    createOptimizeStrategy(bridgeClient),
+    createOptimizeStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, _ctxBuilder),
     // 4. Deploy Strategy
-    createDeployStrategy(bridgeClient),
+    createDeployStrategy(bridgeClient, _ctxBuilder),
     // 5. Monitor Strategy
-    createMonitorStrategy(bridgeClient),
+    createMonitorStrategy(bridgeClient, _ctxBuilder),
     // 6. Pause Strategy
-    createPauseStrategy(bridgeClient),
+    createPauseStrategy(bridgeClient, _ctxBuilder),
   ];
 }
 
@@ -91,6 +97,7 @@ function createCreateStrategy(
   client: BridgeClient,
   getReasoningText?: () => string | null,
   recorder?: TradeMemoryRecorder,
+  _contextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
@@ -231,7 +238,12 @@ function createCreateStrategy(
 // 2. Backtest Strategy
 // ---------------------------------------------------------------------------
 
-function createBacktestStrategy(client: BridgeClient): ToolDescriptor {
+function createBacktestStrategy(
+  client: BridgeClient,
+  _getReasoningText?: () => string | null,
+  _recorder?: TradeMemoryRecorder,
+  _contextBuilder?: StrategyContextBuilder,
+): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
     if (guard) return guard;
@@ -328,7 +340,12 @@ function createBacktestStrategy(client: BridgeClient): ToolDescriptor {
 // 3. Optimize Strategy
 // ---------------------------------------------------------------------------
 
-function createOptimizeStrategy(client: BridgeClient): ToolDescriptor {
+function createOptimizeStrategy(
+  client: BridgeClient,
+  _getReasoningText?: () => string | null,
+  _recorder?: TradeMemoryRecorder,
+  _contextBuilder?: StrategyContextBuilder,
+): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
     if (guard) return guard;
@@ -441,7 +458,10 @@ function createOptimizeStrategy(client: BridgeClient): ToolDescriptor {
 // 4. Deploy Strategy
 // ---------------------------------------------------------------------------
 
-function createDeployStrategy(client: BridgeClient): ToolDescriptor {
+function createDeployStrategy(
+  client: BridgeClient,
+  _contextBuilder?: StrategyContextBuilder,
+): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
     if (guard) return guard;
@@ -517,7 +537,10 @@ function createDeployStrategy(client: BridgeClient): ToolDescriptor {
 // 5. Monitor Strategy
 // ---------------------------------------------------------------------------
 
-function createMonitorStrategy(client: BridgeClient): ToolDescriptor {
+function createMonitorStrategy(
+  client: BridgeClient,
+  _contextBuilder?: StrategyContextBuilder,
+): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
     if (guard) return guard;
@@ -596,7 +619,10 @@ function createMonitorStrategy(client: BridgeClient): ToolDescriptor {
 // 6. Pause Strategy
 // ---------------------------------------------------------------------------
 
-function createPauseStrategy(client: BridgeClient): ToolDescriptor {
+function createPauseStrategy(
+  client: BridgeClient,
+  _contextBuilder?: StrategyContextBuilder,
+): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
     if (guard) return guard;
