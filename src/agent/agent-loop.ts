@@ -23,6 +23,9 @@ export interface AgentLoopConfig {
   provider: LLMProvider;
   maxIterations: number;
   maxTokens: number;
+  /** Called with assistant reasoning text before each tool execution batch.
+   *  Use this to inject reasoning text into plugins (e.g. NautilusTradingPlugin). */
+  preToolExecution?: (assistantText: string) => void;
 }
 
 export class AgentLoop {
@@ -33,6 +36,7 @@ export class AgentLoop {
   private model: string;
   private maxIterations: number;
   private maxTokens: number;
+  private preToolExecution?: (assistantText: string) => void;
 
   constructor(config: AgentLoopConfig) {
     this.provider = config.provider;
@@ -42,6 +46,7 @@ export class AgentLoop {
     this.model = config.model;
     this.maxIterations = config.maxIterations;
     this.maxTokens = config.maxTokens;
+    this.preToolExecution = config.preToolExecution;
   }
 
   async run(userMessage: string, sessionId: string, identityContext?: IdentityContext, anchorChain?: AnchorChain): Promise<AgentLoopResult> {
@@ -106,6 +111,11 @@ export class AgentLoop {
         // Append assistant response to messages
         messages = [...messages, { role: 'assistant', content: response.rawContent }];
 
+        // Inject reasoning text into plugins before tool execution
+        if (this.preToolExecution && response.text) {
+          this.preToolExecution(response.text);
+        }
+
         // Partition: wallet tools must be sequential (wallet signing safety), rest can be parallel
         const walletCalls = response.toolCalls.filter(c => this.toolRegistry.requiresWallet(c.name));
         const readOnlyCalls = response.toolCalls.filter(c => !this.toolRegistry.requiresWallet(c.name));
@@ -114,7 +124,7 @@ export class AgentLoop {
         const resultMap = new Map<string, { toolUseId: string; content: string; isError?: boolean }>();
 
         const executeSingle = async (call: typeof response.toolCalls[0]) => {
-          console.log(`[AgentLoop] 🔧 Executing tool: ${call.name}`);
+          console.log(`[AgentLoop] Executing tool: ${call.name}`);
           const result = await this.toolRegistry.execute(call.name, call.input);
 
           toolCalls.push({ name: call.name, input: call.input, result });
@@ -270,6 +280,11 @@ export class AgentLoop {
         if (response.toolCalls.length > 0) {
           // Append assistant response to messages
           messages = [...messages, { role: 'assistant', content: response.rawContent }];
+
+          // Inject reasoning text into plugins before tool execution
+          if (this.preToolExecution && response.text) {
+            this.preToolExecution(response.text);
+          }
 
           // Partition: wallet tools must be sequential, rest can be parallel
           const walletCalls = response.toolCalls.filter(c => this.toolRegistry.requiresWallet(c.name));

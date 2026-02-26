@@ -61,6 +61,9 @@ export interface AGIdentityGatewayConfig {
   audit?: { enabled?: boolean };
   /** External tool plugins to register */
   plugins?: ToolPlugin[];
+  /** Called with assistant reasoning text before each tool execution batch.
+   *  Use this to inject reasoning text into plugins (e.g. NautilusTradingPlugin). */
+  preToolExecution?: (assistantText: string) => void;
 }
 
 export interface SignedResponse {
@@ -83,6 +86,7 @@ export class AGIdentityGateway {
   private auditTrail: SignedAuditTrail | null = null;
   private agentLoop: AgentLoop | null = null;
   private toolRegistry: ToolRegistry | null = null;
+  private promptBuilder: PromptBuilder | null = null;
   private running = false;
   private agentPublicKey: string | null = null;
   private workspacePath: string = '';
@@ -144,7 +148,7 @@ export class AGIdentityGateway {
     }
 
     const network = await this.wallet.getNetwork();
-    const promptBuilder = new PromptBuilder({
+    this.promptBuilder = new PromptBuilder({
       workspacePath,
       agentPublicKey: this.agentPublicKey,
       network,
@@ -165,11 +169,12 @@ export class AGIdentityGateway {
     this.agentLoop = new AgentLoop({
       toolRegistry,
       sessionStore,
-      promptBuilder,
+      promptBuilder: this.promptBuilder,
       model,
       provider,
       maxIterations,
       maxTokens,
+      preToolExecution: this.config.preToolExecution,
     });
 
     console.log('[AGIdentityGateway] ✅ Agent loop initialized');
@@ -825,6 +830,10 @@ export class AGIdentityGateway {
 
   getAgentPublicKey(): string | null {
     return this.agentPublicKey;
+  }
+
+  getPromptBuilder(): PromptBuilder | null {
+    return this.promptBuilder;
   }
 
 }
