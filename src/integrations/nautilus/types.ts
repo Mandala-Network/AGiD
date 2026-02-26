@@ -416,6 +416,192 @@ export const DataBarEventSchema = z.object({
 });
 export type DataBarEvent = z.infer<typeof DataBarEventSchema>;
 
+export const QuoteTickEventSchema = z.object({
+  type: z.literal("evt_quote_tick"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  seq: z.number().int(),
+  correlationId: z.unknown().optional(),
+  payload: z.object({
+    instrumentId: z.string(),
+    bidPrice: z.string(),
+    askPrice: z.string(),
+    bidSize: z.string(),
+    askSize: z.string(),
+    ts: z.number().int(),
+  }),
+});
+export type QuoteTickEvent = z.infer<typeof QuoteTickEventSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 6: Strategy Metrics (shared by multiple strategy responses)
+// ---------------------------------------------------------------------------
+
+export const StrategyMetricsSchema = z.object({
+  sharpe: z.number(),
+  sortino: z.number(),
+  maxDrawdown: z.number(),
+  maxDrawdownPct: z.number(),
+  winRate: z.number(),
+  totalPnl: z.string(),
+  totalReturn: z.number(),
+  tradeCount: z.number(),
+  avgWin: z.string(),
+  avgLoss: z.string(),
+  profitFactor: z.number(),
+});
+export type StrategyMetrics = z.infer<typeof StrategyMetricsSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 6: Strategy Commands (agent -> bridge)
+// ---------------------------------------------------------------------------
+
+export const CreateStrategyCmdSchema = z.object({
+  type: z.literal("create_strategy"),
+  description: z.string(),
+  instruments: z.array(z.string()),
+  barType: z.string(),
+  indicators: z.array(z.object({
+    name: z.string(),
+    params: z.record(z.string(), z.unknown()),
+  })),
+  entryLogic: z.string(),
+  exitLogic: z.string(),
+  tradeSize: z.string(),
+  riskParams: z.object({
+    stopLossPct: z.number(),
+    takeProfitPct: z.number(),
+    maxPositionSize: z.string(),
+  }),
+  timeInForce: z.string().optional(),
+  correlationId: z.string().optional(),
+});
+export type CreateStrategyCmd = z.infer<typeof CreateStrategyCmdSchema>;
+
+export const BacktestStrategyCmdSchema = z.object({
+  type: z.literal("backtest_strategy"),
+  strategyId: z.string(),
+  catalogPath: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  venue: z.string().optional(),
+  startingBalance: z.string().optional(),
+  currency: z.string().optional(),
+  correlationId: z.string().optional(),
+});
+export type BacktestStrategyCmd = z.infer<typeof BacktestStrategyCmdSchema>;
+
+export const OptimizeStrategyCmdSchema = z.object({
+  type: z.literal("optimize_strategy"),
+  strategyId: z.string(),
+  paramRanges: z.record(z.string(), z.array(z.unknown())),
+  searchType: z.string(),
+  maxIterations: z.number().optional(),
+  catalogPath: z.string().optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  venue: z.string().optional(),
+  startingBalance: z.string().optional(),
+  currency: z.string().optional(),
+  correlationId: z.string().optional(),
+});
+export type OptimizeStrategyCmd = z.infer<typeof OptimizeStrategyCmdSchema>;
+
+export const DeployStrategyCmdSchema = z.object({
+  type: z.literal("deploy_strategy"),
+  strategyId: z.string(),
+  mode: z.string(),
+  thresholds: z.object({
+    minSharpe: z.number().optional(),
+    maxDrawdown: z.number().optional(),
+    minTradeCount: z.number().optional(),
+  }).optional(),
+  correlationId: z.string().optional(),
+});
+export type DeployStrategyCmd = z.infer<typeof DeployStrategyCmdSchema>;
+
+export const MonitorStrategyCmdSchema = z.object({
+  type: z.literal("monitor_strategy"),
+  strategyId: z.string(),
+  correlationId: z.string().optional(),
+});
+export type MonitorStrategyCmd = z.infer<typeof MonitorStrategyCmdSchema>;
+
+export const PauseStrategyCmdSchema = z.object({
+  type: z.literal("pause_strategy"),
+  strategyId: z.string(),
+  correlationId: z.string().optional(),
+});
+export type PauseStrategyCmd = z.infer<typeof PauseStrategyCmdSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 6: Strategy Responses (bridge -> agent)
+// ---------------------------------------------------------------------------
+
+export const CreateStrategyResponseSchema = z.object({
+  type: z.literal("create_strategy_response"),
+  strategyId: z.string(),
+  filePath: z.string(),
+  code: z.string(),
+  correlationId: z.string().optional(),
+});
+export type CreateStrategyResponse = z.infer<typeof CreateStrategyResponseSchema>;
+
+export const BacktestResultSchema = z.object({
+  type: z.literal("backtest_result"),
+  strategyId: z.string(),
+  metrics: z.record(z.string(), z.unknown()),
+  equityCurve: z.array(z.object({
+    timestamp: z.string(),
+    equity: z.number(),
+  })),
+  totalOrders: z.number(),
+  totalPositions: z.number(),
+  elapsedTime: z.number(),
+  correlationId: z.string().optional(),
+});
+export type BacktestResult = z.infer<typeof BacktestResultSchema>;
+
+export const OptimizeResultSchema = z.object({
+  type: z.literal("optimize_result"),
+  strategyId: z.string(),
+  bestParams: z.record(z.string(), z.unknown()),
+  bestMetrics: z.record(z.string(), z.unknown()),
+  allResults: z.array(z.record(z.string(), z.unknown())),
+  correlationId: z.string().optional(),
+});
+export type OptimizeResult = z.infer<typeof OptimizeResultSchema>;
+
+export const DeployResultSchema = z.object({
+  type: z.literal("deploy_result"),
+  strategyId: z.string(),
+  deploymentId: z.string(),
+  status: z.string(),
+  mode: z.string(),
+  correlationId: z.string().optional(),
+});
+export type DeployResult = z.infer<typeof DeployResultSchema>;
+
+export const MonitorResultSchema = z.object({
+  type: z.literal("monitor_result"),
+  strategyId: z.string(),
+  status: z.string(),
+  liveMetrics: z.record(z.string(), z.unknown()),
+  backtestMetrics: z.record(z.string(), z.unknown()),
+  degradation: z.record(z.string(), z.unknown()).nullable().optional(),
+  correlationId: z.string().optional(),
+});
+export type MonitorResult = z.infer<typeof MonitorResultSchema>;
+
+export const PauseResultSchema = z.object({
+  type: z.literal("pause_result"),
+  strategyId: z.string(),
+  status: z.string(),
+  correlationId: z.string().optional(),
+});
+export type PauseResult = z.infer<typeof PauseResultSchema>;
+
 // ---------------------------------------------------------------------------
 // Client-specific types (TypeScript only, not in Python protocol)
 // ---------------------------------------------------------------------------
@@ -536,6 +722,7 @@ export const BridgeToAgentMessageSchema = z.discriminatedUnion("type", [
   PositionEventSchema,
   HaltResponseSchema,
   DataBarEventSchema,
+  QuoteTickEventSchema,
 ]);
 export type BridgeToAgentMessage = z.infer<typeof BridgeToAgentMessageSchema>;
 

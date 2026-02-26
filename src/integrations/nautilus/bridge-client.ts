@@ -28,10 +28,21 @@ import type {
   OrderEvent,
   PositionEvent,
   DataBarEvent,
+  QuoteTickEvent,
   PortfolioResponse,
   ListInstrumentsResponse,
   HaltResponse,
 } from "./types.js";
+
+/** Latest quote tick data for an instrument. */
+export interface LatestQuote {
+  instrumentId: string;
+  bidPrice: string;
+  askPrice: string;
+  bidSize: string;
+  askSize: string;
+  ts: number;
+}
 
 // ---------------------------------------------------------------------------
 // BridgeClient
@@ -48,6 +59,9 @@ export class BridgeClient extends EventEmitter {
 
   /** Tracks active bar subscriptions for re-subscription on reconnect. */
   private readonly _barSubscriptions = new Set<string>();
+
+  /** Latest quote tick per instrument. */
+  private readonly _latestQuotes = new Map<string, LatestQuote>();
 
   /** Promise resolvers for connect() lifecycle. */
   private _connectResolve: (() => void) | null = null;
@@ -117,6 +131,8 @@ export class BridgeClient extends EventEmitter {
     getBars(instrumentId: string, timeframe: string): DataBarEvent[];
     getLatestBar(instrumentId: string, timeframe: string): DataBarEvent | undefined;
     getTrackedInstruments(): Array<{ instrumentId: string; timeframe: string }>;
+    getLatestQuote(instrumentId: string): LatestQuote | undefined;
+    getAllQuotes(): ReadonlyMap<string, LatestQuote>;
   } {
     return {
       getBars: (instrumentId: string, timeframe: string) =>
@@ -125,6 +141,9 @@ export class BridgeClient extends EventEmitter {
         this._marketDataCache.getLatestBar(instrumentId, timeframe),
       getTrackedInstruments: () =>
         this._marketDataCache.getTrackedInstruments(),
+      getLatestQuote: (instrumentId: string) =>
+        this._latestQuotes.get(instrumentId),
+      getAllQuotes: () => this._latestQuotes,
     };
   }
 
@@ -280,6 +299,24 @@ export class BridgeClient extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
+  // Generic strategy command dispatch
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Send a generic command to the bridge and await a correlated response.
+   *
+   * Used by strategy tools for commands that do not have dedicated typed
+   * methods on BridgeClient (create_strategy, backtest_strategy, etc.).
+   *
+   * @param type - The protocol message type string
+   * @param params - The command parameters (excluding type, id, ts, version)
+   * @returns The bridge response, typed as T
+   */
+  async sendCommand<T>(type: string, params: Record<string, unknown>): Promise<T> {
+    return this._connectionManager.sendCommand<T>(type, params);
+  }
+
+  // ---------------------------------------------------------------------------
   // Event wiring: ConnectionManager lifecycle -> BridgeClient
   // ---------------------------------------------------------------------------
 
@@ -368,20 +405,72 @@ export class BridgeClient extends EventEmitter {
   private wireDataEvents(): void {
     const cm = this._connectionManager;
 
-    // evt_order -> portfolio cache + emit orderUpdate
-    cm.on("orderEvent", (event: OrderEvent) => {
+    // evt_order -> unwrap payload -> portfolio cache + emit orderUpdate
+    cm.on("orderEvent", (rawEvent: Record<string, unknown>) => {
+      // Bridge wraps event fields inside "payload"; unwrap to match OrderEvent shape.
+      const payload = (rawEvent.payload ?? rawEvent) as Record<string, unknown>;
+      const event: OrderEvent = {
+        type: "evt_order",
+        id: rawEvent.id as string,
+        ts: rawEvent.ts as number,
+        version: rawEvent.version as string,
+        seq: rawEvent.seq as number,
+        correlationId: (rawEvent.correlationId as string) ?? null,
+        eventType: payload.eventType as string,
+        clientOrderId: payload.clientOrderId as string,
+        instrumentId: payload.instrumentId as string,
+        venueOrderId: (payload.venueOrderId as string) ?? null,
+        orderSide: payload.orderSide as string,
+        orderType: payload.orderType as string,
+        quantity: payload.quantity as string,
+        filledQty: payload.filledQty as string,
+        avgPrice: (payload.avgPrice as string) ?? null,
+        status: payload.status as string,
+        tsEvent: payload.tsEvent as number,
+        reason: (payload.reason as string) ?? null,
+      };
       this._portfolioCache.applyOrderEvent(event);
       this.emit("orderUpdate", event);
-
-      // Resolve pending command if there is a correlationId
-      // (ConnectionManager already handles command resolution for responses,
-      // but order events with correlationId also resolve submit/cancel/modify)
     });
 
-    // evt_position -> portfolio cache + emit positionUpdate
-    cm.on("positionEvent", (event: PositionEvent) => {
+    // evt_position -> unwrap payload -> portfolio cache + emit positionUpdate
+    cm.on("positionEvent", (rawEvent: Record<string, unknown>) => {
+      const payload = (rawEvent.payload ?? rawEvent) as Record<string, unknown>;
+      const event: PositionEvent = {
+        type: "evt_position",
+        id: rawEvent.id as string,
+        ts: rawEvent.ts as number,
+        version: rawEvent.version as string,
+        seq: rawEvent.seq as number,
+        correlationId: (rawEvent.correlationId as string) ?? null,
+        eventType: payload.eventType as string,
+        positionId: payload.positionId as string,
+        instrumentId: payload.instrumentId as string,
+        side: payload.side as string,
+        quantity: payload.quantity as string,
+        avgOpenPrice: payload.avgOpenPrice as string,
+        unrealizedPnl: payload.unrealizedPnl as string,
+        realizedPnl: payload.realizedPnl as string,
+        currentPrice: (payload.currentPrice as string) ?? null,
+        entryPrice: payload.entryPrice as string,
+        tsEvent: payload.tsEvent as number,
+      };
       this._portfolioCache.applyPositionEvent(event);
       this.emit("positionUpdate", event);
+    });
+
+    // evt_quote_tick -> latest quote cache + emit quoteTick
+    cm.on("quoteTick", (event: QuoteTickEvent) => {
+      const payload = event.payload;
+      this._latestQuotes.set(payload.instrumentId, {
+        instrumentId: payload.instrumentId,
+        bidPrice: payload.bidPrice,
+        askPrice: payload.askPrice,
+        bidSize: payload.bidSize,
+        askSize: payload.askSize,
+        ts: payload.ts,
+      });
+      this.emit("quoteTick", payload);
     });
 
     // data_bar -> backpressure check + sequence gap detection + cache + emit bar
