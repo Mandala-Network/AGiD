@@ -126,6 +126,11 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
     const tools = this.readFile('TOOLS.md') ?? DEFAULT_TOOLS_GUIDE;
     parts.push(optimizer ? await optimizer.optimizePromptComponent(tools, 'TOOLS') : tools);
 
+    // 6. Behavioral directives from environment
+    if (process.env.AGID_NO_EMOJIS === 'true') {
+      parts.push('[BEHAVIORAL DIRECTIVE]\nNever use emojis in any of your responses. Keep all output as plain text without emoji characters.\n[END BEHAVIORAL DIRECTIVE]');
+    }
+
     const content = parts.join('\n\n');
     this.cache = { content, mtimes: currentMtimes };
     return content;

@@ -11,6 +11,7 @@
 
 import type { BridgeClient } from "./bridge-client.js";
 import type { ContextProvider } from "../../agent/prompt-builder.js";
+import type { GepaOptimizer } from "../gepa/gepa-optimizer.js";
 import { ConnectionState } from "./types.js";
 
 interface RecentAction {
@@ -19,13 +20,41 @@ interface RecentAction {
   details: string;
 }
 
+export interface TradingContextConfig {
+  gepaOptimizer?: GepaOptimizer;
+}
+
+const DEFAULT_PREAMBLE =
+  "Below is your real-time trading context from the NautilusBridge venue connection. " +
+  "Use this data to inform all trading decisions. " +
+  "Portfolio balances, open positions, and open orders reflect the current state on the venue. " +
+  "Market data shows recent price bars for subscribed instruments. " +
+  "Always check this context before submitting orders to avoid duplicate positions or exceeding risk limits. " +
+  "When the bridge is disconnected, cached data may be stale -- note the bridge status before acting.";
+
 export class TradingContextBuilder {
   private bridgeClient: BridgeClient;
+  private gepaOptimizer?: GepaOptimizer;
   private recentActions: RecentAction[] = [];
   private readonly maxRecentActions = 5;
+  private preamble: string = DEFAULT_PREAMBLE;
 
-  constructor(bridgeClient: BridgeClient) {
+  constructor(bridgeClient: BridgeClient, config?: TradingContextConfig) {
     this.bridgeClient = bridgeClient;
+    this.gepaOptimizer = config?.gepaOptimizer;
+  }
+
+  /**
+   * Initialize the context builder. GEPA-optimizes the preamble instructions
+   * that frame the trading context for the LLM. Call once after construction.
+   */
+  async initialize(): Promise<void> {
+    if (this.gepaOptimizer) {
+      this.preamble = await this.gepaOptimizer.optimizePromptComponent(
+        DEFAULT_PREAMBLE,
+        "TRADING_CONTEXT",
+      );
+    }
   }
 
   /**
@@ -53,7 +82,7 @@ export class TradingContextBuilder {
     sections.push(this.buildMarketData());
     sections.push(this.buildRecentActivity());
 
-    return "[TRADING CONTEXT]\n\n" + sections.join("\n\n") + "\n\n[END TRADING CONTEXT]";
+    return "[TRADING CONTEXT]\n" + this.preamble + "\n\n" + sections.join("\n\n") + "\n\n[END TRADING CONTEXT]";
   }
 
   /**

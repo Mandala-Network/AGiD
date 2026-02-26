@@ -262,8 +262,10 @@ async function main() {
   if (bridgeEnabled && bridgeClient && tradingPlugin) {
     const bridgeUrl = process.env.BRIDGE_URL ?? 'ws://127.0.0.1:9500';
 
-    // Create context builder and register with PromptBuilder
-    const tradingContext = new TradingContextBuilder(bridgeClient);
+    // Create context builder with GEPA optimization and register with PromptBuilder
+    const gepaOptimizer = gateway.getGepaOptimizer() ?? undefined;
+    const tradingContext = new TradingContextBuilder(bridgeClient, { gepaOptimizer });
+    await tradingContext.initialize();
     const promptBuilder = gateway.getPromptBuilder();
     if (promptBuilder) {
       promptBuilder.addContextProvider(tradingContext.toContextProvider());

@@ -87,6 +87,7 @@ export class AGIdentityGateway {
   private agentLoop: AgentLoop | null = null;
   private toolRegistry: ToolRegistry | null = null;
   private promptBuilder: PromptBuilder | null = null;
+  private gepaOptimizer: GepaOptimizer | null = null;
   private running = false;
   private agentPublicKey: string | null = null;
   private workspacePath: string = '';
@@ -121,7 +122,8 @@ export class AGIdentityGateway {
     await this.identityGate.initialize();
 
     // 2. Initialize GEPA optimizer (optional, graceful fallback)
-    const gepaOptimizer = new GepaOptimizer();
+    this.gepaOptimizer = new GepaOptimizer();
+    const gepaOptimizer = this.gepaOptimizer;
     await gepaOptimizer.initialize();
     if (gepaOptimizer.available) {
       console.log(`[AGIdentityGateway] 🧬 GEPA available (v${gepaOptimizer.version}) — optimizing prompts, tools, and memories`);
@@ -834,6 +836,10 @@ export class AGIdentityGateway {
 
   getPromptBuilder(): PromptBuilder | null {
     return this.promptBuilder;
+  }
+
+  getGepaOptimizer(): GepaOptimizer | null {
+    return this.gepaOptimizer;
   }
 
 }
