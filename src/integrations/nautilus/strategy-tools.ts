@@ -6,6 +6,10 @@
  * the BridgeClient. Each tool produces formatted markdown responses
  * (not raw JSON) and checks bridge connectivity before execution.
  *
+ * After each successful operation:
+ * - Records the event on-chain via TradeMemoryRecorder (with reasoning hash)
+ * - Updates the StrategyContextBuilder's local state for prompt injection
+ *
  * Tools:
  *   1. nautilus_create_strategy    4. nautilus_deploy_strategy
  *   2. nautilus_backtest_strategy  5. nautilus_monitor_strategy
@@ -70,22 +74,19 @@ export function createStrategyTools(
   tradeMemoryRecorder?: TradeMemoryRecorder,
   strategyContextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor[] {
-  // Context builder reference for strategy state updates (wired in Task 3)
-  const _ctxBuilder = strategyContextBuilder;
-
   return [
     // 1. Create Strategy
-    createCreateStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, _ctxBuilder),
+    createCreateStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, strategyContextBuilder),
     // 2. Backtest Strategy
-    createBacktestStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, _ctxBuilder),
+    createBacktestStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, strategyContextBuilder),
     // 3. Optimize Strategy
-    createOptimizeStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, _ctxBuilder),
+    createOptimizeStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, strategyContextBuilder),
     // 4. Deploy Strategy
-    createDeployStrategy(bridgeClient, _ctxBuilder),
+    createDeployStrategy(bridgeClient, getReasoningText, tradeMemoryRecorder, strategyContextBuilder),
     // 5. Monitor Strategy
-    createMonitorStrategy(bridgeClient, _ctxBuilder),
+    createMonitorStrategy(bridgeClient, strategyContextBuilder),
     // 6. Pause Strategy
-    createPauseStrategy(bridgeClient, _ctxBuilder),
+    createPauseStrategy(bridgeClient, strategyContextBuilder),
   ];
 }
 
@@ -97,7 +98,7 @@ function createCreateStrategy(
   client: BridgeClient,
   getReasoningText?: () => string | null,
   recorder?: TradeMemoryRecorder,
-  _contextBuilder?: StrategyContextBuilder,
+  contextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
@@ -138,16 +139,25 @@ function createCreateStrategy(
         },
       );
 
-      // Fire-and-forget strategy creation memory recording
+      // On-chain recording: strategy_created event with reasoning hash
       recorder?.recordTrade({
         eventType: "trade_submitted",
-        instrument: instruments[0] ?? "STRATEGY",
+        instrument: instruments.join(","),
         side: "BUY",
         quantity: "0",
         orderId: result.strategyId,
         reasoningHash,
+        strategy: "strategy_created",
         timestamp: Date.now(),
-      }).catch((err) => console.warn("Trade memory storage failed:", err));
+      }).catch((err) => console.warn("Strategy memory storage failed:", err));
+
+      // Update StrategyContextBuilder with new strategy state
+      contextBuilder?.updateStrategyState(result.strategyId, {
+        id: result.strategyId,
+        name: description.slice(0, 50),
+        status: "created",
+        instruments,
+      });
 
       // Format code preview (first 20 lines)
       const codeLines = (result.code ?? "").split("\n");
@@ -240,9 +250,9 @@ function createCreateStrategy(
 
 function createBacktestStrategy(
   client: BridgeClient,
-  _getReasoningText?: () => string | null,
-  _recorder?: TradeMemoryRecorder,
-  _contextBuilder?: StrategyContextBuilder,
+  getReasoningText?: () => string | null,
+  recorder?: TradeMemoryRecorder,
+  contextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
@@ -256,6 +266,13 @@ function createBacktestStrategy(
       const venue = (params.venue as string) ?? "SIM";
       const startingBalance = (params.startingBalance as string) ?? "100000";
       const currency = (params.currency as string) ?? "USD";
+
+      // Compute reasoning hash for this backtest iteration
+      let reasoningHash: string | undefined;
+      const reasoningText = getReasoningText?.() ?? null;
+      if (reasoningText) {
+        reasoningHash = await computeReasoningHash(reasoningText, params);
+      }
 
       const result = await client.sendCommand<BacktestResult>(
         "backtest_strategy",
@@ -271,6 +288,36 @@ function createBacktestStrategy(
       );
 
       const m = result.metrics as Record<string, unknown>;
+
+      // On-chain recording: strategy_backtested event with reasoning hash
+      recorder?.recordTrade({
+        eventType: "trade_submitted",
+        instrument: strategyId,
+        side: "BUY",
+        quantity: "0",
+        orderId: strategyId,
+        reasoningHash,
+        strategy: "strategy_backtested",
+        timestamp: Date.now(),
+      }).catch((err) => console.warn("Strategy backtest memory storage failed:", err));
+
+      // Update StrategyContextBuilder with backtest results
+      const existingState = contextBuilder?.getStrategyState(strategyId);
+      contextBuilder?.updateStrategyState(strategyId, {
+        id: strategyId,
+        name: existingState?.name ?? strategyId,
+        status: "backtested",
+        instruments: existingState?.instruments ?? [],
+        backtestMetrics: {
+          sharpe: typeof m.sharpe === "number" ? m.sharpe : undefined,
+          sortino: typeof m.sortino === "number" ? m.sortino : undefined,
+          maxDrawdownPct: typeof m.maxDrawdownPct === "number" ? m.maxDrawdownPct : undefined,
+          winRate: typeof m.winRate === "number" ? m.winRate : undefined,
+          totalPnl: typeof m.totalPnl === "string" ? m.totalPnl : String(m.totalPnl ?? ""),
+          tradeCount: typeof m.tradeCount === "number" ? m.tradeCount : undefined,
+          profitFactor: typeof m.profitFactor === "number" ? m.profitFactor : undefined,
+        },
+      });
 
       // Format metrics table
       let md = `## Backtest Results: ${result.strategyId}\n\n`;
@@ -342,9 +389,9 @@ function createBacktestStrategy(
 
 function createOptimizeStrategy(
   client: BridgeClient,
-  _getReasoningText?: () => string | null,
-  _recorder?: TradeMemoryRecorder,
-  _contextBuilder?: StrategyContextBuilder,
+  getReasoningText?: () => string | null,
+  recorder?: TradeMemoryRecorder,
+  contextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
@@ -359,6 +406,13 @@ function createOptimizeStrategy(
       const startTime = params.startTime as string;
       const endTime = params.endTime as string;
 
+      // Compute reasoning hash for this optimization iteration
+      let reasoningHash: string | undefined;
+      const reasoningText = getReasoningText?.() ?? null;
+      if (reasoningText) {
+        reasoningHash = await computeReasoningHash(reasoningText, params);
+      }
+
       const result = await client.sendCommand<OptimizeResult>(
         "optimize_strategy",
         {
@@ -371,6 +425,36 @@ function createOptimizeStrategy(
           endTime,
         },
       );
+
+      // On-chain recording: strategy_optimized event with reasoning hash
+      recorder?.recordTrade({
+        eventType: "trade_submitted",
+        instrument: strategyId,
+        side: "BUY",
+        quantity: "0",
+        orderId: strategyId,
+        reasoningHash,
+        strategy: "strategy_optimized",
+        timestamp: Date.now(),
+      }).catch((err) => console.warn("Strategy optimize memory storage failed:", err));
+
+      // Update StrategyContextBuilder with best optimization metrics
+      const existingState = contextBuilder?.getStrategyState(strategyId);
+      const bestMetrics = result.bestMetrics as Record<string, unknown>;
+      contextBuilder?.updateStrategyState(strategyId, {
+        id: strategyId,
+        name: existingState?.name ?? strategyId,
+        status: "optimized",
+        instruments: existingState?.instruments ?? [],
+        backtestMetrics: {
+          sharpe: typeof bestMetrics.sharpe === "number" ? bestMetrics.sharpe : existingState?.backtestMetrics?.sharpe,
+          winRate: typeof bestMetrics.winRate === "number" ? bestMetrics.winRate : existingState?.backtestMetrics?.winRate,
+          totalPnl: typeof bestMetrics.totalPnl === "string" ? bestMetrics.totalPnl : existingState?.backtestMetrics?.totalPnl,
+          profitFactor: typeof bestMetrics.profitFactor === "number" ? bestMetrics.profitFactor : existingState?.backtestMetrics?.profitFactor,
+          maxDrawdownPct: existingState?.backtestMetrics?.maxDrawdownPct,
+          tradeCount: existingState?.backtestMetrics?.tradeCount,
+        },
+      });
 
       // Format results
       let md = `## Optimization Results: ${result.strategyId}\n\n`;
@@ -460,7 +544,9 @@ function createOptimizeStrategy(
 
 function createDeployStrategy(
   client: BridgeClient,
-  _contextBuilder?: StrategyContextBuilder,
+  getReasoningText?: () => string | null,
+  recorder?: TradeMemoryRecorder,
+  contextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
@@ -475,6 +561,13 @@ function createDeployStrategy(
         minTradeCount?: number;
       } | undefined;
 
+      // Compute reasoning hash for deployment decision
+      let reasoningHash: string | undefined;
+      const reasoningText = getReasoningText?.() ?? null;
+      if (reasoningText) {
+        reasoningHash = await computeReasoningHash(reasoningText, params);
+      }
+
       const cmdParams: Record<string, unknown> = {
         strategyId,
         mode,
@@ -487,6 +580,28 @@ function createDeployStrategy(
         "deploy_strategy",
         cmdParams,
       );
+
+      // On-chain recording: strategy deployed
+      recorder?.recordTrade({
+        eventType: "trade_submitted",
+        instrument: strategyId,
+        side: "BUY",
+        quantity: "0",
+        orderId: result.deploymentId,
+        reasoningHash,
+        strategy: "strategy_deployed",
+        timestamp: Date.now(),
+      }).catch((err) => console.warn("Strategy deploy memory storage failed:", err));
+
+      // Update StrategyContextBuilder with deployed state
+      const existingState = contextBuilder?.getStrategyState(strategyId);
+      contextBuilder?.updateStrategyState(strategyId, {
+        id: strategyId,
+        name: existingState?.name ?? strategyId,
+        status: "deployed",
+        instruments: existingState?.instruments ?? [],
+        backtestMetrics: existingState?.backtestMetrics,
+      });
 
       let md = `## Strategy Deployed\n\n`;
       md += `| Property | Value |\n`;
@@ -539,7 +654,7 @@ function createDeployStrategy(
 
 function createMonitorStrategy(
   client: BridgeClient,
-  _contextBuilder?: StrategyContextBuilder,
+  contextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
@@ -552,6 +667,31 @@ function createMonitorStrategy(
         "monitor_strategy",
         { strategyId },
       );
+
+      // Update StrategyContextBuilder with live metrics and degradation info
+      const existingState = contextBuilder?.getStrategyState(strategyId);
+      const liveMetrics = result.liveMetrics as Record<string, unknown>;
+      const degradation = result.degradation as Record<string, unknown> | undefined;
+
+      contextBuilder?.updateStrategyState(strategyId, {
+        id: strategyId,
+        name: existingState?.name ?? strategyId,
+        status: existingState?.status ?? "deployed",
+        instruments: existingState?.instruments ?? [],
+        backtestMetrics: existingState?.backtestMetrics,
+        liveMetrics: {
+          totalPnl: typeof liveMetrics.total_pnl === "string" ? liveMetrics.total_pnl : undefined,
+          tradeCount: typeof liveMetrics.trade_count === "number" ? liveMetrics.trade_count : undefined,
+          winRate: typeof liveMetrics.win_rate === "number" ? liveMetrics.win_rate : undefined,
+          maxDrawdown: typeof liveMetrics.max_drawdown === "number" ? liveMetrics.max_drawdown : undefined,
+          currentEquity: typeof liveMetrics.current_equity === "string" ? liveMetrics.current_equity : undefined,
+        },
+        degradation: degradation ? {
+          severity: (degradation.severity as "warning" | "critical") ?? "warning",
+          reasons: (degradation.reasons as string[]) ?? [],
+          recommendedAction: (degradation.recommendedAction as string) ?? "continue",
+        } : undefined,
+      });
 
       let md = `## Strategy Monitor: ${result.strategyId}\n\n`;
       md += `**Status:** ${result.status}\n\n`;
@@ -621,7 +761,7 @@ function createMonitorStrategy(
 
 function createPauseStrategy(
   client: BridgeClient,
-  _contextBuilder?: StrategyContextBuilder,
+  contextBuilder?: StrategyContextBuilder,
 ): ToolDescriptor {
   const execute: ToolExecuteFn = async (params) => {
     const guard = checkBridgeState(client);
@@ -634,6 +774,17 @@ function createPauseStrategy(
         "pause_strategy",
         { strategyId },
       );
+
+      // Update StrategyContextBuilder with paused state
+      const existingState = contextBuilder?.getStrategyState(strategyId);
+      contextBuilder?.updateStrategyState(strategyId, {
+        id: strategyId,
+        name: existingState?.name ?? strategyId,
+        status: "paused",
+        instruments: existingState?.instruments ?? [],
+        backtestMetrics: existingState?.backtestMetrics,
+        liveMetrics: existingState?.liveMetrics,
+      });
 
       return {
         content: `Strategy PAUSED: ${result.strategyId} (status: ${result.status})`,
