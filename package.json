@@ -34,6 +34,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@bsv/auth-express-middleware": "^2.0.2",
+    "@bsv/mandala-cli": "file:../Mandala-CLI",
     "@bsv/message-box-client": "^2.0.2",
     "@bsv/sdk": "^2.0.3",
     "@bsv/wallet-toolbox": "^2.0.19",
@@ -44,8 +45,8 @@
     "express": "^5.0.0",
     "jsonwebtoken": "^9.0.3",
     "peercert": "^0.1.4",
-    "zod": "^3.23.0",
-    "@bsv/mandala-cli": "file:../Mandala-CLI"
+    "ws": "^8.19.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

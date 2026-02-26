@@ -36,6 +36,14 @@ import {
   loadGatewayConfig,
   type GatewayConfig,
 } from './startup/first-run-setup.js';
+import { PrivateKey } from '@bsv/sdk';
+import {
+  BridgeClient,
+  NautilusTradingPlugin,
+  TradingContextBuilder,
+  TradingAuditTrail,
+  ConnectionState,
+} from './integrations/nautilus/index.js';
 
 async function main() {
   console.log('');
@@ -204,6 +212,28 @@ async function main() {
   }
 
   // -----------------------------------------------------------------------
+  // NautilusBridge Integration (Phase 1: pre-gateway components)
+  // -----------------------------------------------------------------------
+  const bridgeEnabled = process.env.NAUTILUS_BRIDGE_ENABLED !== 'false';
+  let bridgeClient: BridgeClient | null = null;
+  let tradingPlugin: NautilusTradingPlugin | null = null;
+
+  if (bridgeEnabled) {
+    const bridgeUrl = process.env.BRIDGE_URL ?? 'ws://127.0.0.1:9500';
+    const agentKey = PrivateKey.fromString(privateKey, 'hex');
+
+    bridgeClient = new BridgeClient({
+      url: bridgeUrl,
+      privateKey: agentKey,
+    });
+
+    // Create plugin (registered with gateway below via plugins config)
+    tradingPlugin = new NautilusTradingPlugin(bridgeClient);
+
+    console.log(`[NautilusBridge] Integration enabled (url: ${bridgeUrl})`);
+  }
+
+  // -----------------------------------------------------------------------
   // Gateway
   // -----------------------------------------------------------------------
   console.log('Starting native agent gateway...');
@@ -219,8 +249,93 @@ async function main() {
     signResponses: true,
     audit: { enabled: true },
     messageBoxes: ['inbox', 'chat'],
+    plugins: tradingPlugin ? [tradingPlugin] : [],
+    preToolExecution: tradingPlugin
+      ? (text: string) => tradingPlugin!.setCurrentReasoningText(text)
+      : undefined,
   });
   console.log('Agent gateway initialized');
+
+  // -----------------------------------------------------------------------
+  // NautilusBridge Integration (Phase 2: post-gateway wiring)
+  // -----------------------------------------------------------------------
+  if (bridgeEnabled && bridgeClient && tradingPlugin) {
+    const bridgeUrl = process.env.BRIDGE_URL ?? 'ws://127.0.0.1:9500';
+
+    // Create context builder and register with PromptBuilder
+    const tradingContext = new TradingContextBuilder(bridgeClient);
+    const promptBuilder = gateway.getPromptBuilder();
+    if (promptBuilder) {
+      promptBuilder.addContextProvider(tradingContext.toContextProvider());
+      console.log('[NautilusBridge] Trading context provider registered with PromptBuilder');
+    }
+
+    // Create audit trail and wire to bridge events
+    const sessionsDir = process.env.AGID_SESSIONS_PATH
+      ?? path.join(process.env.HOME || '/tmp', '.agidentity', 'sessions');
+    const tradingAudit = new TradingAuditTrail({
+      wallet: wallet as any,
+      jsonlPath: path.join(sessionsDir, 'trading-audit.jsonl'),
+    });
+
+    // Wire audit trail to bridge order events
+    bridgeClient.on('orderUpdate', (evt: any) => {
+      if (evt.eventType === 'FILLED' || evt.eventType === 'PARTIALLY_FILLED') {
+        tradingAudit.recordEvent({
+          eventType: 'trade_filled',
+          data: evt,
+          reasoningHash: evt.reasoningHash,
+        });
+      } else if (evt.eventType === 'DENIED' || evt.eventType === 'REJECTED') {
+        tradingAudit.recordEvent({
+          eventType: 'trade_denied',
+          data: evt,
+        });
+      }
+    });
+
+    // Wire audit trail to bridge position events
+    bridgeClient.on('positionUpdate', (evt: any) => {
+      if (evt.eventType === 'OPENED') {
+        tradingAudit.recordEvent({ eventType: 'position_opened', data: evt });
+      } else if (evt.eventType === 'CLOSED') {
+        tradingAudit.recordEvent({ eventType: 'position_closed', data: evt });
+      }
+    });
+
+    // Start bridge connection (non-blocking -- reconnection handles delays)
+    bridgeClient.connect().catch((err: Error) => {
+      console.warn('[NautilusBridge] Initial connection failed (will retry):', err.message);
+    });
+
+    // Degraded state timeout: auto-halt if bridge unreachable for too long
+    const degradedTimeoutMs = parseInt(process.env.BRIDGE_DEGRADED_TIMEOUT_MS ?? '300000');
+    let degradedTimer: ReturnType<typeof setTimeout> | null = null;
+
+    bridgeClient.on('stateChange', (data: { from: ConnectionState; to: ConnectionState }) => {
+      if (data.to === ConnectionState.DISCONNECTED) {
+        if (!degradedTimer) {
+          degradedTimer = setTimeout(() => {
+            console.error('[NautilusBridge] Bridge unreachable for degraded timeout -- triggering emergency halt');
+            if (bridgeClient && bridgeClient.state === ConnectionState.READY) {
+              bridgeClient.emergencyHalt().catch(() => {});
+            }
+            // Set local halted flag even if bridge is down
+            console.error('[NautilusBridge] System in HALTED state -- operator must restart after venue confirmed back');
+          }, degradedTimeoutMs);
+        }
+      } else {
+        // Connected or reconnecting -- clear degraded timer
+        if (degradedTimer) {
+          clearTimeout(degradedTimer);
+          degradedTimer = null;
+        }
+      }
+    });
+
+    console.log(`[NautilusBridge] Degraded state timeout: ${degradedTimeoutMs / 1000}s`);
+    console.log(`[NautilusBridge] Bridge URL: ${bridgeUrl}`);
+  }
 
   // -----------------------------------------------------------------------
   // Health check
@@ -235,12 +350,13 @@ async function main() {
       provider: providerType,
       model: process.env.AGID_MODEL ?? 'default',
       gateway: gateway.isRunning(),
+      bridge: bridgeClient ? bridgeClient.state : 'disabled',
       uptime: process.uptime(),
     }));
   });
   healthServer.on('error', (error: NodeJS.ErrnoException) => {
     if (error.code === 'EADDRINUSE') {
-      console.warn(`Health check port ${healthPort} in use — skipping health server`);
+      console.warn(`Health check port ${healthPort} in use -- skipping health server`);
     } else {
       console.warn('Health check server failed:', error.message);
     }
@@ -255,6 +371,9 @@ async function main() {
   console.log('');
   console.log(`  MessageBox: Listening for encrypted messages`);
   console.log(`  Agent Core: ${providerType} (model: ${process.env.AGID_MODEL ?? 'default'})`);
+  if (bridgeEnabled) {
+    console.log(`  NautilusBridge: ${bridgeClient ? bridgeClient.state : 'initializing'}`);
+  }
   console.log('===================================================================');
   console.log('');
 
@@ -262,6 +381,26 @@ async function main() {
   const shutdown = async () => {
     console.log('');
     console.log('Shutting down...');
+
+    // Emergency halt: cancel orders, close positions before stopping
+    if (bridgeClient && bridgeClient.state === ConnectionState.READY) {
+      console.log('[NautilusBridge] Triggering emergency halt before shutdown...');
+      try {
+        await Promise.race([
+          bridgeClient.emergencyHalt(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('halt timeout')), 10000)),
+        ]);
+        console.log('[NautilusBridge] Emergency halt confirmed');
+      } catch (err) {
+        console.warn('[NautilusBridge] Emergency halt failed/timed out:', err instanceof Error ? err.message : err);
+      }
+    }
+
+    // Disconnect bridge client
+    if (bridgeClient) {
+      await bridgeClient.disconnect();
+    }
+
     if (healthServer) {
       healthServer.close();
     }
