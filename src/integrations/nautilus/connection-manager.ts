@@ -280,6 +280,13 @@ export class ConnectionManager extends EventEmitter {
 
     const msgType = msg.type as string;
 
+    // Log all non-tick messages for diagnostic visibility
+    if (msgType !== "evt_quote_tick" && msgType !== "bridge_ping") {
+      console.log(
+        `[ConnectionManager] RECV type=${msgType} correlationId=${(msg.correlationId as string) ?? "none"}`,
+      );
+    }
+
     switch (msgType) {
       case "bridge_hello":
         this.handleBridgeHello(msg);
@@ -312,7 +319,21 @@ export class ConnectionManager extends EventEmitter {
       case "portfolio_response":
       case "halt_response":
       case "list_instruments_response":
+      case "subscribe_bars_ack":
+      case "submit_order_ack":
+      case "cancel_order_ack":
+      case "modify_order_ack":
+      case "create_strategy_response":
+      case "backtest_result":
+      case "optimize_result":
+      case "deploy_result":
+      case "monitor_result":
+      case "pause_result":
         this.resolveCommand(msg.correlationId as string, msg);
+        break;
+
+      case "evt_quote_tick":
+        this.emit("quoteTick", msg);
         break;
 
       case "evt_order":
@@ -538,7 +559,17 @@ export class ConnectionManager extends EventEmitter {
   private handleErrResponse(msg: Record<string, unknown>): void {
     const correlationId = msg.correlationId as string | null | undefined;
     if (correlationId && this._pendingRequests.has(correlationId)) {
-      this.resolveCommand(correlationId, msg);
+      // Reject the pending command with the error details
+      const pending = this._pendingRequests.get(correlationId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        const errMsg = (msg.message as string) ?? (msg.code as string) ?? "Bridge error";
+        console.log(
+          `[ConnectionManager] REJECTED command id=${correlationId} type=${pending.type}: ${errMsg}`,
+        );
+        pending.reject(new Error(`Bridge error [${msg.code ?? "UNKNOWN"}]: ${errMsg}`));
+        this._pendingRequests.delete(correlationId);
+      }
     } else {
       this.emit("error", msg);
     }
@@ -597,6 +628,9 @@ export class ConnectionManager extends EventEmitter {
       };
 
       const serialized = JSON.stringify(message);
+      console.log(
+        `[ConnectionManager] sendCommand type=${type} id=${id} state=${this._state} wsReady=${this._ws?.readyState}`,
+      );
       this.enqueueOrSend(serialized, id);
     });
   }
@@ -610,9 +644,16 @@ export class ConnectionManager extends EventEmitter {
   ): void {
     const pending = this._pendingRequests.get(correlationId);
     if (pending) {
+      console.log(
+        `[ConnectionManager] RESOLVED command id=${correlationId} type=${pending.type} response_type=${(response as Record<string, unknown>)?.type ?? "?"}`,
+      );
       clearTimeout(pending.timer);
       pending.resolve(response);
       this._pendingRequests.delete(correlationId);
+    } else {
+      console.log(
+        `[ConnectionManager] resolveCommand: no pending request for id=${correlationId}`,
+      );
     }
   }
 
@@ -631,6 +672,9 @@ export class ConnectionManager extends EventEmitter {
       this._ws !== null &&
       this._ws.readyState === WebSocket.OPEN
     ) {
+      console.log(
+        `[ConnectionManager] SENDING immediately id=${id} (${payload.length} bytes)`,
+      );
       this._ws.send(payload);
     } else if (this._commandQueue.length >= this._commandQueueMax) {
       // Reject the pending request for this command
@@ -645,6 +689,9 @@ export class ConnectionManager extends EventEmitter {
         this._pendingRequests.delete(id);
       }
     } else {
+      console.log(
+        `[ConnectionManager] QUEUED command id=${id} (state=${this._state}, wsReady=${this._ws?.readyState}, queueLen=${this._commandQueue.length})`,
+      );
       this._commandQueue.push({ payload, id });
     }
   }
