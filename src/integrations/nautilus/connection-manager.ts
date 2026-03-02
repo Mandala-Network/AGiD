@@ -319,6 +319,7 @@ export class ConnectionManager extends EventEmitter {
       case "portfolio_response":
       case "halt_response":
       case "list_instruments_response":
+      case "add_instrument_response":
       case "subscribe_bars_ack":
       case "submit_order_ack":
       case "cancel_order_ack":
@@ -329,6 +330,7 @@ export class ConnectionManager extends EventEmitter {
       case "deploy_result":
       case "monitor_result":
       case "pause_result":
+      case "download_historical_data_result":
         this.resolveCommand(msg.correlationId as string, msg);
         break;
 
@@ -586,8 +588,10 @@ export class ConnectionManager extends EventEmitter {
   sendCommand<T>(
     type: string,
     payload: Record<string, unknown>,
+    timeoutMs?: number,
   ): Promise<T> {
     const id = randomUUID();
+    const effectiveTimeout = timeoutMs ?? this._commandTimeoutMs;
 
     return new Promise<T>((resolve, reject) => {
       // If disconnected and no reconnect, reject immediately
@@ -603,12 +607,12 @@ export class ConnectionManager extends EventEmitter {
       const timer = setTimeout(() => {
         this._pendingRequests.delete(id);
         const err = new TimeoutError(
-          `Command ${type} timed out after ${this._commandTimeoutMs}ms`,
+          `Command ${type} timed out after ${effectiveTimeout}ms`,
           id,
         );
         this.emit("commandTimeout", { commandId: id, type });
         reject(err);
-      }, this._commandTimeoutMs);
+      }, effectiveTimeout);
 
       // Store pending request
       this._pendingRequests.set(id, {

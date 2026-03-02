@@ -282,7 +282,13 @@ async function main() {
 
     // Wire audit trail to bridge order events
     bridgeClient.on('orderUpdate', (evt: any) => {
-      if (evt.eventType === 'FILLED' || evt.eventType === 'PARTIALLY_FILLED') {
+      if (evt.eventType === 'SUBMITTED' || evt.eventType === 'ACCEPTED') {
+        tradingAudit.recordEvent({
+          eventType: 'trade_submitted',
+          data: evt,
+          reasoningHash: evt.reasoningHash,
+        });
+      } else if (evt.eventType === 'FILLED' || evt.eventType === 'PARTIALLY_FILLED') {
         tradingAudit.recordEvent({
           eventType: 'trade_filled',
           data: evt,
@@ -343,8 +349,51 @@ async function main() {
   // Health check
   // -----------------------------------------------------------------------
   const healthPort = parseInt(process.env.HEALTH_PORT || '3000');
+  const rawLocalAgentDiscoveryPath = process.env.AGID_LOCAL_DISCOVERY_PATH || '/agent';
+  const localAgentDiscoveryPath = rawLocalAgentDiscoveryPath.startsWith('/')
+    ? rawLocalAgentDiscoveryPath
+    : `/${rawLocalAgentDiscoveryPath}`;
+  const localAgentName = process.env.AGID_AGENT_NAME || 'Local AGiD Agent';
+  const localAgentDescription =
+    process.env.AGID_AGENT_DESCRIPTION || 'Locally running AGiD gateway';
+  const localAgentProjectId = process.env.AGID_PROJECT_ID || 'local-agid';
   let healthServer: http.Server | null = null;
-  healthServer = http.createServer((_req, res) => {
+  healthServer = http.createServer((req, res) => {
+    // Allow local browser-based frontends to discover and query this agent.
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    const requestUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+
+    if (req.method === 'GET' && requestUrl.pathname === localAgentDiscoveryPath) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        status: gateway.isRunning() ? 'online' : 'offline',
+        agent: {
+          name: localAgentName,
+          publicKey: identityPublicKey,
+          online: gateway.isRunning(),
+          messageBoxHost,
+          projectId: localAgentProjectId,
+          description: localAgentDescription,
+        },
+      }));
+      return;
+    }
+
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Method not allowed' }));
+      return;
+    }
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: gateway.isRunning() ? 'healthy' : 'degraded',
@@ -353,6 +402,7 @@ async function main() {
       model: process.env.AGID_MODEL ?? 'default',
       gateway: gateway.isRunning(),
       bridge: bridgeClient ? bridgeClient.state : 'disabled',
+      messageBoxHost,
       uptime: process.uptime(),
     }));
   });
@@ -366,6 +416,7 @@ async function main() {
   });
   healthServer.listen(healthPort, '0.0.0.0');
   console.log(`Health check on http://0.0.0.0:${healthPort}/`);
+  console.log(`Local agent discovery on http://0.0.0.0:${healthPort}${localAgentDiscoveryPath}`);
 
   console.log('');
   console.log('===================================================================');

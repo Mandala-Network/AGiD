@@ -24,6 +24,7 @@ import {
   ConnectionState,
 } from "./types.js";
 import type {
+  AddInstrumentResponse,
   BridgeClientConfig,
   OrderEvent,
   PositionEvent,
@@ -247,6 +248,21 @@ export class BridgeClient extends EventEmitter {
   }
 
   /**
+   * Hot-add an instrument at runtime. The bridge resolves the symbol via the
+   * venue adapter, loads it into the NautilusTrader cache, subscribes to quote
+   * ticks, and persists it to .env for restart survival.
+   *
+   * Uses a 25s timeout since instrument resolution requires a venue round-trip.
+   */
+  async addInstrument(symbol: string, timeoutMs = 25_000): Promise<AddInstrumentResponse> {
+    return this._connectionManager.sendCommand<AddInstrumentResponse>(
+      "add_instrument",
+      { symbol },
+      timeoutMs,
+    );
+  }
+
+  /**
    * Trigger an emergency halt of all trading.
    */
   async emergencyHalt(params?: {
@@ -310,10 +326,11 @@ export class BridgeClient extends EventEmitter {
    *
    * @param type - The protocol message type string
    * @param params - The command parameters (excluding type, id, ts, version)
+   * @param timeoutMs - Optional per-command timeout override in ms
    * @returns The bridge response, typed as T
    */
-  async sendCommand<T>(type: string, params: Record<string, unknown>): Promise<T> {
-    return this._connectionManager.sendCommand<T>(type, params);
+  async sendCommand<T>(type: string, params: Record<string, unknown>, timeoutMs?: number): Promise<T> {
+    return this._connectionManager.sendCommand<T>(type, params, timeoutMs);
   }
 
   // ---------------------------------------------------------------------------

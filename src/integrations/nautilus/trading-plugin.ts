@@ -1,7 +1,7 @@
 /**
  * Nautilus Trading Plugin
  *
- * Implements the AGiD ToolPlugin interface to expose 16 tools (10 trading +
+ * Implements the AGiD ToolPlugin interface to expose 17 tools (11 trading +
  * 6 strategy) backed by the BridgeClient. Provides a setter for the current
  * turn's reasoning text so that submit_order and create_strategy can compute
  * reasoning hashes for on-chain storage.
@@ -21,7 +21,7 @@ import { StrategyContextBuilder } from "./strategy-context.js";
 
 export class NautilusTradingPlugin implements ToolPlugin {
   readonly name = "nautilus-trading";
-  readonly version = "0.2.0";
+  readonly version = "0.3.0";
   readonly description = "NautilusTrader bridge for algorithmic trading and strategy management";
 
   private readonly _bridgeClient: BridgeClient;
@@ -64,8 +64,8 @@ export class NautilusTradingPlugin implements ToolPlugin {
   }
 
   /**
-   * Create 16 tool descriptors backed by the BridgeClient:
-   * - 10 trading tools (orders, portfolio, market data, etc.)
+   * Create 17 tool descriptors backed by the BridgeClient:
+   * - 11 trading tools (orders, portfolio, market data, instrument hot-add, etc.)
    * - 6 strategy tools (create, backtest, optimize, deploy, monitor, pause)
    *
    * Prefers MemoryManager from ToolContext (injected by gateway) over the

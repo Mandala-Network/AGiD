@@ -211,6 +211,30 @@ export type ListInstrumentsResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// Add Instrument (agent -> bridge, bridge -> agent)
+// ---------------------------------------------------------------------------
+
+export const AddInstrumentCmdSchema = z.object({
+  type: z.literal("add_instrument"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  symbol: z.string(),
+});
+export type AddInstrumentCmd = z.infer<typeof AddInstrumentCmdSchema>;
+
+export const AddInstrumentResponseSchema = z.object({
+  type: z.literal("add_instrument_response"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  correlationId: z.string(),
+  instrument: InstrumentInfoSchema,
+  alreadyExisted: z.boolean().optional(),
+});
+export type AddInstrumentResponse = z.infer<typeof AddInstrumentResponseSchema>;
+
+// ---------------------------------------------------------------------------
 // Phase 2: Order Commands (agent -> bridge)
 // ---------------------------------------------------------------------------
 
@@ -482,12 +506,14 @@ export type CreateStrategyCmd = z.infer<typeof CreateStrategyCmdSchema>;
 export const BacktestStrategyCmdSchema = z.object({
   type: z.literal("backtest_strategy"),
   strategyId: z.string(),
-  catalogPath: z.string(),
+  catalogPath: z.string().optional(),
   startTime: z.string(),
   endTime: z.string(),
   venue: z.string().optional(),
   startingBalance: z.string().optional(),
   currency: z.string().optional(),
+  instruments: z.array(z.string()).optional(),
+  barSize: z.string().optional(),
   correlationId: z.string().optional(),
 });
 export type BacktestStrategyCmd = z.infer<typeof BacktestStrategyCmdSchema>;
@@ -601,6 +627,37 @@ export const PauseResultSchema = z.object({
   correlationId: z.string().optional(),
 });
 export type PauseResult = z.infer<typeof PauseResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 6.1: Historical Data Acquisition
+// ---------------------------------------------------------------------------
+
+export const DownloadHistoricalDataCmdSchema = z.object({
+  type: z.literal("download_historical_data"),
+  instruments: z.array(z.string()),
+  barSize: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+  correlationId: z.string().optional(),
+});
+export type DownloadHistoricalDataCmd = z.infer<typeof DownloadHistoricalDataCmdSchema>;
+
+export const DownloadHistoricalDataResultSchema = z.object({
+  type: z.literal("download_historical_data_result"),
+  catalogPath: z.string(),
+  results: z.array(z.object({
+    symbol: z.string(),
+    barSize: z.string(),
+    barsDownloaded: z.number(),
+    success: z.boolean(),
+    error: z.string().nullable().optional(),
+    cached: z.boolean(),
+  })),
+  totalBars: z.number(),
+  elapsedTime: z.number(),
+  correlationId: z.string().optional(),
+});
+export type DownloadHistoricalDataResult = z.infer<typeof DownloadHistoricalDataResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Client-specific types (TypeScript only, not in Python protocol)
@@ -717,6 +774,7 @@ export const BridgeToAgentMessageSchema = z.discriminatedUnion("type", [
   BridgeHealthSchema,
   ErrResponseSchema,
   ListInstrumentsResponseSchema,
+  AddInstrumentResponseSchema,
   PortfolioResponseSchema,
   OrderEventSchema,
   PositionEventSchema,
@@ -733,6 +791,7 @@ export const AgentToBridgeMessageSchema = z.discriminatedUnion("type", [
   BridgeAuthSchema,
   BridgePongSchema,
   ListInstrumentsQuerySchema,
+  AddInstrumentCmdSchema,
   SubmitOrderCmdSchema,
   CancelOrderCmdSchema,
   ModifyOrderCmdSchema,

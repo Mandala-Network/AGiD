@@ -1,16 +1,17 @@
 /**
  * Trading Tools
  *
- * Creates 10 trading tool descriptors for the AGiD agent to interact with
+ * Creates 11 trading tool descriptors for the AGiD agent to interact with
  * NautilusTrader via the BridgeClient. Each tool produces formatted markdown
  * responses (not raw JSON) and checks bridge connectivity before execution.
  *
  * Tools:
- *   1. nautilus_submit_order      6. nautilus_get_instrument
- *   2. nautilus_cancel_order      7. nautilus_list_instruments
- *   3. nautilus_modify_order      8. nautilus_subscribe_data
- *   4. nautilus_close_position    9. nautilus_unsubscribe_data
- *   5. nautilus_get_portfolio    10. nautilus_emergency_halt
+ *   1. nautilus_submit_order       7. nautilus_list_instruments
+ *   2. nautilus_cancel_order       8. nautilus_subscribe_data
+ *   3. nautilus_modify_order       9. nautilus_unsubscribe_data
+ *   4. nautilus_close_position    10. nautilus_emergency_halt
+ *   5. nautilus_get_portfolio     11. nautilus_set_instrument
+ *   6. nautilus_get_instrument
  *
  * Note: get_risk_state is NOT a tool -- risk state is always included in
  * the LLM context alongside portfolio data (per CONTEXT.md decision).
@@ -51,12 +52,12 @@ function checkBridgeState(client: BridgeClient): ToolResult | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Create 10 trading tool descriptors that delegate to BridgeClient methods.
+ * Create 11 trading tool descriptors that delegate to BridgeClient methods.
  *
  * @param bridgeClient - The BridgeClient instance for trading operations
  * @param getReasoningText - Closure returning the current turn's assistant text (or null)
  * @param tradeMemoryRecorder - Optional recorder for on-chain trade event storage
- * @returns Array of 10 ToolDescriptor objects
+ * @returns Array of 11 ToolDescriptor objects
  */
 export function createTradingTools(
   bridgeClient: BridgeClient,
@@ -84,6 +85,8 @@ export function createTradingTools(
     createUnsubscribeData(bridgeClient),
     // 10. Emergency Halt
     createEmergencyHalt(bridgeClient),
+    // 11. Set Instrument (hot-add)
+    createSetInstrument(bridgeClient),
   ];
 }
 
@@ -127,7 +130,8 @@ function createSubmitOrder(
       if (timeInForce !== undefined) orderParams.timeInForce = timeInForce;
       if (reasoningHash !== undefined) orderParams.reasoningHash = reasoningHash;
 
-      const result = await client.submitOrder(orderParams as Parameters<typeof client.submitOrder>[0]);
+      const result = await client.submitOrder(orderParams as Parameters<typeof client.submitOrder>[0]) as Record<string, unknown>;
+      const orderId = (result.clientOrderId as string) ?? (result.correlationId as string) ?? "pending";
 
       // Fire-and-forget trade memory recording
       recorder?.recordTrade({
@@ -137,14 +141,14 @@ function createSubmitOrder(
         orderType,
         quantity,
         price,
-        orderId: result.clientOrderId,
+        orderId,
         reasoningHash,
         timestamp: Date.now(),
       }).catch((err) => console.warn("Trade memory storage failed:", err));
 
       const priceStr = orderType === "MARKET" ? "market" : `$${price ?? "N/A"}`;
       return {
-        content: `Order ACCEPTED: ${orderSide} ${quantity} ${symbol} @ ${priceStr}, ID: ${result.clientOrderId}`,
+        content: `Order SUBMITTED: ${orderSide} ${quantity} ${symbol} @ ${priceStr} (status: ${(result.status as string) ?? "SUBMITTED"})`,
       };
     } catch (err) {
       return {
@@ -393,10 +397,17 @@ function createGetPortfolio(client: BridgeClient): ToolDescriptor {
 
       if (response.accounts.length > 0) {
         md += "### Accounts\n\n";
-        md += "| Account | Balance | Currency |\n";
-        md += "|---------|---------|----------|\n";
+        md += "| Account | Currency | Total | Free | Locked |\n";
+        md += "|---------|----------|-------|------|--------|\n";
         for (const acct of response.accounts) {
-          md += `| ${acct["accountId"] ?? "N/A"} | ${acct["balance"] ?? "N/A"} | ${acct["currency"] ?? "N/A"} |\n`;
+          const balances = acct["balances"] as Array<Record<string, string>> | undefined;
+          if (balances && balances.length > 0) {
+            for (const bal of balances) {
+              md += `| ${acct["accountId"] ?? "N/A"} | ${bal.currency ?? "N/A"} | ${bal.total ?? "N/A"} | ${bal.free ?? "N/A"} | ${bal.locked ?? "N/A"} |\n`;
+            }
+          } else {
+            md += `| ${acct["accountId"] ?? "N/A"} | ${acct["currency"] ?? "N/A"} | ${acct["total"] ?? "N/A"} | ${acct["free"] ?? "N/A"} | ${acct["locked"] ?? "N/A"} |\n`;
+          }
         }
         md += "\n";
       }
@@ -667,6 +678,67 @@ function createEmergencyHalt(client: BridgeClient): ToolDescriptor {
         type: "object",
         properties: {},
         required: [],
+      },
+    },
+    execute,
+    requiresWallet: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 11. Set Instrument (hot-add)
+// ---------------------------------------------------------------------------
+
+function createSetInstrument(client: BridgeClient): ToolDescriptor {
+  const execute: ToolExecuteFn = async (params) => {
+    const guard = checkBridgeState(client);
+    if (guard) return guard;
+
+    try {
+      const symbol = params.symbol as string;
+      const response = await client.addInstrument(symbol, 25_000);
+      const inst = response.instrument;
+      const status = response.alreadyExisted ? "already loaded" : "newly added";
+
+      let md = `## Instrument ${status}: ${inst.symbol}\n\n`;
+      md += `| Property | Value |\n`;
+      md += `|----------|-------|\n`;
+      md += `| Status | ${status} |\n`;
+      md += `| Venue | ${inst.venue} |\n`;
+      md += `| Asset Class | ${inst.assetClass} |\n`;
+      md += `| Tick Size | ${inst.tickSize} |\n`;
+      md += `| Lot Size | ${inst.lotSize} |\n`;
+      md += `| Min Quantity | ${inst.minQuantity} |\n`;
+      md += `| Max Quantity | ${inst.maxQuantity} |\n`;
+
+      return { content: md.trim() };
+    } catch (err) {
+      return {
+        content: `Add instrument failed: ${err instanceof Error ? err.message : String(err)}`,
+        isError: true,
+      };
+    }
+  };
+
+  return {
+    definition: {
+      name: "nautilus_set_instrument",
+      description:
+        "Hot-add a trading instrument at runtime without restarting the bridge. " +
+        "Resolves the symbol from the venue, loads it into the NautilusTrader cache, " +
+        "subscribes to quote ticks, and persists to config for restart survival. " +
+        "Resolution takes 5-20 seconds for new instruments. " +
+        "Returns immediately if the instrument is already loaded. " +
+        "Symbol format: SYMBOL.EXCHANGE (e.g. NVDA.NASDAQ, NQM6.CME, MSFT.XNAS).",
+      input_schema: {
+        type: "object",
+        properties: {
+          symbol: {
+            type: "string",
+            description: "Instrument symbol in SYMBOL.EXCHANGE format (e.g. NVDA.NASDAQ, ESH6.CME)",
+          },
+        },
+        required: ["symbol"],
       },
     },
     execute,

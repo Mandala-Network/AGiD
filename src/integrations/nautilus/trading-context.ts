@@ -66,7 +66,8 @@ export class TradingContextBuilder {
     const hasPortfolioData =
       this.bridgeClient.portfolio.accounts.size > 0 ||
       this.bridgeClient.portfolio.positions.size > 0 ||
-      this.bridgeClient.portfolio.orders.size > 0;
+      this.bridgeClient.portfolio.orders.size > 0 ||
+      this.bridgeClient.marketData.getAllQuotes().size > 0;
 
     // If disconnected and no cached data, return null
     if (state === ConnectionState.DISCONNECTED && !hasPortfolioData && this.recentActions.length === 0) {
@@ -155,11 +156,25 @@ export class TradingContextBuilder {
 
     for (const [, acct] of accounts) {
       const accountId = acct.accountId ?? "N/A";
-      const currency = (acct["currency"] as string | undefined) ?? "N/A";
-      const total = (acct["balance"] as string | undefined) ?? (acct["total"] as string | undefined) ?? "N/A";
-      const free = (acct["free"] as string | undefined) ?? "N/A";
-      const locked = (acct["locked"] as string | undefined) ?? "N/A";
-      lines.push(`| ${accountId} | ${currency} | ${total} | ${free} | ${locked} |`);
+      // The bridge nests balance data inside a "balances" array per account.
+      // Each balance entry has currency, total, free, locked.
+      const balances = (acct as Record<string, unknown>)["balances"] as
+        | Array<Record<string, string>>
+        | undefined;
+      if (balances && balances.length > 0) {
+        for (const bal of balances) {
+          lines.push(
+            `| ${accountId} | ${bal.currency ?? "N/A"} | ${bal.total ?? "N/A"} | ${bal.free ?? "N/A"} | ${bal.locked ?? "N/A"} |`,
+          );
+        }
+      } else {
+        // Fallback: try flat fields for backward compatibility
+        const currency = (acct as Record<string, unknown>)["currency"] as string | undefined ?? "N/A";
+        const total = (acct as Record<string, unknown>)["total"] as string | undefined ?? "N/A";
+        const free = (acct as Record<string, unknown>)["free"] as string | undefined ?? "N/A";
+        const locked = (acct as Record<string, unknown>)["locked"] as string | undefined ?? "N/A";
+        lines.push(`| ${accountId} | ${currency} | ${total} | ${free} | ${locked} |`);
+      }
     }
 
     return lines.join("\n");
@@ -176,12 +191,29 @@ export class TradingContextBuilder {
       return lines.join("\n");
     }
 
-    lines.push("| Instrument | Side | Qty | Entry Price | Unrealized PnL |");
-    lines.push("|------------|------|-----|-------------|----------------|");
+    lines.push("| Instrument | Side | Qty | Entry Price | Current Price | Unrealized PnL (pts) |");
+    lines.push("|------------|------|-----|-------------|---------------|----------------------|");
 
     for (const [, pos] of positions) {
+      // Compute live PnL from latest quotes (bridge PnL may be stale).
+      const quote = this.bridgeClient.marketData.getLatestQuote(pos.instrumentId);
+      let currentPrice = "N/A";
+      let pnlDisplay = pos.unrealizedPnl ?? "N/A";
+
+      if (quote) {
+        const entry = parseFloat(pos.entryPrice ?? pos.avgOpenPrice);
+        const isLong = pos.side === "LONG";
+        const mark = parseFloat(isLong ? quote.bidPrice : quote.askPrice);
+        currentPrice = mark.toString();
+        if (!isNaN(entry) && !isNaN(mark)) {
+          const qty = parseFloat(pos.quantity);
+          const pnlPts = isLong ? (mark - entry) * qty : (entry - mark) * qty;
+          pnlDisplay = pnlPts >= 0 ? `+${pnlPts.toFixed(2)}` : pnlPts.toFixed(2);
+        }
+      }
+
       lines.push(
-        `| ${pos.instrumentId} | ${pos.side} | ${pos.quantity} | ${pos.entryPrice} | ${pos.unrealizedPnl} |`
+        `| ${pos.instrumentId} | ${pos.side} | ${pos.quantity} | ${pos.entryPrice} | ${currentPrice} | ${pnlDisplay} |`
       );
     }
 
@@ -214,27 +246,42 @@ export class TradingContextBuilder {
 
   private buildMarketData(): string {
     const tracked = this.bridgeClient.marketData.getTrackedInstruments();
+    const quotes = this.bridgeClient.marketData.getAllQuotes();
     const lines: string[] = [];
 
-    lines.push("## Recent Market Data (Last 5 Bars)");
+    lines.push("## Market Data");
 
-    if (tracked.length === 0) {
-      lines.push("No market data subscriptions");
-      return lines.join("\n");
+    // Latest quotes section (from auto-subscribed quote ticks)
+    if (quotes.size > 0) {
+      lines.push("### Latest Quotes");
+      lines.push("| Instrument | Bid | Ask | Bid Size | Ask Size | Updated |");
+      lines.push("|------------|-----|-----|----------|----------|---------|");
+      for (const [, q] of quotes) {
+        const time = this.formatTime(q.ts);
+        lines.push(`| ${q.instrumentId} | ${q.bidPrice} | ${q.askPrice} | ${q.bidSize} | ${q.askSize} | ${time} |`);
+      }
     }
 
-    for (const { instrumentId, timeframe } of tracked) {
-      const bars = this.bridgeClient.marketData.getBars(instrumentId, timeframe);
-      const recentBars = bars.slice(-5);
+    // Bar data section (from explicit bar subscriptions)
+    if (tracked.length > 0) {
+      lines.push("### Recent Bars (Last 5)");
+      for (const { instrumentId, timeframe } of tracked) {
+        const bars = this.bridgeClient.marketData.getBars(instrumentId, timeframe);
+        const recentBars = bars.slice(-5);
 
-      lines.push(`### ${instrumentId} (${timeframe})`);
-      lines.push("| Time | Open | High | Low | Close | Volume |");
-      lines.push("|------|------|------|-----|-------|--------|");
+        lines.push(`#### ${instrumentId} (${timeframe})`);
+        lines.push("| Time | Open | High | Low | Close | Volume |");
+        lines.push("|------|------|------|-----|-------|--------|");
 
-      for (const bar of recentBars) {
-        const time = this.formatTime(bar.tsEvent);
-        lines.push(`| ${time} | ${bar.open} | ${bar.high} | ${bar.low} | ${bar.close} | ${bar.volume} |`);
+        for (const bar of recentBars) {
+          const time = this.formatTime(bar.tsEvent);
+          lines.push(`| ${time} | ${bar.open} | ${bar.high} | ${bar.low} | ${bar.close} | ${bar.volume} |`);
+        }
       }
+    }
+
+    if (quotes.size === 0 && tracked.length === 0) {
+      lines.push("No market data available");
     }
 
     return lines.join("\n");

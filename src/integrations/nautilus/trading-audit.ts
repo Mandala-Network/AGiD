@@ -130,7 +130,7 @@ export class TradingAuditTrail {
     this.jsonlPath = config.jsonlPath;
     this.batchSize = config.batchSize ?? 50;
     this.batchIntervalMs = config.batchIntervalMs ?? 5 * 60 * 1000;
-    this.protocolID = config.protocolID ?? [2, "trading-audit"];
+    this.protocolID = config.protocolID ?? [2, "tradingaudit"];
     this.keyID = config.keyID ?? "audit-chain-1";
 
     this.circuitBreaker = new CircuitBreaker();

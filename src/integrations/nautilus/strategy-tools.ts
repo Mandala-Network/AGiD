@@ -28,6 +28,7 @@ import type {
   DeployResult,
   MonitorResult,
   PauseResult,
+  DownloadHistoricalDataResult,
 } from "./types.js";
 import { ConnectionState } from "./types.js";
 import { computeReasoningHash } from "./reasoning-hash.js";
@@ -40,6 +41,42 @@ type ToolExecuteFn = (
   params: Record<string, unknown>,
   ctx: ToolContext,
 ) => Promise<ToolResult>;
+
+// ---------------------------------------------------------------------------
+// Retry tracking -- prevents the agent from looping on persistent failures
+// ---------------------------------------------------------------------------
+
+const MAX_TOOL_RETRIES = 3;
+
+/** Tracks consecutive failure count per tool name. */
+const _failureCounts = new Map<string, number>();
+
+function recordToolSuccess(toolName: string): void {
+  _failureCounts.delete(toolName);
+}
+
+function recordToolFailure(toolName: string, errorMsg: string): ToolResult {
+  const count = (_failureCounts.get(toolName) ?? 0) + 1;
+  _failureCounts.set(toolName, count);
+
+  if (count >= MAX_TOOL_RETRIES) {
+    _failureCounts.delete(toolName);
+    return {
+      content:
+        `${errorMsg}\n\n` +
+        `IMPORTANT: This tool has failed ${count} consecutive times. ` +
+        `DO NOT retry this tool call again with the same parameters. ` +
+        `Either adjust your approach, use different parameters, or ` +
+        `inform the user that this operation could not be completed.`,
+      isError: true,
+    };
+  }
+
+  return {
+    content: `${errorMsg} (attempt ${count}/${MAX_TOOL_RETRIES})`,
+    isError: true,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Bridge state guard (same pattern as trading-tools.ts)
@@ -60,13 +97,13 @@ function checkBridgeState(client: BridgeClient): ToolResult | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Create 6 strategy tool descriptors that delegate to BridgeClient commands.
+ * Create 7 strategy tool descriptors that delegate to BridgeClient commands.
  *
  * @param bridgeClient - The BridgeClient instance for bridge communication
  * @param getReasoningText - Closure returning the current turn's assistant text (or null)
  * @param tradeMemoryRecorder - Optional recorder for on-chain trade event storage
  * @param strategyContextBuilder - Optional context builder to update after each operation
- * @returns Array of 6 ToolDescriptor objects
+ * @returns Array of 7 ToolDescriptor objects
  */
 export function createStrategyTools(
   bridgeClient: BridgeClient,
@@ -87,6 +124,8 @@ export function createStrategyTools(
     createMonitorStrategy(bridgeClient, strategyContextBuilder),
     // 6. Pause Strategy
     createPauseStrategy(bridgeClient, strategyContextBuilder),
+    // 7. Download Historical Data
+    createDownloadHistoricalData(bridgeClient),
   ];
 }
 
@@ -177,12 +216,13 @@ function createCreateStrategy(
       md += `### Code Preview\n\n`;
       md += `\`\`\`python\n${preview}${truncated}\n\`\`\``;
 
+      recordToolSuccess("nautilus_create_strategy");
       return { content: md };
     } catch (err) {
-      return {
-        content: `Strategy creation failed: ${err instanceof Error ? err.message : String(err)}`,
-        isError: true,
-      };
+      return recordToolFailure(
+        "nautilus_create_strategy",
+        `Strategy creation failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -260,12 +300,14 @@ function createBacktestStrategy(
 
     try {
       const strategyId = params.strategyId as string;
-      const catalogPath = params.catalogPath as string;
+      const catalogPath = (params.catalogPath as string) ?? "";
       const startTime = params.startTime as string;
       const endTime = params.endTime as string;
       const venue = (params.venue as string) ?? "SIM";
       const startingBalance = (params.startingBalance as string) ?? "100000";
       const currency = (params.currency as string) ?? "USD";
+      const instruments = (params.instruments as string[]) ?? undefined;
+      const barSize = (params.barSize as string) ?? undefined;
 
       // Compute reasoning hash for this backtest iteration
       let reasoningHash: string | undefined;
@@ -274,17 +316,21 @@ function createBacktestStrategy(
         reasoningHash = await computeReasoningHash(reasoningText, params);
       }
 
+      const cmdPayload: Record<string, unknown> = {
+        strategyId,
+        catalogPath,
+        startTime,
+        endTime,
+        venue,
+        startingBalance,
+        currency,
+      };
+      if (instruments) cmdPayload.instruments = instruments;
+      if (barSize) cmdPayload.barSize = barSize;
+
       const result = await client.sendCommand<BacktestResult>(
         "backtest_strategy",
-        {
-          strategyId,
-          catalogPath,
-          startTime,
-          endTime,
-          venue,
-          startingBalance,
-          currency,
-        },
+        cmdPayload,
       );
 
       const m = result.metrics as Record<string, unknown>;
@@ -350,12 +396,13 @@ function createBacktestStrategy(
         md += `Min: ${minEq.toFixed(2)} | Max: ${maxEq.toFixed(2)}\n`;
       }
 
+      recordToolSuccess("nautilus_backtest_strategy");
       return { content: md.trim() };
     } catch (err) {
-      return {
-        content: `Backtest failed: ${err instanceof Error ? err.message : String(err)}`,
-        isError: true,
-      };
+      return recordToolFailure(
+        "nautilus_backtest_strategy",
+        `Backtest failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -363,19 +410,25 @@ function createBacktestStrategy(
     definition: {
       name: "nautilus_backtest_strategy",
       description:
-        "Run a backtest on a previously generated strategy against historical data. Returns structured performance metrics including Sharpe ratio, drawdown, win rate, and equity curve summary.",
+        "Run a backtest on a previously generated strategy against historical data. If instruments and barSize are provided, historical data is auto-downloaded from IB if not already cached. Returns structured performance metrics including Sharpe ratio, drawdown, win rate, and equity curve summary.",
       input_schema: {
         type: "object",
         properties: {
           strategyId: { type: "string", description: "Strategy ID returned from create_strategy" },
-          catalogPath: { type: "string", description: "Path to the Parquet data catalog" },
           startTime: { type: "string", description: "Backtest start time (ISO 8601)" },
           endTime: { type: "string", description: "Backtest end time (ISO 8601)" },
+          instruments: {
+            type: "array",
+            items: { type: "string" },
+            description: "Instrument symbols for auto-download (e.g. ['AAPL.XNAS']). When provided with barSize, data is auto-fetched from IB.",
+          },
+          barSize: { type: "string", description: "Bar size for auto-download (e.g. '1-HOUR', '1-DAY'). Required when instruments is provided." },
+          catalogPath: { type: "string", description: "Path to an existing Parquet data catalog. Optional when instruments/barSize are provided for auto-download." },
           venue: { type: "string", description: "Venue name (default: SIM)" },
           startingBalance: { type: "string", description: "Starting balance as decimal string (default: 100000)" },
           currency: { type: "string", description: "Account currency (default: USD)" },
         },
-        required: ["strategyId", "catalogPath", "startTime", "endTime"],
+        required: ["strategyId", "startTime", "endTime"],
       },
     },
     execute,
@@ -502,12 +555,13 @@ function createOptimizeStrategy(
         }
       }
 
+      recordToolSuccess("nautilus_optimize_strategy");
       return { content: md.trim() };
     } catch (err) {
-      return {
-        content: `Optimization failed: ${err instanceof Error ? err.message : String(err)}`,
-        isError: true,
-      };
+      return recordToolFailure(
+        "nautilus_optimize_strategy",
+        `Optimization failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -611,12 +665,13 @@ function createDeployStrategy(
       md += `| Status | ${result.status} |\n`;
       md += `| Mode | ${result.mode} |\n`;
 
+      recordToolSuccess("nautilus_deploy_strategy");
       return { content: md.trim() };
     } catch (err) {
-      return {
-        content: `Deploy failed: ${err instanceof Error ? err.message : String(err)}`,
-        isError: true,
-      };
+      return recordToolFailure(
+        "nautilus_deploy_strategy",
+        `Deploy failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -728,12 +783,13 @@ function createMonitorStrategy(
         md += `No performance degradation detected.\n`;
       }
 
+      recordToolSuccess("nautilus_monitor_strategy");
       return { content: md.trim() };
     } catch (err) {
-      return {
-        content: `Monitor failed: ${err instanceof Error ? err.message : String(err)}`,
-        isError: true,
-      };
+      return recordToolFailure(
+        "nautilus_monitor_strategy",
+        `Monitor failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -786,14 +842,15 @@ function createPauseStrategy(
         liveMetrics: existingState?.liveMetrics,
       });
 
+      recordToolSuccess("nautilus_pause_strategy");
       return {
         content: `Strategy PAUSED: ${result.strategyId} (status: ${result.status})`,
       };
     } catch (err) {
-      return {
-        content: `Pause failed: ${err instanceof Error ? err.message : String(err)}`,
-        isError: true,
-      };
+      return recordToolFailure(
+        "nautilus_pause_strategy",
+        `Pause failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -808,6 +865,85 @@ function createPauseStrategy(
           strategyId: { type: "string", description: "Strategy ID to pause" },
         },
         required: ["strategyId"],
+      },
+    },
+    execute,
+    requiresWallet: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 7. Download Historical Data
+// ---------------------------------------------------------------------------
+
+function createDownloadHistoricalData(
+  client: BridgeClient,
+): ToolDescriptor {
+  const execute: ToolExecuteFn = async (params) => {
+    const guard = checkBridgeState(client);
+    if (guard) return guard;
+
+    try {
+      const instruments = params.instruments as string[];
+      const barSize = params.barSize as string;
+      const startTime = params.startTime as string;
+      const endTime = params.endTime as string;
+
+      const result = await client.sendCommand<DownloadHistoricalDataResult>(
+        "download_historical_data",
+        {
+          instruments,
+          barSize,
+          startTime,
+          endTime,
+        },
+      );
+
+      let md = `## Historical Data Download Complete\n\n`;
+      md += `| Property | Value |\n`;
+      md += `|----------|-------|\n`;
+      md += `| Catalog Path | ${result.catalogPath} |\n`;
+      md += `| Total Bars | ${result.totalBars} |\n`;
+      md += `| Elapsed Time | ${result.elapsedTime.toFixed(2)}s |\n\n`;
+
+      if (result.results && result.results.length > 0) {
+        md += `### Per-Instrument Results\n\n`;
+        md += `| Symbol | Bar Size | Bars | Cached | Status |\n`;
+        md += `|--------|----------|------|--------|--------|\n`;
+        for (const r of result.results) {
+          const status = r.cached ? "Cached" : r.success ? "Downloaded" : `Error: ${r.error}`;
+          md += `| ${r.symbol} | ${r.barSize} | ${r.barsDownloaded} | ${r.cached ? "Yes" : "No"} | ${status} |\n`;
+        }
+      }
+
+      recordToolSuccess("nautilus_download_data");
+      return { content: md.trim() };
+    } catch (err) {
+      return recordToolFailure(
+        "nautilus_download_data",
+        `Data download failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  };
+
+  return {
+    definition: {
+      name: "nautilus_download_data",
+      description:
+        "Download historical bar data from Interactive Brokers for specified instruments and time range. Data is cached locally in a Parquet catalog for subsequent backtesting. Supports incremental updates -- only downloads missing data.",
+      input_schema: {
+        type: "object",
+        properties: {
+          instruments: {
+            type: "array",
+            items: { type: "string" },
+            description: "List of instrument symbols (e.g. ['AAPL.XNAS', 'MSFT.XNAS'])",
+          },
+          barSize: { type: "string", description: "Bar size (e.g. '1-HOUR', '1-DAY', '5-MINUTE')" },
+          startTime: { type: "string", description: "Download start time (ISO 8601)" },
+          endTime: { type: "string", description: "Download end time (ISO 8601)" },
+        },
+        required: ["instruments", "barSize", "startTime", "endTime"],
       },
     },
     execute,
