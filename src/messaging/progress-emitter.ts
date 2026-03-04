@@ -42,6 +42,12 @@ export interface ThinkingEvent extends ProgressEventBase {
   eventType: 'thinking';
 }
 
+export interface ReasoningEvent extends ProgressEventBase {
+  eventType: 'reasoning';
+  /** The model's chain-of-thought reasoning text */
+  reasoning: string;
+}
+
 export interface CompletionEvent extends ProgressEventBase {
   eventType: 'completion';
   toolsExecuted: number;
@@ -49,7 +55,7 @@ export interface CompletionEvent extends ProgressEventBase {
   outcome: 'success' | 'error';
 }
 
-export type ProgressEvent = ToolStartEvent | ToolResultEvent | ThinkingEvent | CompletionEvent;
+export type ProgressEvent = ToolStartEvent | ToolResultEvent | ThinkingEvent | ReasoningEvent | CompletionEvent;
 
 // =============================================================================
 // ProgressEmitter Class
@@ -116,6 +122,18 @@ export class ProgressEmitter {
       requestId,
       timestamp: Date.now(),
       sequenceNumber: this.sequenceNumber++,
+    };
+    await this.enqueue(event);
+  }
+
+  async emitReasoning(requestId: string, reasoning: string): Promise<void> {
+    const event: ReasoningEvent = {
+      type: 'progress_event',
+      eventType: 'reasoning',
+      requestId,
+      timestamp: Date.now(),
+      sequenceNumber: this.sequenceNumber++,
+      reasoning,
     };
     await this.enqueue(event);
   }

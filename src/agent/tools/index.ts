@@ -16,6 +16,7 @@ import { tokenTools } from './tokens.js';
 import { messagingTools } from './messaging.js';
 import { memoryTools } from './memory.js';
 import { serviceTools } from './services.js';
+import { xResearchTools } from './x-research.js';
 import { auditTools } from './audit.js';
 import { deploymentTools } from './deployment.js';
 import { certTools } from './certificates.js';
@@ -29,6 +30,7 @@ export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
     ...tokenTools(),
     ...messagingTools(),
     ...serviceTools(),
+    ...xResearchTools(),
     ...deploymentTools(),
     ...certTools(),
     ...calibrationTools(),

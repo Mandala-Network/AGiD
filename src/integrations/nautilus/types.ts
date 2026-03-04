@@ -413,6 +413,37 @@ export const SubscribeBarsSchema = z.object({
 });
 export type SubscribeBars = z.infer<typeof SubscribeBarsSchema>;
 
+export const GetQuoteCmdSchema = z.object({
+  type: z.literal("get_quote"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  symbols: z.array(z.string()),
+});
+export type GetQuoteCmd = z.infer<typeof GetQuoteCmdSchema>;
+
+export const QuoteInfoSchema = z.object({
+  symbol: z.string(),
+  bidPrice: z.string().nullable().optional(),
+  askPrice: z.string().nullable().optional(),
+  bidSize: z.string().nullable().optional(),
+  askSize: z.string().nullable().optional(),
+  lastPrice: z.string().nullable().optional(),
+  ts: z.number().int().nullable().optional(),
+  available: z.boolean(),
+});
+export type QuoteInfo = z.infer<typeof QuoteInfoSchema>;
+
+export const GetQuoteResponseSchema = z.object({
+  type: z.literal("get_quote_response"),
+  id: z.string(),
+  ts: z.number().int(),
+  version: z.string(),
+  correlationId: z.string(),
+  quotes: z.array(QuoteInfoSchema),
+});
+export type GetQuoteResponse = z.infer<typeof GetQuoteResponseSchema>;
+
 export const UnsubscribeBarsSchema = z.object({
   type: z.literal("unsubscribe_bars"),
   id: z.string(),
@@ -775,6 +806,7 @@ export const BridgeToAgentMessageSchema = z.discriminatedUnion("type", [
   ErrResponseSchema,
   ListInstrumentsResponseSchema,
   AddInstrumentResponseSchema,
+  GetQuoteResponseSchema,
   PortfolioResponseSchema,
   OrderEventSchema,
   PositionEventSchema,
@@ -798,6 +830,7 @@ export const AgentToBridgeMessageSchema = z.discriminatedUnion("type", [
   EmergencyHaltCmdSchema,
   ResumeTradingCmdSchema,
   GetPortfolioQuerySchema,
+  GetQuoteCmdSchema,
   SubscribeBarsSchema,
   UnsubscribeBarsSchema,
 ]);

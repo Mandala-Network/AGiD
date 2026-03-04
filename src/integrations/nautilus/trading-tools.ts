@@ -1,7 +1,7 @@
 /**
  * Trading Tools
  *
- * Creates 11 trading tool descriptors for the AGiD agent to interact with
+ * Creates 12 trading tool descriptors for the AGiD agent to interact with
  * NautilusTrader via the BridgeClient. Each tool produces formatted markdown
  * responses (not raw JSON) and checks bridge connectivity before execution.
  *
@@ -79,7 +79,9 @@ export function createTradingTools(
     createGetInstrument(bridgeClient),
     // 7. List Instruments
     createListInstruments(bridgeClient),
-    // 8. Subscribe Data
+    // 8. Get Quote (price lookup)
+    createGetQuote(bridgeClient),
+    // 9. Subscribe Data
     createSubscribeData(bridgeClient),
     // 9. Unsubscribe Data
     createUnsubscribeData(bridgeClient),
@@ -533,15 +535,16 @@ function createListInstruments(client: BridgeClient): ToolDescriptor {
       const response = await client.listInstruments();
 
       if (response.instruments.length === 0) {
-        return { content: "No instruments available." };
+        return { content: "No instruments currently loaded. Use nautilus_set_instrument to add the instrument you need." };
       }
 
-      let md = "## Available Instruments\n\n";
+      let md = "## Currently Loaded Instruments\n\n";
       md += "| Symbol | Venue | Asset Class | Tick Size | Lot Size |\n";
       md += "|--------|-------|-------------|-----------|----------|\n";
       for (const inst of response.instruments) {
         md += `| ${inst.symbol} | ${inst.venue} | ${inst.assetClass} | ${inst.tickSize} | ${inst.lotSize} |\n`;
       }
+      md += "\nIf the instrument you need is not listed above, use nautilus_set_instrument to add it.";
 
       return { content: md.trim() };
     } catch (err) {
@@ -555,7 +558,13 @@ function createListInstruments(client: BridgeClient): ToolDescriptor {
   return {
     definition: {
       name: "nautilus_list_instruments",
-      description: "List all available trading instruments with their specifications.",
+      description:
+        "List all currently loaded trading instruments with their specifications. " +
+        "IMPORTANT: This only shows instruments that have already been loaded into the system. " +
+        "If the instrument you need is NOT in the list, you MUST call nautilus_set_instrument " +
+        "to add it before you can trade, get quotes, or create strategies for it. " +
+        "For example, if you need silver futures (SI) but only gold (GC) is listed, " +
+        "call nautilus_set_instrument with the correct silver symbol (e.g. SIN6.XCEC).",
       input_schema: {
         type: "object",
         properties: {},
@@ -568,7 +577,71 @@ function createListInstruments(client: BridgeClient): ToolDescriptor {
 }
 
 // ---------------------------------------------------------------------------
-// 8. Subscribe Data
+// 8. Get Quote (price lookup)
+// ---------------------------------------------------------------------------
+
+function createGetQuote(client: BridgeClient): ToolDescriptor {
+  const execute: ToolExecuteFn = async (params) => {
+    const guard = checkBridgeState(client);
+    if (guard) return guard;
+
+    try {
+      const symbolInput = params.symbol as string | undefined;
+      const symbolsInput = params.symbols as string[] | undefined;
+      const symbols = symbolsInput ?? (symbolInput ? [symbolInput] : []);
+
+      if (symbols.length === 0) {
+        return { content: "No symbols provided.", isError: true };
+      }
+
+      const response = await client.getQuote(symbols);
+
+      let md = "## Latest Quotes\n\n";
+      md += "| Symbol | Bid | Ask | Last | Bid Size | Ask Size | Available |\n";
+      md += "|--------|-----|-----|------|----------|----------|-----------|\n";
+      for (const q of response.quotes) {
+        if (q.available) {
+          md += `| ${q.symbol} | ${q.bidPrice ?? "N/A"} | ${q.askPrice ?? "N/A"} | ${q.lastPrice ?? "N/A"} | ${q.bidSize ?? "N/A"} | ${q.askSize ?? "N/A"} | Yes |\n`;
+        } else {
+          md += `| ${q.symbol} | - | - | - | - | - | No (no cached data) |\n`;
+        }
+      }
+
+      return { content: md.trim() };
+    } catch (err) {
+      return {
+        content: `Quote query failed: ${err instanceof Error ? err.message : String(err)}`,
+        isError: true,
+      };
+    }
+  };
+
+  return {
+    definition: {
+      name: "nautilus_get_quote",
+      description:
+        "Get the latest cached bid/ask/last price for one or more instruments. " +
+        "Returns the most recent quote data from the venue. Use this to check current prices.",
+      input_schema: {
+        type: "object",
+        properties: {
+          symbol: { type: "string", description: "Single instrument symbol (e.g. AAPL.XNAS)" },
+          symbols: {
+            type: "array",
+            items: { type: "string" },
+            description: "Multiple instrument symbols to query at once",
+          },
+        },
+        required: [],
+      },
+    },
+    execute,
+    requiresWallet: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 9. Subscribe Data
 // ---------------------------------------------------------------------------
 
 function createSubscribeData(client: BridgeClient): ToolDescriptor {
@@ -729,13 +802,24 @@ function createSetInstrument(client: BridgeClient): ToolDescriptor {
         "subscribes to quote ticks, and persists to config for restart survival. " +
         "Resolution takes 5-20 seconds for new instruments. " +
         "Returns immediately if the instrument is already loaded. " +
-        "Symbol format: SYMBOL.EXCHANGE (e.g. NVDA.NASDAQ, NQM6.CME, MSFT.XNAS).",
+        "Symbol format: SYMBOL.EXCHANGE (e.g. NVDA.XNAS, NQM6.XCME, MSFT.XNAS). " +
+        "FUTURES SYMBOLOGY: Futures use ROOT + MONTH_CODE + YEAR_DIGIT format. " +
+        "Month codes: F=Jan G=Feb H=Mar J=Apr K=May M=Jun N=Jul Q=Aug U=Sep V=Oct X=Nov Z=Dec. " +
+        "Year digit is last digit of year (e.g. 6=2026, 7=2027). " +
+        "Examples: CLQ6=Crude Oil Aug 2026, GCJ6=Gold Apr 2026, ESU6=E-mini S&P Sep 2026, NQZ6=Nasdaq Dec 2026. " +
+        "Common roots: CL=Crude Oil, GC=Gold, SI=Silver, ES=E-mini S&P, NQ=Nasdaq, ZB=30yr Bond. " +
+        "Futures exchanges: NYMEX/XNYM (oil, gas), COMEX/XCEC (gold, silver), CME/XCME (indices, FX), CBOT/XCBT (bonds, grains). " +
+        "IMPORTANT: Always use the current or future contract month -- expired contracts will fail.",
       input_schema: {
         type: "object",
         properties: {
           symbol: {
             type: "string",
-            description: "Instrument symbol in SYMBOL.EXCHANGE format (e.g. NVDA.NASDAQ, ESH6.CME)",
+            description:
+              "Instrument symbol in SYMBOL.EXCHANGE format. " +
+              "Equities: AAPL.XNAS, MSFT.XNAS, NVDA.XNAS. " +
+              "Futures: ROOT+MONTH+YEAR.EXCHANGE -- e.g. CLQ6.XNYM (Crude Aug 2026), GCJ6.XCEC (Gold Apr 2026), ESU6.XCME (S&P Sep 2026). " +
+              "Month codes: F=Jan G=Feb H=Mar J=Apr K=May M=Jun N=Jul Q=Aug U=Sep V=Oct X=Nov Z=Dec.",
           },
         },
         required: ["symbol"],

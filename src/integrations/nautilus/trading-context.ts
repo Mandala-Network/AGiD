@@ -30,7 +30,15 @@ const DEFAULT_PREAMBLE =
   "Portfolio balances, open positions, and open orders reflect the current state on the venue. " +
   "Market data shows recent price bars for subscribed instruments. " +
   "Always check this context before submitting orders to avoid duplicate positions or exceeding risk limits. " +
-  "When the bridge is disconnected, cached data may be stale -- note the bridge status before acting.";
+  "When the bridge is disconnected, cached data may be stale -- note the bridge status before acting.\n\n" +
+  "FUTURES SYMBOLOGY REFERENCE:\n" +
+  "Futures symbols use ROOT + MONTH_CODE + YEAR_DIGIT format (e.g. CLQ6 = Crude Oil August 2026).\n" +
+  "Month codes: F=Jan, G=Feb, H=Mar, J=Apr, K=May, M=Jun, N=Jul, Q=Aug, U=Sep, V=Oct, X=Nov, Z=Dec.\n" +
+  "Year digit: last digit of the year (6=2026, 7=2027, 8=2028).\n" +
+  "Common roots: CL=Crude Oil, GC=Gold, SI=Silver, ES=E-mini S&P 500, NQ=Nasdaq 100, ZB=30yr Treasury Bond, ZC=Corn, ZW=Wheat.\n" +
+  "Exchanges: XNYM/NYMEX (energy), XCEC/COMEX (metals), XCME/CME (indices/FX), XCBT/CBOT (bonds/grains).\n" +
+  "IMPORTANT: Only use current or future contract months. Expired contracts will fail to resolve. " +
+  `Current date: ${new Date().toISOString().slice(0, 10)}.`;
 
 export class TradingContextBuilder {
   private bridgeClient: BridgeClient;
@@ -197,11 +205,12 @@ export class TradingContextBuilder {
     for (const [, pos] of positions) {
       // Compute live PnL from latest quotes (bridge PnL may be stale).
       const quote = this.bridgeClient.marketData.getLatestQuote(pos.instrumentId);
-      let currentPrice = "N/A";
+      const entryPrice = pos.entryPrice ?? pos.avgOpenPrice;
+      let currentPrice = pos.currentPrice ?? "N/A";
       let pnlDisplay = pos.unrealizedPnl ?? "N/A";
 
       if (quote) {
-        const entry = parseFloat(pos.entryPrice ?? pos.avgOpenPrice);
+        const entry = parseFloat(entryPrice);
         const isLong = pos.side === "LONG";
         const mark = parseFloat(isLong ? quote.bidPrice : quote.askPrice);
         currentPrice = mark.toString();
@@ -213,7 +222,7 @@ export class TradingContextBuilder {
       }
 
       lines.push(
-        `| ${pos.instrumentId} | ${pos.side} | ${pos.quantity} | ${pos.entryPrice} | ${currentPrice} | ${pnlDisplay} |`
+        `| ${pos.instrumentId} | ${pos.side} | ${pos.quantity} | ${entryPrice} | ${currentPrice} | ${pnlDisplay} |`
       );
     }
 

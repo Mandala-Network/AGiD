@@ -42,6 +42,8 @@ export interface LLMResponse {
   rawContent: CanonicalContent;
   /** Token usage statistics */
   usage: { inputTokens: number; outputTokens: number };
+  /** Model reasoning / chain-of-thought text (if the provider supports it) */
+  reasoning?: string;
 }
 
 export interface LLMProvider {

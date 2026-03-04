@@ -320,6 +320,7 @@ export class ConnectionManager extends EventEmitter {
       case "halt_response":
       case "list_instruments_response":
       case "add_instrument_response":
+      case "get_quote_response":
       case "subscribe_bars_ack":
       case "submit_order_ack":
       case "cancel_order_ack":

@@ -648,7 +648,7 @@ export class AGIdentityGateway {
     };
 
     try {
-      const result = await this.agentLoop!.runWithEvents(content, identityContext.conversationId, onEvent, identityContext, anchorChain);
+      const result = await this.agentLoop!.runWithEvents(content, identityContext.conversationId, onEvent, identityContext, anchorChain, requestId);
       aiResponse = result.response;
       toolCallCount = result.toolCalls.length;
       console.log(`[AGIdentityGateway] Agent responded (${aiResponse.length} chars, ${result.iterations} iterations, ${result.toolCalls.length} tool calls, ${result.usage.totalTokens} tokens) ${ts()}`);

@@ -33,6 +33,7 @@ import type {
   PortfolioResponse,
   ListInstrumentsResponse,
   HaltResponse,
+  GetQuoteResponse,
 } from "./types.js";
 
 /** Latest quote tick data for an instrument. */
@@ -259,6 +260,13 @@ export class BridgeClient extends EventEmitter {
       "add_instrument",
       { symbol },
       timeoutMs,
+    );
+  }
+
+  async getQuote(symbols: string[]): Promise<GetQuoteResponse> {
+    return this._connectionManager.sendCommand<GetQuoteResponse>(
+      "get_quote",
+      { symbols },
     );
   }
 

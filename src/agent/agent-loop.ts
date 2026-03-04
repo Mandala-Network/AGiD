@@ -200,15 +200,18 @@ export class AgentLoop {
    * @param onEvent - Callback to emit progress events (sent via MessageBox)
    * @param identityContext - Optional identity context for the prompt
    * @param anchorChain - Optional anchor chain for audit
+   * @param requestId - Optional requestId to correlate progress events with the original request.
+   *                     If not provided, a new UUID is generated.
    */
   async runWithEvents(
     userMessage: string,
     sessionId: string,
     onEvent: (event: ProgressEvent) => Promise<void>,
     identityContext?: IdentityContext,
-    anchorChain?: AnchorChain
+    anchorChain?: AnchorChain,
+    requestId?: string,
   ): Promise<AgentLoopResult> {
-    const requestId = crypto.randomUUID();
+    const resolvedRequestId = requestId ?? crypto.randomUUID();
     const startTime = Date.now();
     const emitter = new ProgressEmitter(onEvent);
 
@@ -245,7 +248,7 @@ export class AgentLoop {
         iterations++;
 
         // Emit thinking event before LLM call
-        await emitter.emitThinking(requestId);
+        await emitter.emitThinking(resolvedRequestId);
 
         const response = await this.provider.chat({
           model: this.model,
@@ -254,6 +257,11 @@ export class AgentLoop {
           messages,
           tools,
         });
+
+        // Emit reasoning event if the model produced chain-of-thought
+        if (response.reasoning) {
+          await emitter.emitReasoning(resolvedRequestId, response.reasoning);
+        }
 
         // Accumulate usage
         usage.inputTokens += response.usage.inputTokens;
@@ -272,7 +280,7 @@ export class AgentLoop {
           await this.sessionStore.addTurn(sessionId, assistantTurn);
 
           // Emit completion event
-          await emitter.emitCompletion(requestId, toolCalls.length, Date.now() - startTime, 'success');
+          await emitter.emitCompletion(resolvedRequestId, toolCalls.length, Date.now() - startTime, 'success');
 
           return { response: response.text, toolCalls, usage, iterations };
         }
@@ -295,7 +303,7 @@ export class AgentLoop {
 
           const executeSingle = async (call: typeof response.toolCalls[0]) => {
             // Emit tool_start before execution
-            await emitter.emitToolStart(requestId, call.name);
+            await emitter.emitToolStart(resolvedRequestId, call.name);
 
             console.log(`[AgentLoop] Executing tool: ${call.name}`);
             const result = await this.toolRegistry.execute(call.name, call.input);
@@ -308,10 +316,10 @@ export class AgentLoop {
               // Extract error type name from the error content (no stack traces)
               const errStr = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
               const errorType = extractErrorType(errStr);
-              await emitter.emitToolResult(requestId, call.name, 'failed', errorType);
+              await emitter.emitToolResult(resolvedRequestId, call.name, 'failed', errorType);
               console.log(`[AgentLoop] ${call.name} FAILED: ${errStr.substring(0, 300)}`);
             } else {
-              await emitter.emitToolResult(requestId, call.name, 'completed');
+              await emitter.emitToolResult(resolvedRequestId, call.name, 'completed');
               console.log(`[AgentLoop] ${call.name} completed`);
             }
 
@@ -349,12 +357,12 @@ export class AgentLoop {
         }
 
         // No tool calls and not done -- return what we have
-        await emitter.emitCompletion(requestId, toolCalls.length, Date.now() - startTime, 'success');
+        await emitter.emitCompletion(resolvedRequestId, toolCalls.length, Date.now() - startTime, 'success');
         return { response: response.text || 'I was unable to complete the request.', toolCalls, usage, iterations };
       }
 
       // Max iterations exceeded
-      await emitter.emitCompletion(requestId, toolCalls.length, Date.now() - startTime, 'success');
+      await emitter.emitCompletion(resolvedRequestId, toolCalls.length, Date.now() - startTime, 'success');
       return {
         response: 'I reached the maximum number of tool iterations. Here is what I was able to accomplish so far.',
         toolCalls,
@@ -364,7 +372,7 @@ export class AgentLoop {
     } catch (error) {
       // Emit completion with error outcome
       outcome = 'error';
-      await emitter.emitCompletion(requestId, toolCalls.length, Date.now() - startTime, outcome).catch(() => {
+      await emitter.emitCompletion(resolvedRequestId, toolCalls.length, Date.now() - startTime, outcome).catch(() => {
         // Best-effort: do not mask the original error
       });
       throw error;
