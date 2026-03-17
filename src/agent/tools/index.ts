@@ -11,6 +11,7 @@ export { corePlugin } from './core-plugin.js';
 import type { ToolDescriptor, ToolContext } from './types.js';
 import { identityTools } from './identity.js';
 import { walletOpsTools } from './wallet-ops.js';
+import { walletClientTools } from './wallet-client.js';
 import { transactionTools } from './transactions.js';
 import { tokenTools } from './tokens.js';
 import { messagingTools } from './messaging.js';
@@ -28,6 +29,7 @@ export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
   const tools: ToolDescriptor[] = [
     ...identityTools(),
     ...walletOpsTools(),
+    ...walletClientTools(),
     ...transactionTools(),
     ...tokenTools(),
     ...messagingTools(),
