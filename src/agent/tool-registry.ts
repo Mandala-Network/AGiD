@@ -14,13 +14,18 @@ import { corePlugin, type ToolDescriptor, type ToolContext, type ToolPlugin } fr
 export class ToolRegistry {
   private tools = new Map<string, RegisteredTool>();
   private walletTools = new Set<string>();
+  private definitionsCache: AgentToolDefinition[] | null = null;
 
   register(tool: RegisteredTool): void {
     this.tools.set(tool.definition.name, tool);
+    this.definitionsCache = null; // Invalidate cache
   }
 
   getDefinitions(): AgentToolDefinition[] {
-    return Array.from(this.tools.values()).map((t) => t.definition);
+    if (!this.definitionsCache) {
+      this.definitionsCache = Array.from(this.tools.values()).map((t) => t.definition);
+    }
+    return this.definitionsCache;
   }
 
   requiresWallet(name: string): boolean {
@@ -83,6 +88,7 @@ export class ToolRegistry {
         optimized++;
       }
     }
+    if (optimized > 0) this.definitionsCache = null;
     return optimized;
   }
 }

@@ -353,6 +353,11 @@ export class BridgeClient extends EventEmitter {
       this.emit("stateChange", data);
     });
 
+    // 1b. error -> forward (prevents unhandled 'error' crash on ConnectionManager)
+    cm.on("error", (err: Error) => {
+      this.emit("error", err);
+    });
+
     // 2. authenticated -> forward
     cm.on("authenticated", (data: unknown) => {
       this.emit("authenticated", data);

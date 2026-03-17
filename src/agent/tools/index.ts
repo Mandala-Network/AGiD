@@ -21,6 +21,8 @@ import { auditTools } from './audit.js';
 import { deploymentTools } from './deployment.js';
 import { certTools } from './certificates.js';
 import { calibrationTools } from './calibration.js';
+import { shadTools } from './shad.js';
+import { zkproofTools } from './zkproof-ops.js';
 
 export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
   const tools: ToolDescriptor[] = [
@@ -34,6 +36,7 @@ export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
     ...deploymentTools(),
     ...certTools(),
     ...calibrationTools(),
+    ...zkproofTools(),
   ];
 
   if (ctx.memoryManager) {
@@ -46,6 +49,10 @@ export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
 
   if (ctx.sessionsPath) {
     tools.push(...auditTools().filter(t => t.definition.name === 'agid_verify_session'));
+  }
+
+  if (ctx.memoryManager) {
+    tools.push(...shadTools());
   }
 
   return tools;

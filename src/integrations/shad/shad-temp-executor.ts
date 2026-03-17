@@ -104,7 +104,8 @@ export class ShadTempVaultExecutor {
    */
   async checkShadAvailable(): Promise<ShadAvailability> {
     return new Promise((resolve) => {
-      const proc = spawn(this.config.pythonPath, ['-m', 'shad.cli', '--version']);
+      // Use 'shad' CLI command directly (installed as console_script entry point)
+      const proc = spawn('shad', ['--version']);
 
       let stdout = '';
       let stderr = '';
@@ -179,6 +180,46 @@ export class ShadTempVaultExecutor {
   }
 
   /**
+   * Fast search mode — uses 'shad search' for direct vault search without DAG overhead.
+   * Ideal for auto-recall where speed matters more than deep reasoning.
+   */
+  async search(query: string, options?: { mode?: 'hybrid' | 'keyword'; limit?: number }): Promise<ShadResult> {
+    if (!this.vault) {
+      throw new Error('Vault is required for ShadTempVaultExecutor');
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'agid-shad-'));
+    await chmod(tempDir, 0o700);
+
+    try {
+      await this.decryptToTempVault(tempDir);
+      return await this.runShadSearch(query, tempDir, options);
+    } finally {
+      await this.secureCleanup(tempDir);
+    }
+  }
+
+  /**
+   * Fast context mode — uses 'shad context' for retrieval + synthesis without DAG.
+   * Returns synthesized context relevant to the query.
+   */
+  async context(query: string, options?: { maxTime?: number }): Promise<ShadResult> {
+    if (!this.vault) {
+      throw new Error('Vault is required for ShadTempVaultExecutor');
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'agid-shad-'));
+    await chmod(tempDir, 0o700);
+
+    try {
+      await this.decryptToTempVault(tempDir);
+      return await this.runShadContext(query, tempDir, options);
+    } finally {
+      await this.secureCleanup(tempDir);
+    }
+  }
+
+  /**
    * Decrypt all documents from the encrypted vault to the temp directory
    */
   private async decryptToTempVault(tempDir: string): Promise<void> {
@@ -236,19 +277,14 @@ export class ShadTempVaultExecutor {
     options?: ShadExecuteOptions
   ): Promise<ShadResult> {
     return new Promise((resolve, reject) => {
-      // Build CLI arguments with correct Shad flags
-      // NOTE: --retriever 'filesystem' is the correct flag (NOT 'api')
+      // Use 'shad' CLI directly (console_script entry point)
       const args = [
-        '-m',
-        'shad.cli',
         'run',
         task,
         '--vault',
         tempVaultPath,
         '--retriever',
-        'filesystem', // Correct retriever - NOT 'api'!
-        '--strategy',
-        options?.strategy ?? this.config.strategy,
+        'filesystem',
         '--max-depth',
         String(options?.maxDepth ?? this.config.maxDepth),
         '--max-time',
@@ -261,12 +297,11 @@ export class ShadTempVaultExecutor {
         args.push(...options.additionalArgs);
       }
 
-      const shadProcess = spawn(this.config.pythonPath, args, {
+      const shadProcess = spawn('shad', args, {
         env: {
           ...process.env,
           PYTHONUNBUFFERED: '1',
         },
-        cwd: this.config.shadPath.replace('~', process.env.HOME ?? ''),
       });
 
       let stdout = '';
@@ -292,7 +327,7 @@ export class ShadTempVaultExecutor {
               success: false,
               output: '',
               retrievedDocuments: [],
-              error: 'Shad is not installed. Install with: pip install shad',
+              error: 'Shad is not installed. Install with: curl -fsSL https://raw.githubusercontent.com/jonesj38/shad/main/install.sh | bash',
             });
             return;
           }
@@ -336,6 +371,108 @@ export class ShadTempVaultExecutor {
           error: `Shad execution timed out after ${maxTime}s`,
         });
       }, maxTime * 1000);
+    });
+  }
+
+  private async runShadSearch(
+    query: string,
+    tempVaultPath: string,
+    options?: { mode?: 'hybrid' | 'keyword'; limit?: number }
+  ): Promise<ShadResult> {
+    return new Promise((resolve) => {
+      const args = [
+        'search', query,
+        '--vault', tempVaultPath,
+        '--mode', options?.mode ?? 'hybrid',
+        '--limit', String(options?.limit ?? 10),
+        '--json',
+      ];
+
+      const proc = spawn('shad', args, {
+        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      });
+
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
+
+      proc.on('error', () => {
+        resolve({ success: false, output: '', retrievedDocuments: [], error: 'Failed to start Shad' });
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          resolve({
+            success: false, output: stderr, retrievedDocuments: [],
+            error: stderr.includes('No module named') ? 'Shad not installed' : `Shad search failed (code ${code})`,
+          });
+          return;
+        }
+        try {
+          const result = JSON.parse(stdout);
+          resolve({
+            success: true,
+            output: result.output ?? stdout,
+            retrievedDocuments: result.results ?? result.retrievedDocuments ?? [],
+          });
+        } catch {
+          resolve({ success: true, output: stdout, retrievedDocuments: [] });
+        }
+      });
+
+      // 30s timeout for search (much shorter than full run)
+      setTimeout(() => { proc.kill('SIGTERM'); resolve({ success: false, output: '', retrievedDocuments: [], error: 'Search timed out' }); }, 30000);
+    });
+  }
+
+  private async runShadContext(
+    query: string,
+    tempVaultPath: string,
+    options?: { maxTime?: number }
+  ): Promise<ShadResult> {
+    return new Promise((resolve) => {
+      const args = [
+        'context', query,
+        '-v', tempVaultPath,
+        '--json',
+      ];
+
+      const proc = spawn('shad', args, {
+        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      });
+
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.on('data', (d) => { stdout += d.toString(); });
+      proc.stderr.on('data', (d) => { stderr += d.toString(); });
+
+      proc.on('error', () => {
+        resolve({ success: false, output: '', retrievedDocuments: [], error: 'Failed to start Shad' });
+      });
+
+      proc.on('close', (code) => {
+        if (code !== 0) {
+          resolve({
+            success: false, output: stderr, retrievedDocuments: [],
+            error: stderr.includes('No module named') ? 'Shad not installed' : `Shad context failed (code ${code})`,
+          });
+          return;
+        }
+        try {
+          const result = JSON.parse(stdout);
+          resolve({
+            success: true,
+            output: result.context ?? result.output ?? stdout,
+            retrievedDocuments: result.citations ?? result.retrievedDocuments ?? [],
+          });
+        } catch {
+          resolve({ success: true, output: stdout, retrievedDocuments: [] });
+        }
+      });
+
+      const maxTime = options?.maxTime ?? 60;
+      setTimeout(() => { proc.kill('SIGTERM'); resolve({ success: false, output: '', retrievedDocuments: [], error: 'Context timed out' }); }, maxTime * 1000);
     });
   }
 

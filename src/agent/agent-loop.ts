@@ -14,6 +14,7 @@ import type { AnchorChain } from '../audit/anchor-chain.js';
 import { sha256 } from '../audit/anchor-chain.js';
 import { ProgressEmitter } from '../messaging/progress-emitter.js';
 import type { ProgressEvent } from '../messaging/progress-emitter.js';
+import { calculateBudget, truncateToolResult } from './token-budget.js';
 
 export interface AgentLoopConfig {
   toolRegistry: ToolRegistry;
@@ -23,6 +24,10 @@ export interface AgentLoopConfig {
   provider: LLMProvider;
   maxIterations: number;
   maxTokens: number;
+  /** Model context window size in tokens (default: 128000) */
+  contextWindow?: number;
+  /** Max tokens per tool result before truncation (default: 4000) */
+  maxToolResultTokens?: number;
   /** Called with assistant reasoning text before each tool execution batch.
    *  Use this to inject reasoning text into plugins (e.g. NautilusTradingPlugin). */
   preToolExecution?: (assistantText: string) => void;
@@ -36,6 +41,8 @@ export class AgentLoop {
   private model: string;
   private maxIterations: number;
   private maxTokens: number;
+  private contextWindow: number;
+  private maxToolResultTokens: number;
   private preToolExecution?: (assistantText: string) => void;
 
   constructor(config: AgentLoopConfig) {
@@ -46,12 +53,17 @@ export class AgentLoop {
     this.model = config.model;
     this.maxIterations = config.maxIterations;
     this.maxTokens = config.maxTokens;
+    this.contextWindow = config.contextWindow ?? 128_000;
+    this.maxToolResultTokens = config.maxToolResultTokens ?? 4000;
     this.preToolExecution = config.preToolExecution;
   }
 
   async run(userMessage: string, sessionId: string, identityContext?: IdentityContext, anchorChain?: AnchorChain): Promise<AgentLoopResult> {
     const toolCalls: AgentToolCall[] = [];
     const usage: AgentUsageStats = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+    // Set user message hint for auto-recall
+    (this.promptBuilder as any).setLastUserMessage?.(userMessage);
 
     // 1. Build system prompt
     const systemPrompt = await this.promptBuilder.buildSystemPrompt(identityContext);
@@ -127,11 +139,14 @@ export class AgentLoop {
           console.log(`[AgentLoop] Executing tool: ${call.name}`);
           const result = await this.toolRegistry.execute(call.name, call.input);
 
-          toolCalls.push({ name: call.name, input: call.input, result });
-          resultMap.set(call.id, { toolUseId: call.id, content: result.content, isError: result.isError });
+          // Truncate oversized tool results to protect context budget
+          const content = truncateToolResult(result.content, this.maxToolResultTokens);
+
+          toolCalls.push({ name: call.name, input: call.input, result: { ...result, content } });
+          resultMap.set(call.id, { toolUseId: call.id, content, isError: result.isError });
 
           if (result.isError) {
-            const errStr = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+            const errStr = typeof content === 'string' ? content : JSON.stringify(content);
             console.log(`[AgentLoop] ❌ ${call.name} FAILED: ${errStr.substring(0, 300)}`);
           } else {
             console.log(`[AgentLoop] ✅ ${call.name} completed`);
@@ -218,6 +233,9 @@ export class AgentLoop {
     const toolCalls: AgentToolCall[] = [];
     const usage: AgentUsageStats = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
+    // Set user message hint for auto-recall
+    (this.promptBuilder as any).setLastUserMessage?.(userMessage);
+
     // 1. Build system prompt
     const systemPrompt = await this.promptBuilder.buildSystemPrompt(identityContext);
 
@@ -249,6 +267,12 @@ export class AgentLoop {
 
         // Emit thinking event before LLM call
         await emitter.emitThinking(resolvedRequestId);
+
+        // Token budget check — log context pressure
+        const budget = calculateBudget(this.contextWindow, systemPrompt, tools, messages, this.maxTokens);
+        if (budget.pressureHigh) {
+          console.log(`[AgentLoop] Context pressure HIGH (${budget.usagePercent}% used, ${budget.available} tokens available)`);
+        }
 
         const response = await this.provider.chat({
           model: this.model,
@@ -308,8 +332,11 @@ export class AgentLoop {
             console.log(`[AgentLoop] Executing tool: ${call.name}`);
             const result = await this.toolRegistry.execute(call.name, call.input);
 
-            toolCalls.push({ name: call.name, input: call.input, result });
-            resultMap.set(call.id, { toolUseId: call.id, content: result.content, isError: result.isError });
+            // Truncate oversized tool results to protect context budget
+            const content = truncateToolResult(result.content, this.maxToolResultTokens);
+
+            toolCalls.push({ name: call.name, input: call.input, result: { ...result, content } });
+            resultMap.set(call.id, { toolUseId: call.id, content, isError: result.isError });
 
             // Emit tool_result after execution
             if (result.isError) {

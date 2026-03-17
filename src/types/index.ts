@@ -305,7 +305,7 @@ export interface ShadConfig {
   maxNodes?: number;
   maxTime?: number;
   strategy?: ShadStrategy;
-  retriever?: 'auto' | 'qmd' | 'filesystem' | 'api';
+  retriever?: 'auto' | 'qmd' | 'filesystem';
 }
 
 export type ShadStrategy = 'software' | 'research' | 'analysis' | 'planning';

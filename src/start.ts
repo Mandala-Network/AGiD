@@ -311,6 +311,11 @@ async function main() {
       }
     });
 
+    // Handle WebSocket errors (prevents unhandled 'error' event crash)
+    bridgeClient.on('error', (err: Error) => {
+      console.warn('[NautilusBridge] Connection error (will retry):', err.message);
+    });
+
     // Start bridge connection (non-blocking -- reconnection handles delays)
     bridgeClient.connect().catch((err: Error) => {
       console.warn('[NautilusBridge] Initial connection failed (will retry):', err.message);

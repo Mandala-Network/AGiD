@@ -29,6 +29,10 @@ import { createProvider } from '../agent/providers/index.js';
 import type { LLMProvider } from '../agent/llm-provider.js';
 import { MemoryManager } from '../storage/memory/memory-manager.js';
 import { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
+import { createShadExecutor } from '../integrations/shad/index.js';
+import type { ShadTempVaultExecutor } from '../integrations/shad/shad-temp-executor.js';
+import type { VaultStore } from '../types/index.js';
+import type { LocalEncryptedVault } from '../storage/vault/local-encrypted-vault.js';
 
 // =============================================================================
 // Types
@@ -61,6 +65,8 @@ export interface AGIdentityGatewayConfig {
   audit?: { enabled?: boolean };
   /** External tool plugins to register */
   plugins?: ToolPlugin[];
+  /** Encrypted vault for Shad integration (optional) */
+  vault?: VaultStore | LocalEncryptedVault;
   /** Called with assistant reasoning text before each tool execution batch.
    *  Use this to inject reasoning text into plugins (e.g. NautilusTradingPlugin). */
   preToolExecution?: (assistantText: string) => void;
@@ -88,6 +94,8 @@ export class AGIdentityGateway {
   private toolRegistry: ToolRegistry | null = null;
   private promptBuilder: PromptBuilder | null = null;
   private gepaOptimizer: GepaOptimizer | null = null;
+  private shadExecutor: ShadTempVaultExecutor | null = null;
+  private memoryManager: MemoryManager | null = null;
   private running = false;
   private agentPublicKey: string | null = null;
   private workspacePath: string = '';
@@ -131,8 +139,20 @@ export class AGIdentityGateway {
       console.log('[AGIdentityGateway] GEPA not available — using unoptimized prompts. Install with: pip install gepa');
     }
 
-    // 3. Set up agent components
-    const memoryManager = new MemoryManager(this.wallet, { workspacePath, gepaOptimizer });
+    // 3. Initialize Shad executor (optional, graceful fallback)
+    if (this.config.vault) {
+      const shadExecutor = await createShadExecutor({ vault: this.config.vault as any });
+      if (shadExecutor) {
+        this.shadExecutor = shadExecutor;
+        console.log('[AGIdentityGateway] \u2705 Shad executor initialized');
+      } else {
+        console.log('[AGIdentityGateway] Shad not available \u2014 vault reasoning disabled. Install with: curl -fsSL https://raw.githubusercontent.com/jonesj38/shad/main/install.sh | bash');
+      }
+    }
+
+    // 4. Set up agent components
+    const memoryManager = new MemoryManager(this.wallet, { workspacePath, gepaOptimizer, shadExecutor: this.shadExecutor ?? undefined });
+    this.memoryManager = memoryManager;
     const toolRegistry = new ToolRegistry();
     this.toolRegistry = toolRegistry;
     toolRegistry.registerBuiltinTools(this.wallet, workspacePath, sessionsPath, memoryManager);
@@ -156,6 +176,9 @@ export class AGIdentityGateway {
       network,
       gepaOptimizer,
     });
+
+    // Enable auto-recall of relevant memories into system prompt
+    this.promptBuilder.setMemoryManager(memoryManager);
 
     const sessionStore = new SessionStore({ sessionsPath });
 
@@ -652,6 +675,9 @@ export class AGIdentityGateway {
       aiResponse = result.response;
       toolCallCount = result.toolCalls.length;
       console.log(`[AGIdentityGateway] Agent responded (${aiResponse.length} chars, ${result.iterations} iterations, ${result.toolCalls.length} tool calls, ${result.usage.totalTokens} tokens) ${ts()}`);
+
+      // Auto-memory: fire-and-forget storage of high-value interactions
+      this.autoStoreMemory(content, aiResponse, result.toolCalls.map(tc => tc.name), senderKey).catch(() => {});
     } catch (error) {
       console.error('[AGIdentityGateway] Agent loop error:', error instanceof Error ? error.message : error);
       aiResponse = 'Sorry, I encountered an error processing your request. Please try again.';
@@ -798,6 +824,59 @@ export class AGIdentityGateway {
   }
 
   // ===========================================================================
+  // Auto-Memory: Learn from Interactions
+  // ===========================================================================
+
+  /**
+   * Automatically store high-value interaction patterns as memories.
+   * Fire-and-forget — errors are silently logged, never block the response.
+   *
+   * Heuristics for "high-value":
+   * - Agent used 2+ tools (indicates substantive work was done)
+   * - Response is substantial (>200 chars, not an error)
+   * - Payment or memory tools were used (financial/knowledge events)
+   */
+  private async autoStoreMemory(
+    userMessage: string,
+    agentResponse: string,
+    toolsUsed: string[],
+    senderKey: string,
+  ): Promise<void> {
+    if (!this.memoryManager) return;
+
+    // Skip trivial interactions
+    if (agentResponse.length < 200) return;
+    if (toolsUsed.length < 2) return;
+
+    // Skip error responses
+    if (agentResponse.startsWith('Sorry, I encountered an error')) return;
+
+    // Determine importance based on what tools were used
+    const hasPayment = toolsUsed.some(t => t.includes('payment') || t.includes('send'));
+    const hasMemory = toolsUsed.some(t => t.includes('memory'));
+    const hasTrade = toolsUsed.some(t => t.includes('nautilus') || t.includes('trade'));
+    const importance = (hasPayment || hasTrade) ? 'high' : 'medium';
+
+    // Build compact interaction summary
+    const userPreview = userMessage.substring(0, 150).replace(/\n/g, ' ');
+    const agentPreview = agentResponse.substring(0, 300).replace(/\n/g, ' ');
+    const content = `Interaction with ${senderKey.substring(0, 12)}...: User asked "${userPreview}${userMessage.length > 150 ? '...' : ''}". Agent used [${toolsUsed.join(', ')}]. Result: ${agentPreview}${agentResponse.length > 300 ? '...' : ''}`;
+
+    // Build tags
+    const tags: string[] = ['auto-memory', 'interaction'];
+    if (hasPayment) tags.push('payment');
+    if (hasTrade) tags.push('trade');
+    if (hasMemory) tags.push('knowledge');
+
+    try {
+      await this.memoryManager.store({ content, tags, importance });
+      console.log(`[AGIdentityGateway] Auto-memory stored (${tags.join(', ')}, ${importance})`);
+    } catch (error) {
+      console.warn('[AGIdentityGateway] Auto-memory failed:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  // ===========================================================================
   // Lifecycle
   // ===========================================================================
 
@@ -840,6 +919,10 @@ export class AGIdentityGateway {
 
   getGepaOptimizer(): GepaOptimizer | null {
     return this.gepaOptimizer;
+  }
+
+  getShadExecutor(): ShadTempVaultExecutor | null {
+    return this.shadExecutor;
   }
 
 }

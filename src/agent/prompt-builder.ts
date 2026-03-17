@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { IntegrityStatus } from '../audit/workspace-integrity.js';
 import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
+import type { MemoryManager } from '../storage/memory/memory-manager.js';
 
 /**
  * A dynamic context provider that returns a string section to append to the
@@ -50,8 +51,10 @@ const DEFAULT_TOOLS_GUIDE = `Tool usage guidelines:
 
 export class PromptBuilder {
   private config: PromptBuilderConfig;
-  private cache: { content: string; mtimes: Map<string, number> } | null = null;
+  private cache: { content: string; mtimes: Map<string, number>; gepaAvailable: boolean } | null = null;
   private contextProviders: ContextProvider[] = [];
+  private memoryManager: MemoryManager | null = null;
+  private lastUserMessage: string | null = null;
 
   constructor(config: PromptBuilderConfig) {
     this.config = config;
@@ -66,6 +69,14 @@ export class PromptBuilder {
    */
   addContextProvider(provider: ContextProvider): void {
     this.contextProviders.push(provider);
+  }
+
+  setMemoryManager(mm: MemoryManager): void {
+    this.memoryManager = mm;
+  }
+
+  setLastUserMessage(msg: string): void {
+    this.lastUserMessage = msg;
   }
 
   async buildSystemPrompt(identityContext?: IdentityContext): Promise<string> {
@@ -88,12 +99,19 @@ export class PromptBuilder {
       }
     }
 
+    // Auto-recall relevant memories for this message
+    const recalledBlock = await this.recallRelevantMemories();
+    if (recalledBlock) {
+      result += '\n\n' + recalledBlock;
+    }
+
     return result;
   }
 
   private async getStaticPrompt(): Promise<string> {
     const currentMtimes = this.getFileMtimes();
-    if (this.cache && this.mtimesMatch(this.cache.mtimes, currentMtimes)) {
+    const gepaAvailable = this.config.gepaOptimizer?.available ?? false;
+    if (this.cache && this.cache.gepaAvailable === gepaAvailable && this.mtimesMatch(this.cache.mtimes, currentMtimes)) {
       return this.cache.content;
     }
 
@@ -132,7 +150,7 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
     }
 
     const content = parts.join('\n\n');
-    this.cache = { content, mtimes: currentMtimes };
+    this.cache = { content, mtimes: currentMtimes, gepaAvailable };
     return content;
   }
 
@@ -166,6 +184,46 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
     }
 
     return null;
+  }
+
+  private async recallRelevantMemories(): Promise<string | null> {
+    if (!this.memoryManager || !this.lastUserMessage) return null;
+
+    try {
+      // Use fast search (not full DAG reasoning) for auto-recall
+      const result = await this.memoryManager.quickRecall(this.lastUserMessage, 5);
+
+      if (!result.memories || result.memories.length === 0) return null;
+
+      const lines = result.memories.map((m, i) => {
+        const tagStr = m.tags.length > 0 ? ` [${m.tags.join(', ')}]` : '';
+        return `${i + 1}. ${m.content.substring(0, 500)}${m.content.length > 500 ? '...' : ''}${tagStr}`;
+      });
+
+      let recalledBlock = lines.join('\n');
+
+      // GEPA-optimize the recalled block for injection context
+      const optimizer = this.config.gepaOptimizer;
+      if (optimizer?.available) {
+        try {
+          recalledBlock = await optimizer.optimize(
+            recalledBlock,
+            `Optimize these recalled memories for injection into an AI agent's system prompt. ` +
+            `The user's current message is: "${this.lastUserMessage.substring(0, 200)}". ` +
+            `Maximize relevance to the current context. Make the information dense, actionable, and directly useful. ` +
+            `Preserve all factual content. Remove redundancy between memories.`,
+            { maxIterations: 3 }, // Fewer iterations for speed
+          );
+        } catch {
+          // Use unoptimized block on GEPA failure
+        }
+      }
+
+      return `[RECALLED MEMORIES]\nThe following memories were automatically recalled as potentially relevant to the current message:\n${recalledBlock}\n[END RECALLED MEMORIES]`;
+    } catch (error) {
+      console.error('[PromptBuilder] Auto-recall failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
   }
 
   private ensureWorkspace(): void {
