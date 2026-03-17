@@ -42,6 +42,49 @@ function hexToPoint(hex: string): Point {
 
 
 // ============================================================================
+// Validation Helpers
+// ============================================================================
+
+/**
+ * Validate and resolve a counterparty public key.
+ * - "self" resolves to the agent's own identity key
+ * - Must be a valid 66-char compressed hex public key (02/03 prefix)
+ * - Returns the resolved hex string or throws with a helpful message
+ */
+async function resolveCounterparty(
+  input: string,
+  ctx: { wallet: { getPublicKey: (args: { identityKey?: boolean }) => Promise<{ publicKey: string }> } }
+): Promise<string> {
+  if (input === 'self') {
+    const result = await ctx.wallet.getPublicKey({ identityKey: true })
+    return result.publicKey
+  }
+
+  // Strip any whitespace or 0x prefix
+  const cleaned = input.trim().replace(/^0x/i, '')
+
+  // Must be exactly 66 hex chars with 02 or 03 prefix
+  if (!/^(02|03)[0-9a-fA-F]{64}$/.test(cleaned)) {
+    throw new Error(
+      `Invalid counterparty public key: expected a 66-character compressed public key starting with 02 or 03 (got ${cleaned.length} chars: "${cleaned.slice(0, 20)}..."). ` +
+      `Use "self" to use your own identity key, or use agid_identity to look up your public key, or use agid_lookup_identity to find a counterparty's key.`
+    )
+  }
+
+  // Validate it parses as a real EC point
+  try {
+    PublicKey.fromString(cleaned)
+  } catch {
+    throw new Error(
+      `Invalid counterparty public key: "${cleaned}" is not a valid point on the secp256k1 curve. ` +
+      `Use "self" to use your own identity key for testing.`
+    )
+  }
+
+  return cleaned
+}
+
+// ============================================================================
 // Proof Serialization Format
 // ============================================================================
 
@@ -115,11 +158,11 @@ export function zkproofTools(): ToolDescriptor[] {
           properties: {
             counterpartyPublicKey: {
               type: 'string',
-              description: 'Compressed public key (hex) of the counterparty (e.g. the attorney or client)',
+              description: 'Compressed public key (66-char hex starting with 02 or 03) of the counterparty, OR "self" to use your own identity key for demo/testing. Use agid_identity to get your own key, or agid_lookup_identity to find another identity.',
             },
             protocolID: {
               type: 'string',
-              description: 'BRC-42 protocol name used for the session (e.g. "agidentity pfs"). Default: "agidentity pfs"',
+              description: 'BRC-42 protocol name (letters numbers spaces only, min 5 chars). Default: "agidentity pfs"',
             },
             securityLevel: {
               type: 'number',
@@ -127,15 +170,15 @@ export function zkproofTools(): ToolDescriptor[] {
             },
             keyID: {
               type: 'string',
-              description: 'BRC-42 key ID identifying the specific session/interaction. Required for session-specific proofs.',
+              description: 'BRC-42 key ID identifying the specific session/interaction.',
             },
             anchorOnChain: {
               type: 'boolean',
-              description: 'If true, anchor the proof hash on-chain via PushDrop token for immutable timestamping. Default: true',
+              description: 'Anchor proof hash on-chain via PushDrop for immutable timestamping. Default: true',
             },
             label: {
               type: 'string',
-              description: 'Human-readable label for the proof (e.g. "Case #2024-1234 session 5"). Not included in the cryptographic proof.',
+              description: 'Human-readable label (e.g. "Case 2024 1234 session 5"). Not part of the cryptographic proof.',
             },
           },
           required: ['counterpartyPublicKey'],
@@ -143,7 +186,7 @@ export function zkproofTools(): ToolDescriptor[] {
       },
       requiresWallet: true,
       execute: async (params, ctx) => {
-        const counterpartyHex = params.counterpartyPublicKey as string
+        const counterpartyHex = await resolveCounterparty(params.counterpartyPublicKey as string, ctx)
         const protocolName = (params.protocolID as string) || 'agidentity pfs'
         const securityLevel = (params.securityLevel as number) ?? 2
         const keyID = (params.keyID as string) || `privilege-${Date.now()}`
@@ -336,11 +379,11 @@ export function zkproofTools(): ToolDescriptor[] {
           properties: {
             counterpartyPublicKey: {
               type: 'string',
-              description: 'Public key of the counterparty for the session to reveal',
+              description: 'Compressed public key (66-char hex starting with 02 or 03) of the counterparty, OR "self" to use your own identity key.',
             },
             protocolID: {
               type: 'string',
-              description: 'BRC-42 protocol name (e.g. "agidentity pfs")',
+              description: 'BRC-42 protocol name (letters numbers spaces only, min 5 chars). Default: "agidentity pfs"',
             },
             securityLevel: {
               type: 'number',
@@ -360,7 +403,7 @@ export function zkproofTools(): ToolDescriptor[] {
       },
       requiresWallet: true,
       execute: async (params, ctx) => {
-        const counterpartyHex = params.counterpartyPublicKey as string
+        const counterpartyHex = await resolveCounterparty(params.counterpartyPublicKey as string, ctx)
         const protocolName = (params.protocolID as string) || 'agidentity pfs'
         const securityLevel = (params.securityLevel as number) ?? 2
         const keyID = params.keyID as string
