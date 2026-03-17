@@ -48,7 +48,7 @@ const SignedEnvelopeDataSchema = z.object({
 
 export class PerInteractionEncryption {
   private wallet: BRC100Wallet;
-  private protocolId: [number, string] = [2, 'agidentity-pfs'];
+  private protocolId: [number, string] = [2, 'agidentity pfs'];
 
   constructor(wallet: BRC100Wallet) {
     this.wallet = wallet;

@@ -767,7 +767,7 @@ export class AGIdentityGateway {
       const merkleRoot = await chain.getMerkleRoot();
       const result = await lockPushDropToken(this.wallet, {
         fields: [
-          'agidentity-anchor-v1',
+          'agidentity anchor v1',
           chain.getSessionId(),
           merkleRoot,
           chain.getHeadHash(),

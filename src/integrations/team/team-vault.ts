@@ -73,7 +73,7 @@ export class TeamVault {
     // CurvePoint uses BSV SDK WalletInterface which is compatible with BRC100Wallet
     // CurvePoint bundles its own @bsv/sdk with incompatible AtomicBEEF types
     this.curvePoint = new CurvePoint(this.wallet.asWalletInterface() as any);
-    this.defaultProtocolID = config.defaultProtocolID ?? [2 as SecurityLevel, 'agidentity-team'];
+    this.defaultProtocolID = config.defaultProtocolID ?? [2 as SecurityLevel, 'agidentity team'];
     this.persistTeamConfig = config.persistTeamConfig;
     this.loadTeamConfig = config.loadTeamConfig;
   }

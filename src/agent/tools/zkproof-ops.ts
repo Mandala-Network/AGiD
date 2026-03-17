@@ -119,7 +119,7 @@ export function zkproofTools(): ToolDescriptor[] {
             },
             protocolID: {
               type: 'string',
-              description: 'BRC-42 protocol name used for the session (e.g. "agidentity-pfs"). Default: "agidentity-pfs"',
+              description: 'BRC-42 protocol name used for the session (e.g. "agidentity pfs"). Default: "agidentity pfs"',
             },
             securityLevel: {
               type: 'number',
@@ -144,7 +144,7 @@ export function zkproofTools(): ToolDescriptor[] {
       requiresWallet: true,
       execute: async (params, ctx) => {
         const counterpartyHex = params.counterpartyPublicKey as string
-        const protocolName = (params.protocolID as string) || 'agidentity-pfs'
+        const protocolName = (params.protocolID as string) || 'agidentity pfs'
         const securityLevel = (params.securityLevel as number) ?? 2
         const keyID = (params.keyID as string) || `privilege-${Date.now()}`
         const anchorOnChain = (params.anchorOnChain as boolean) ?? true
@@ -213,7 +213,7 @@ export function zkproofTools(): ToolDescriptor[] {
                 new Date().toISOString(),
                 label || '',
               ],
-              protocolID: [0, 'agidentity-zkproof'],
+              protocolID: [0, 'agidentity zkproof'],
               keyID: `proof-anchor-${keyID}`,
               satoshis: 1,
               basket: 'zkproofs',
@@ -340,7 +340,7 @@ export function zkproofTools(): ToolDescriptor[] {
             },
             protocolID: {
               type: 'string',
-              description: 'BRC-42 protocol name (e.g. "agidentity-pfs")',
+              description: 'BRC-42 protocol name (e.g. "agidentity pfs")',
             },
             securityLevel: {
               type: 'number',
@@ -361,7 +361,7 @@ export function zkproofTools(): ToolDescriptor[] {
       requiresWallet: true,
       execute: async (params, ctx) => {
         const counterpartyHex = params.counterpartyPublicKey as string
-        const protocolName = (params.protocolID as string) || 'agidentity-pfs'
+        const protocolName = (params.protocolID as string) || 'agidentity pfs'
         const securityLevel = (params.securityLevel as number) ?? 2
         const keyID = params.keyID as string
         const withProof = (params.generateProof as boolean) ?? true
@@ -471,7 +471,7 @@ export function zkproofTools(): ToolDescriptor[] {
 
         const signature = await ctx.wallet.createSignature({
           data: Array.from(Buffer.from(commitmentData, 'utf8')),
-          protocolID: [0, 'agidentity-zkproof'],
+          protocolID: [0, 'agidentity zkproof'],
           keyID: `commitment-${contentHash.slice(0, 16)}`,
         })
 
@@ -490,7 +490,7 @@ export function zkproofTools(): ToolDescriptor[] {
                 label,
                 signatureHex,
               ],
-              protocolID: [0, 'agidentity-zkproof'],
+              protocolID: [0, 'agidentity zkproof'],
               keyID: `commitment-${contentHash.slice(0, 16)}`,
               satoshis: 1,
               basket: 'zkproofs',
@@ -577,7 +577,7 @@ export function zkproofTools(): ToolDescriptor[] {
             const result = await ctx.wallet.verifySignature({
               data: Array.from(Buffer.from(params.commitmentData as string, 'utf8')),
               signature: Array.from(Buffer.from(params.signature as string, 'hex')),
-              protocolID: [0, 'agidentity-zkproof'],
+              protocolID: [0, 'agidentity zkproof'],
               keyID: `commitment-${commitmentHash.slice(0, 16)}`,
               counterparty: params.signerPublicKey as string,
             })
