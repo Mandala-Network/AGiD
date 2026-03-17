@@ -38,6 +38,7 @@ export function certTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'identity',
       execute: async (params, ctx) => {
         const subject = params.subject as string;
         const name = params.name as string;
@@ -86,6 +87,7 @@ export function certTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'identity',
       execute: async (params, ctx) => {
         const peerCert = new PeerCert(ctx.wallet.asWalletInterface() as any);
 
@@ -160,6 +162,7 @@ export function certTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'identity',
       execute: async (params, ctx) => {
         const certifiers = params.certifier ? [params.certifier as string] : undefined;
         const types = params.type
@@ -201,6 +204,7 @@ export function certTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'identity',
       execute: async (params, ctx) => {
         const serialized = params.serializedCertificate as string;
         const checkRevocation = params.checkRevocation === true;
@@ -254,6 +258,7 @@ export function certTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'identity',
       execute: async (params, ctx) => {
         const { publicKey: myKey } = await ctx.wallet.getPublicKey({ identityKey: true });
         const certifier = (params.certifier as string) || myKey;
@@ -303,6 +308,7 @@ export function certTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'identity',
       execute: async (params, ctx) => {
         const serialNumber = params.serialNumber as string;
         const fieldsToReveal = params.fields as string[];
@@ -343,6 +349,7 @@ export function certTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'identity',
       execute: async (params, ctx) => {
         const serialNumber = params.serialNumber as string;
         const certifier = params.certifier as string;
@@ -390,6 +397,7 @@ export function certTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'identity',
       execute: async (params, ctx) => {
         const serialNumber = params.serialNumber as string;
         const recipient = params.recipient as string;

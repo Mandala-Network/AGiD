@@ -8,10 +8,13 @@ import type { AgentToolDefinition, ToolResult } from '../../types/agent-types.js
 import type { AgentWallet } from '../../wallet/agent-wallet.js';
 import type { MemoryManager } from '../../storage/memory/memory-manager.js';
 
+export type ToolCategory = 'identity' | 'crypto' | 'memory' | 'zkproof' | 'messaging' | 'transactions' | 'tokens' | 'calibration' | 'services' | 'research' | 'audit' | 'deployment' | 'shad';
+
 export interface ToolDescriptor {
   definition: AgentToolDefinition;
   execute: (params: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>;
   requiresWallet: boolean;
+  category?: ToolCategory;
 }
 
 export interface ToolContext {

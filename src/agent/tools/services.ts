@@ -22,6 +22,7 @@ export function serviceTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'services',
       execute: async (params, ctx) => {
         const text = params.text as string;
         const objective = params.objective as string;
@@ -62,6 +63,7 @@ export function serviceTools(): ToolDescriptor[] {
         input_schema: { type: 'object', properties: {}, required: [] },
       },
       requiresWallet: false,
+      category: 'services',
       execute: async (_params, ctx) => {
         const client = new X402Client(ctx.wallet);
         const services = await client.discoverServices();
@@ -84,6 +86,7 @@ export function serviceTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'services',
       execute: async (params, ctx) => {
         const client = new X402Client(ctx.wallet);
         const result = await client.request(params.url as string, {
@@ -108,6 +111,7 @@ export function serviceTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'services',
       execute: async (params) => {
         const service = params.service as string;
         const query = (params.query as Record<string, unknown>) ?? {};

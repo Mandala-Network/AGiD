@@ -9,11 +9,12 @@ import type { AgentWallet } from '../wallet/agent-wallet.js';
 import type { AgentToolDefinition, RegisteredTool, ToolResult } from '../types/agent-types.js';
 import type { MemoryManager } from '../storage/memory/memory-manager.js';
 import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
-import { corePlugin, type ToolDescriptor, type ToolContext, type ToolPlugin } from './tools/index.js';
+import { corePlugin, type ToolDescriptor, type ToolContext, type ToolPlugin, type ToolCategory } from './tools/index.js';
 
 export class ToolRegistry {
   private tools = new Map<string, RegisteredTool>();
   private walletTools = new Set<string>();
+  private toolCategories = new Map<string, ToolCategory>();
   private definitionsCache: AgentToolDefinition[] | null = null;
 
   register(tool: RegisteredTool): void {
@@ -26,6 +27,16 @@ export class ToolRegistry {
       this.definitionsCache = Array.from(this.tools.values()).map((t) => t.definition);
     }
     return this.definitionsCache;
+  }
+
+  getDefinitionsByCategories(categories: ToolCategory[] | null): AgentToolDefinition[] {
+    if (!categories) return this.getDefinitions();
+    return Array.from(this.tools.values())
+      .filter(t => {
+        const cat = this.toolCategories.get(t.definition.name);
+        return cat && categories.includes(cat);
+      })
+      .map(t => t.definition);
   }
 
   requiresWallet(name: string): boolean {
@@ -66,6 +77,9 @@ export class ToolRegistry {
     for (const desc of descriptors) {
       if (desc.requiresWallet) {
         this.walletTools.add(desc.definition.name);
+      }
+      if (desc.category) {
+        this.toolCategories.set(desc.definition.name, desc.category);
       }
       this.register({
         definition: desc.definition,

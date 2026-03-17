@@ -7,6 +7,7 @@
 
 import type { LLMProvider, LLMMessage } from './llm-provider.js';
 import type { ToolRegistry } from './tool-registry.js';
+import type { ToolCategory } from './tools/types.js';
 import type { SessionStore } from './session-store.js';
 import type { PromptBuilder, IdentityContext } from './prompt-builder.js';
 import type { AgentLoopResult, AgentToolCall, AgentUsageStats, ConversationTurn } from '../types/agent-types.js';
@@ -58,6 +59,70 @@ export class AgentLoop {
     this.preToolExecution = config.preToolExecution;
   }
 
+  private classifyIntent(userMessage: string): { needsTools: boolean; categories: ToolCategory[] | null } {
+    const msg = userMessage.toLowerCase();
+
+    // Reasoning patterns — no tools needed
+    const reasoningPatterns = [
+      /^(what|why|how|when|where|who|can you|could you|would you|do you|is it|are you|tell me|explain|think|discuss|opinion|idea|thought|consider)/,
+      /\?$/,
+      /^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no|right|got it)/,
+    ];
+
+    const isReasoning = reasoningPatterns.some(p => p.test(msg));
+
+    // Action keywords that override reasoning classification
+    const actionKeywords: Record<string, ToolCategory[]> = {
+      'sign': ['crypto'],
+      'encrypt': ['crypto'],
+      'decrypt': ['crypto'],
+      'balance': ['identity'],
+      'identity': ['identity'],
+      'public key': ['identity'],
+      'payment': ['transactions', 'messaging'],
+      'send payment': ['transactions'],
+      'send message': ['messaging'],
+      'message': ['messaging'],
+      'memory': ['memory', 'shad'],
+      'remember': ['memory'],
+      'recall': ['memory', 'shad'],
+      'store': ['memory'],
+      'proof': ['zkproof'],
+      'zkproof': ['zkproof'],
+      'commitment': ['zkproof'],
+      'verify': ['zkproof'],
+      'token': ['tokens'],
+      'create token': ['tokens'],
+      'transaction': ['transactions'],
+      'deploy': ['deployment'],
+      'mandala': ['deployment'],
+      'certificate': ['identity'],
+      'calibrat': ['calibration'],
+      'discover': ['services'],
+      'overlay': ['services'],
+    };
+
+    // Check for action keywords
+    const matchedCategories = new Set<ToolCategory>();
+    for (const [keyword, cats] of Object.entries(actionKeywords)) {
+      if (msg.includes(keyword)) {
+        cats.forEach(c => matchedCategories.add(c));
+      }
+    }
+
+    if (matchedCategories.size > 0) {
+      matchedCategories.add('identity');
+      return { needsTools: true, categories: Array.from(matchedCategories) };
+    }
+
+    if (isReasoning) {
+      return { needsTools: false, categories: null };
+    }
+
+    // Ambiguous — provide all tools, let the prompt guide behavior
+    return { needsTools: true, categories: null };
+  }
+
   async run(userMessage: string, sessionId: string, identityContext?: IdentityContext, anchorChain?: AnchorChain): Promise<AgentLoopResult> {
     const toolCalls: AgentToolCall[] = [];
     const usage: AgentUsageStats = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -78,12 +143,16 @@ export class AgentLoop {
     const userTurn: ConversationTurn = { role: 'user', content: userMessage, timestamp: Date.now(), v: 1 };
     await this.sessionStore.addTurn(sessionId, userTurn);
 
-    // 4. Get tool definitions
-    const tools = this.toolRegistry.getDefinitions().map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-    }));
+    // 4. Classify intent and get filtered tool definitions
+    const intent = this.classifyIntent(userMessage);
+    console.log(`[AgentLoop] Intent: needsTools=${intent.needsTools}, categories=${intent.categories?.join(',') ?? 'all'}`);
+    const tools = intent.needsTools
+      ? this.toolRegistry.getDefinitionsByCategories(intent.categories).map(t => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema,
+        }))
+      : [];
 
     // 5. Iterative loop
     let messages: LLMMessage[] = history as LLMMessage[];
@@ -249,12 +318,16 @@ export class AgentLoop {
     const userTurn: ConversationTurn = { role: 'user', content: userMessage, timestamp: Date.now(), v: 1 };
     await this.sessionStore.addTurn(sessionId, userTurn);
 
-    // 4. Get tool definitions
-    const tools = this.toolRegistry.getDefinitions().map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-    }));
+    // 4. Classify intent and get filtered tool definitions
+    const intent = this.classifyIntent(userMessage);
+    console.log(`[AgentLoop] Intent: needsTools=${intent.needsTools}, categories=${intent.categories?.join(',') ?? 'all'}`);
+    const tools = intent.needsTools
+      ? this.toolRegistry.getDefinitionsByCategories(intent.categories).map(t => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema,
+        }))
+      : [];
 
     // 5. Iterative loop with event emission
     let messages: LLMMessage[] = history as LLMMessage[];

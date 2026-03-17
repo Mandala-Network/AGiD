@@ -18,6 +18,7 @@ export function memoryTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'memory',
       execute: async (params, ctx) => {
         if (!ctx.memoryManager) throw new Error('MemoryManager not configured');
         const content = params.content as string;
@@ -47,6 +48,7 @@ export function memoryTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'memory',
       execute: async (params, ctx) => {
         if (!ctx.memoryManager) throw new Error('MemoryManager not configured');
         const result = await ctx.memoryManager.recall({

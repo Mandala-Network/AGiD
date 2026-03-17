@@ -17,6 +17,7 @@ export function walletOpsTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'crypto',
       execute: async (params, ctx) => {
         const message = params.message as string;
         const protocol = (params.protocol as string) || 'agent message';
@@ -47,6 +48,7 @@ export function walletOpsTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'crypto',
       execute: async (params, ctx) => {
         const { data, protocol = 'agent memory', keyId = 'default', counterparty = 'self' } = params as Record<string, string>;
         const plaintext = Array.from(Buffer.from(data, 'utf8'));
@@ -76,6 +78,7 @@ export function walletOpsTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'crypto',
       execute: async (params, ctx) => {
         const { ciphertext, protocol = 'agent memory', keyId = 'default', counterparty = 'self' } = params as Record<string, string>;
         const ciphertextBytes = Array.from(Buffer.from(ciphertext, 'hex'));

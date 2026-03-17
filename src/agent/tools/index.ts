@@ -4,7 +4,7 @@
  * Creates all tool descriptors for the AGIdentity agent.
  */
 
-export type { ToolDescriptor, ToolContext, ToolPlugin } from './types.js';
+export type { ToolDescriptor, ToolContext, ToolPlugin, ToolCategory } from './types.js';
 export { ok } from './types.js';
 export { corePlugin } from './core-plugin.js';
 

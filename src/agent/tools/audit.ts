@@ -15,6 +15,7 @@ export function auditTools(): ToolDescriptor[] {
         input_schema: { type: 'object', properties: {}, required: [] },
       },
       requiresWallet: false,
+      category: 'audit',
       execute: async (_params, ctx) => {
         if (!ctx.workspacePath) throw new Error('workspacePath not configured');
         const integrity = new WorkspaceIntegrity(ctx.workspacePath);
@@ -56,6 +57,7 @@ export function auditTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'audit',
       execute: async (params, ctx) => {
         if (!ctx.sessionsPath) throw new Error('sessionsPath not configured');
         const sessionId = params.sessionId as string;

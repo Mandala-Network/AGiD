@@ -37,6 +37,7 @@ export function shadTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'shad',
       execute: async (params, ctx: ToolContext) => {
         if (!ctx.memoryManager) {
           return ok({ success: false, error: 'Memory manager not available' });
@@ -77,6 +78,7 @@ export function shadTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'shad',
       execute: async (params, ctx: ToolContext) => {
         if (!ctx.memoryManager) {
           return ok({ success: false, error: 'Memory manager not available' });

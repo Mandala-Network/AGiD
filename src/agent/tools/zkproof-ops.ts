@@ -185,6 +185,7 @@ export function zkproofTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'zkproof',
       execute: async (params, ctx) => {
         const counterpartyHex = await resolveCounterparty(params.counterpartyPublicKey as string, ctx)
         const protocolName = (params.protocolID as string) || 'agidentity pfs'
@@ -312,6 +313,7 @@ export function zkproofTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'zkproof',
       execute: async (params) => {
         const serialized = params.proof as SerializedProof
 
@@ -402,6 +404,7 @@ export function zkproofTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'zkproof',
       execute: async (params, ctx) => {
         const counterpartyHex = await resolveCounterparty(params.counterpartyPublicKey as string, ctx)
         const protocolName = (params.protocolID as string) || 'agidentity pfs'
@@ -492,6 +495,7 @@ export function zkproofTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'zkproof',
       execute: async (params, ctx) => {
         const data = params.data as string
         const label = (params.label as string) || ''
@@ -604,6 +608,7 @@ export function zkproofTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'zkproof',
       execute: async (params, ctx) => {
         const data = params.data as string
         const commitmentHash = params.commitmentHash as string
