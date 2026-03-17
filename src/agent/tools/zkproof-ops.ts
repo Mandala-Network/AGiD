@@ -218,7 +218,7 @@ export function zkproofTools(): ToolDescriptor[] {
 
         // Use the HMAC output as the private scalar for the proof
         // This is deterministic and tied to both identities + session
-        const proofPrivateKey = new PrivateKey(Buffer.from(hmacResult.hmac).toString('hex'))
+        const proofPrivateKey = PrivateKey.fromHex(Buffer.from(hmacResult.hmac).toString('hex'))
         const proofPublicKey = proofPrivateKey.toPublicKey()
 
         // Compute shared secret S = proofPrivateKey * counterpartyPubKey
@@ -425,7 +425,7 @@ export function zkproofTools(): ToolDescriptor[] {
         if (withProof) {
           // Generate a BRC-94 proof that this revealed secret is authentic
           const counterpartyPub = PublicKey.fromString(counterpartyHex)
-          const proofPrivateKey = new PrivateKey(revealedSecret)
+          const proofPrivateKey = PrivateKey.fromHex(revealedSecret)
           const proofPublicKey = proofPrivateKey.toPublicKey()
           const sharedSecret = counterpartyPub.deriveSharedSecret(proofPrivateKey)
 
