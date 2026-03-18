@@ -33,6 +33,7 @@ import { createShadExecutor } from '../integrations/shad/index.js';
 import type { ShadTempVaultExecutor } from '../integrations/shad/shad-temp-executor.js';
 import type { VaultStore } from '../types/index.js';
 import type { LocalEncryptedVault } from '../storage/vault/local-encrypted-vault.js';
+import { SkillStore } from '../agent/skills/skill-store.js';
 
 // =============================================================================
 // Types
@@ -96,6 +97,7 @@ export class AGIdentityGateway {
   private gepaOptimizer: GepaOptimizer | null = null;
   private shadExecutor: ShadTempVaultExecutor | null = null;
   private memoryManager: MemoryManager | null = null;
+  private skillStore: SkillStore | null = null;
   private running = false;
   private agentPublicKey: string | null = null;
   private workspacePath: string = '';
@@ -179,6 +181,16 @@ export class AGIdentityGateway {
 
     // Enable auto-recall of relevant memories into system prompt
     this.promptBuilder.setMemoryManager(memoryManager);
+
+    // 5. Initialize SkillStore and load skills from on-chain basket
+    this.skillStore = new SkillStore(this.wallet);
+    try {
+      const skills = await this.skillStore.fetchAll();
+      this.promptBuilder.setSkills(skills);
+      console.log(`[AGIdentityGateway] Loaded ${skills.length} skills from on-chain basket`);
+    } catch (error) {
+      console.warn('[AGIdentityGateway] Skill loading failed (non-fatal):', error instanceof Error ? error.message : error);
+    }
 
     const sessionStore = new SessionStore({ sessionsPath });
 
@@ -650,6 +662,26 @@ export class AGIdentityGateway {
       console.error('[AGIdentityGateway] Workspace integrity check failed:', error instanceof Error ? error.message : error);
     }
 
+    // Resolve skill bodies for matched skills before agent loop
+    if (this.skillStore && this.promptBuilder) {
+      const skills = this.promptBuilder.getSkills();
+      if (skills.length > 0) {
+        const msg = content.toLowerCase();
+        const matched = skills.filter(skill =>
+          skill.triggers.some(t => msg.includes(t.toLowerCase())),
+        );
+        for (const skill of matched) {
+          if (!skill.body) {
+            try {
+              skill.body = await this.skillStore.resolveBody(skill);
+            } catch {
+              // Non-fatal: skill will be skipped in prompt injection
+            }
+          }
+        }
+      }
+    }
+
     // Run agent loop with progress event emission
     console.log(`[AGIdentityGateway] Running agent loop with events (session: ${identityContext.conversationId}) ${ts()}`);
     let aiResponse: string;
@@ -923,6 +955,10 @@ export class AGIdentityGateway {
 
   getShadExecutor(): ShadTempVaultExecutor | null {
     return this.shadExecutor;
+  }
+
+  getSkillStore(): SkillStore | null {
+    return this.skillStore;
   }
 
 }

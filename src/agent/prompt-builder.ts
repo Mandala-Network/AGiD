@@ -10,6 +10,7 @@ import * as path from 'path';
 import type { IntegrityStatus } from '../audit/workspace-integrity.js';
 import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
 import type { MemoryManager } from '../storage/memory/memory-manager.js';
+import type { SkillDescriptor } from './skills/types.js';
 
 /**
  * A dynamic context provider that returns a string section to append to the
@@ -75,6 +76,7 @@ export class PromptBuilder {
   private cache: { content: string; mtimes: Map<string, number>; gepaAvailable: boolean } | null = null;
   private contextProviders: ContextProvider[] = [];
   private memoryManager: MemoryManager | null = null;
+  private skills: SkillDescriptor[] = [];
   private lastUserMessage: string | null = null;
 
   constructor(config: PromptBuilderConfig) {
@@ -94,6 +96,21 @@ export class PromptBuilder {
 
   setMemoryManager(mm: MemoryManager): void {
     this.memoryManager = mm;
+  }
+
+  /**
+   * Set the loaded skill descriptors for prompt injection.
+   * Skills are matched by trigger keywords against the user's message.
+   */
+  setSkills(skills: SkillDescriptor[]): void {
+    this.skills = skills;
+  }
+
+  /**
+   * Get current skills list (used by gateway for hot-reload after creation).
+   */
+  getSkills(): SkillDescriptor[] {
+    return this.skills;
   }
 
   setLastUserMessage(msg: string): void {
@@ -118,6 +135,12 @@ export class PromptBuilder {
       if (section) {
         result += '\n\n' + section;
       }
+    }
+
+    // Inject matched skills (OpenClaw-style prompt injection)
+    const skillBlock = this.buildSkillBlock();
+    if (skillBlock) {
+      result += '\n\n' + skillBlock;
     }
 
     // Auto-recall relevant memories for this message
@@ -205,6 +228,33 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
     }
 
     return null;
+  }
+
+  /**
+   * Match skills by trigger keywords against the last user message.
+   * Returns an OpenClaw-style skill injection block, or null if no match.
+   */
+  private buildSkillBlock(): string | null {
+    if (this.skills.length === 0 || !this.lastUserMessage) return null;
+
+    const msg = this.lastUserMessage.toLowerCase();
+    const matched = this.skills.filter(skill =>
+      skill.triggers.some(t => msg.includes(t.toLowerCase())),
+    );
+
+    if (matched.length === 0) return null;
+
+    // Only inject skills that have resolved bodies
+    const withBodies = matched.filter(s => s.body);
+    if (withBodies.length === 0) return null;
+
+    const sections = withBodies.map(s =>
+      `[SKILL: ${s.name}]\n${s.description}\nTools: ${s.requiredTools.join(', ')}\n\n${s.body}\n[END SKILL: ${s.name}]`,
+    );
+
+    return '[AVAILABLE SKILLS]\nThe following skills match your current task. Follow the instructions in the matched skill.\n\n' +
+      sections.join('\n\n') +
+      '\n[END AVAILABLE SKILLS]';
   }
 
   private async recallRelevantMemories(): Promise<string | null> {
