@@ -115,6 +115,124 @@ The user wants to send or read end-to-end encrypted messages with another identi
 - BRC-42 key derivation means no key exchange is needed — the sender and recipient derive a shared secret from their respective key pairs.
 - Messages are point-to-point: only sender and recipient can read them.`,
   },
+
+  // =========================================================================
+  // Memory Management
+  // =========================================================================
+  {
+    name: 'memory-management',
+    description: 'Store, recall, and organize agent memories with context-aware retrieval',
+    triggers: [
+      'remember this',
+      'save memory',
+      'recall memory',
+      'what do you remember',
+      'forget',
+      'store this',
+      'memory',
+      'memories',
+    ],
+    requiredTools: ['agid_store_memory', 'agid_recall_memories'],
+    body: `# Memory Management
+
+## When to use
+The user wants you to remember something, recall past knowledge, or manage your on-chain memory vault.
+
+## Storing a memory
+
+1. Extract the key information from what the user wants you to remember. Write a clear, searchable summary — include who, what, when, and why.
+
+2. Choose appropriate tags for categorization. Use consistent tag names across memories (e.g. "preference", "fact", "contact", "project", "decision").
+
+3. Set importance based on content:
+   - "high": financial decisions, security-related facts, user identity info, critical preferences
+   - "medium": project context, technical facts, general preferences
+   - "low": casual observations, transient context
+
+4. Call agid_store_memory with:
+   - content: your clear, searchable summary (NOT the raw user message)
+   - tags: relevant category tags
+   - importance: "high", "medium", or "low"
+
+5. Confirm storage to the user with the returned txid as proof.
+
+## Recalling memories
+
+1. Call agid_recall_memories with relevant filters:
+   - tags: filter by category if the user asks about a specific topic
+   - importance: filter by priority if appropriate
+   - For semantic search: set semantic=true and provide a query string
+
+2. If the first recall returns nothing relevant, try broader search terms or remove tag filters.
+
+3. Present recalled memories clearly, noting their provenance (txid, tags).
+
+## Important
+- Be specific in memory content. "User likes coffee" is better than "noted preference".
+- Never store transient conversation details — only durable facts and preferences.
+- Memories are encrypted on-chain via the wallet. Never log plaintext memory content.
+- Output 0 always fails decryption (legacy memory token). Ignore this error silently.
+- When recalling, try multiple search strategies before telling the user nothing was found.`,
+  },
+
+  // =========================================================================
+  // BSV Payment
+  // =========================================================================
+  {
+    name: 'bsv-payment',
+    description: 'Send BSV payments and check balances using wallet operations',
+    triggers: [
+      'send payment',
+      'pay',
+      'transfer bsv',
+      'send satoshis',
+      'check balance',
+      'payment',
+      'send money',
+    ],
+    requiredTools: ['agid_send_payment', 'agid_balance', 'agid_list_outputs', 'agid_wallet_client_request'],
+    body: `# BSV Payment
+
+## When to use
+The user wants to send a BSV payment, check a balance, or manage funds.
+
+## Pre-flight: always check balance first
+
+1. Before any payment, call agid_balance to confirm sufficient funds.
+2. Report the current balance to the user. If insufficient, state the shortfall clearly and stop.
+
+## Sending from the agent wallet (agent's own funds)
+
+1. Confirm the recipient's public key (33-byte hex) and the amount in satoshis.
+2. Call agid_send_payment with:
+   - recipient: the recipient's public key
+   - amount: satoshis to send
+3. On success: report the txid to the user as confirmation.
+4. On failure: report the error. Do NOT retry automatically — ask the user how to proceed.
+
+## Sending from the user's wallet (user's funds via wallet client)
+
+1. Use agid_wallet_client_request to interact with the user's wallet client over HTTP.
+2. The agent does NOT sign these transactions — the user's wallet handles signing.
+3. Set operation to the appropriate BRC-100 method (e.g. "createAction" for building transactions).
+4. Clearly distinguish to the user: "This will use YOUR wallet, not the agent wallet."
+
+## Checking outputs and UTXOs
+
+1. Use agid_list_outputs to inspect wallet outputs filtered by basket or tags.
+2. Summarize the output set: count, total satoshis, baskets represented.
+
+## Error handling
+- Insufficient balance: report the shortfall clearly. Never retry payment on insufficient funds.
+- Network errors: report the error and suggest the user retry.
+- Invalid recipient key: ask the user to verify the public key format.
+
+## Important
+- Wallet signing is sequential. Never attempt concurrent payment operations.
+- Distinguish between agent wallet operations (agent's own funds) and user wallet client requests (user's funds via HTTP).
+- Always confirm payment details with the user before executing — especially for large amounts.
+- Payment amounts are always in satoshis (1 BSV = 100,000,000 satoshis).`,
+  },
 ];
 
 /**
