@@ -34,6 +34,7 @@ import type { ShadTempVaultExecutor } from '../integrations/shad/shad-temp-execu
 import type { VaultStore } from '../types/index.js';
 import type { LocalEncryptedVault } from '../storage/vault/local-encrypted-vault.js';
 import { SkillStore } from '../agent/skills/skill-store.js';
+import { seedCoreSkills } from '../agent/skills/index.js';
 
 // =============================================================================
 // Types
@@ -182,12 +183,14 @@ export class AGIdentityGateway {
     // Enable auto-recall of relevant memories into system prompt
     this.promptBuilder.setMemoryManager(memoryManager);
 
-    // 5. Initialize SkillStore and load skills from on-chain basket
+    // 5. Initialize SkillStore, seed core skills, and load from on-chain basket
     this.skillStore = new SkillStore(this.wallet);
     try {
-      const skills = await this.skillStore.fetchAll();
-      this.promptBuilder.setSkills(skills);
-      console.log(`[AGIdentityGateway] Loaded ${skills.length} skills from on-chain basket`);
+      await this.skillStore.fetchAll();
+      await seedCoreSkills(this.skillStore);
+      const allSkills = await this.skillStore.fetchAll();
+      this.promptBuilder.setSkills(allSkills);
+      console.log(`[AGIdentityGateway] Loaded ${allSkills.length} skills from on-chain basket`);
     } catch (error) {
       console.warn('[AGIdentityGateway] Skill loading failed (non-fatal):', error instanceof Error ? error.message : error);
     }
