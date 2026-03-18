@@ -7,8 +7,11 @@
 import type { AgentToolDefinition, ToolResult } from '../../types/agent-types.js';
 import type { AgentWallet } from '../../wallet/agent-wallet.js';
 import type { MemoryManager } from '../../storage/memory/memory-manager.js';
+import type { SkillStore } from '../skills/skill-store.js';
+import type { GepaOptimizer } from '../../integrations/gepa/gepa-optimizer.js';
+import type { PromptBuilder } from '../prompt-builder.js';
 
-export type ToolCategory = 'identity' | 'crypto' | 'memory' | 'zkproof' | 'messaging' | 'transactions' | 'tokens' | 'calibration' | 'services' | 'research' | 'audit' | 'deployment' | 'shad';
+export type ToolCategory = 'identity' | 'crypto' | 'memory' | 'zkproof' | 'messaging' | 'transactions' | 'tokens' | 'calibration' | 'services' | 'research' | 'audit' | 'deployment' | 'shad' | 'skills';
 
 export interface ToolDescriptor {
   definition: AgentToolDefinition;
@@ -22,6 +25,9 @@ export interface ToolContext {
   workspacePath?: string;
   sessionsPath?: string;
   memoryManager?: MemoryManager;
+  skillStore?: SkillStore;
+  gepaOptimizer?: GepaOptimizer;
+  promptBuilder?: PromptBuilder;
 }
 
 export function ok(data: Record<string, unknown>): ToolResult {

@@ -24,6 +24,7 @@ import { certTools } from './certificates.js';
 import { calibrationTools } from './calibration.js';
 import { shadTools } from './shad.js';
 import { zkproofTools } from './zkproof-ops.js';
+import { skillCreatorTools } from './skill-creator.js';
 
 export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
   const tools: ToolDescriptor[] = [
@@ -55,6 +56,10 @@ export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
 
   if (ctx.memoryManager) {
     tools.push(...shadTools());
+  }
+
+  if (ctx.skillStore) {
+    tools.push(...skillCreatorTools());
   }
 
   return tools;

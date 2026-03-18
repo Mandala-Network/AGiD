@@ -192,6 +192,23 @@ export class AGIdentityGateway {
       console.warn('[AGIdentityGateway] Skill loading failed (non-fatal):', error instanceof Error ? error.message : error);
     }
 
+    // Register skill creator tool (needs skillStore + promptBuilder + gepaOptimizer)
+    {
+      const skillCtx = {
+        wallet: this.wallet,
+        workspacePath,
+        sessionsPath,
+        memoryManager,
+        skillStore: this.skillStore,
+        gepaOptimizer,
+        promptBuilder: this.promptBuilder,
+      };
+      // Import and register skill creator tools directly
+      const { skillCreatorTools } = await import('../agent/tools/skill-creator.js');
+      toolRegistry.registerAll(skillCreatorTools(), skillCtx);
+      console.log('[AGIdentityGateway] Registered agid_create_skill tool');
+    }
+
     const sessionStore = new SessionStore({ sessionsPath });
 
     // Create or use provided LLM provider
