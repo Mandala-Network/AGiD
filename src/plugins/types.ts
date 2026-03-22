@@ -50,6 +50,7 @@ export interface AGiDExtensions {
   wallet: any;
   audit: any;
   identity: any;
+  memoryManager?: any;
 }
 
 // ---------------------------------------------------------------------------

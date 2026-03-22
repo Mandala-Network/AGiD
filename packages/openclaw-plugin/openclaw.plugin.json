@@ -1,0 +1,14 @@
+{
+  "id": "agid",
+  "name": "AGiD — Auditable Agent Identity",
+  "description": "Cryptographic identity, auditable actions, provably private interactions for AI agents",
+  "kind": "tools",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "storage": { "type": "string", "enum": ["local", "cloud"], "default": "local" },
+      "network": { "type": "string", "enum": ["mainnet", "testnet"], "default": "testnet" },
+      "storagePath": { "type": "string", "default": "~/.agid/wallet.sqlite" }
+    }
+  }
+}
