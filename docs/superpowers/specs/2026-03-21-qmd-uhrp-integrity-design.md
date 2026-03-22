@@ -21,6 +21,24 @@ Enable Shad's QMD retriever as the default retrieval mode, implement local-first
 - Vector embeddings or custom semantic indexing
 - Passphrase-based key ID protection (future feature)
 
+## Migration
+
+The basket name, protocol ID, and token format are changing:
+
+| | Old | New |
+|--|-----|-----|
+| Basket | `agent-memories` | `agid-memory` |
+| Protocol ID | `[2, 'agidentity memory']` | `[2, 'agid memory']` |
+| Token fields | `[uhrpUrl, tags, importance]` | `[uhrpUrl, tags]` |
+| Key ID | `memory-${Date.now()}` | `"1"` |
+
+**Backward compatibility:** The Memory Reader must check both baskets (`agid-memory` and `agent-memories`) during a transition period. Old tokens are read by:
+- Querying `agent-memories` basket
+- Decrypting with protocol ID `[2, 'agidentity memory']` and the original per-memory key ID (stored in `customInstructions` on the output)
+- Ignoring the `importance` field (3rd token field)
+
+New writes always use the new format. Old tokens remain readable until explicitly migrated or expired. No automated migration — old and new coexist.
+
 ---
 
 ## 1. QMD Retriever Configuration
@@ -98,11 +116,11 @@ No changes to the temp vault decrypt/cleanup flow. The only difference is which 
 
 ### Retrieval with Shad (QMD path)
 
-1. Read memories via normal read
-2. Decrypt to temp directory
-3. Run integrity verifier (pre-retrieval)
+1. Read encrypted memories from local vault
+2. Run integrity verifier on encrypted content (pre-retrieval)
+3. Decrypt verified files to temp directory
 4. Execute Shad with `--retriever qmd`
-5. Run integrity verifier (post-retrieval, attach proofs)
+5. Run integrity verifier (post-retrieval, attach proofs to cited docs)
 6. Cleanup temp directory
 
 ---
@@ -147,7 +165,7 @@ Runs on a configurable interval and pushes dirty changes to the remote backend.
 **Edge cases:**
 - If a sync is still running when the next tick fires, skip that tick
 - If remote vault is not configured, scheduler is a no-op
-- On startup, does an initial diff between local and remote to catch anything missed while offline
+- On startup, compares local dirty list against remote UHRP index (metadata-only, no content download) to catch anything missed while offline
 
 ---
 
@@ -155,12 +173,14 @@ Runs on a configurable interval and pushes dirty changes to the remote backend.
 
 ### Pre-retrieval (before Shad runs)
 
-1. After decrypting memories to the temp directory, hash each file (SHA-256)
-2. Look up the corresponding PushDrop token from `agid-memory` basket
-3. Compare computed hash against the `uhrpUrl` hash in the token
+Integrity verification happens on the **encrypted** content, before decryption. This allows verification without needing the private key.
+
+1. Read encrypted content from local vault for each memory
+2. SHA-256 hash the **encrypted** content
+3. Compare computed hash against the `uhrpUrl` hash in the corresponding PushDrop token from `agid-memory` basket
 4. **Soft fail (default):** exclude tampered file, log warning, continue
 5. **Strict mode:** abort entire Shad execution
-6. Shad only runs over verified files
+6. Only verified files are decrypted to the temp directory for Shad
 
 ### Post-retrieval (after Shad returns)
 
@@ -174,9 +194,26 @@ For each document Shad cited in its results, attach proof metadata:
 
 This proof metadata is returned in the `ShadResult` so consumers can verify provenance.
 
+**Type changes required:** Add optional fields to `ShadRetrievedDocument`:
+
+```typescript
+export interface ShadRetrievedDocument {
+  path: string;
+  content: string;
+  confidence: number;
+  source: string;
+  // New integrity proof fields
+  contentHash?: string;
+  tokenTxid?: string;
+  verified?: boolean;
+}
+```
+
 ---
 
 ## 8. Configuration
+
+The config extends the existing `AGIdentityEnvConfig` type. The `retriever` field already exists in `ShadConfig` — we just ensure it is read from env and passed through to the executor.
 
 ```typescript
 interface AGiDConfig {
@@ -208,6 +245,7 @@ interface AGiDConfig {
 | `REMOTE_BACKUP_ENABLED`    | `false`     | Enable UHRP backup sync       |
 | `REMOTE_BACKUP_INTERVAL_MS`| `3600000`   | Sync interval (1 hour)         |
 | `INTEGRITY_STRICT`         | `false`     | Abort on verification failure  |
+| `INTEGRITY_VERIFY`         | `true`      | Enable verification on retrieval |
 
 **Constants (not configurable):**
 
@@ -240,8 +278,8 @@ Read Path:
   Agent recalls memories
     → Query agid-memory basket for PushDrop tokens
     → Read encrypted content from local vault (or recover from UHRP)
-    → Decrypt to temp directory
-    → IntegrityVerifier: hash files, compare to token hashes
+    → IntegrityVerifier: hash encrypted content, compare to token hashes
+    → Decrypt verified files to temp directory
     → Shad --retriever qmd (over verified files only)
     → IntegrityVerifier: attach proofs to cited documents
     → Cleanup temp directory
