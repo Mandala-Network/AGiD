@@ -7,7 +7,7 @@
  * Process:
  * 1. Create secure temp directory (0o700 permissions)
  * 2. Decrypt all documents from encrypted vault to temp directory
- * 3. Run Shad with --retriever filesystem pointing to temp vault
+ * 3. Run Shad with --retriever auto pointing to temp vault
  * 4. ALWAYS cleanup temp directory in finally block (security critical)
  *
  * @module agidentity/shad
@@ -83,12 +83,13 @@ export class ShadTempVaultExecutor {
   private readonly vault: VaultStore | LocalEncryptedVault | EncryptedShadVault;
   private readonly userPublicKey?: string;
   private readonly config: Required<Omit<ShadConfig, 'retriever'>>;
+  private readonly retriever: 'auto' | 'qmd' | 'filesystem';
 
   constructor(config: ShadTempVaultExecutorConfig) {
     this.vault = config.vault;
     this.userPublicKey = config.userPublicKey;
 
-    // Set defaults (retriever is always 'filesystem' for temp vault pattern)
+    // Set defaults (retriever defaults to 'auto' — Shad auto-detects QMD if installed)
     this.config = {
       pythonPath: config.shadConfig?.pythonPath ?? 'python3',
       shadPath: config.shadConfig?.shadPath ?? '~/.shad',
@@ -97,6 +98,7 @@ export class ShadTempVaultExecutor {
       maxTime: config.shadConfig?.maxTime ?? 300,
       strategy: config.shadConfig?.strategy ?? 'research',
     };
+    this.retriever = config.shadConfig?.retriever ?? 'auto';
   }
 
   /**
@@ -284,7 +286,7 @@ export class ShadTempVaultExecutor {
         '--vault',
         tempVaultPath,
         '--retriever',
-        'filesystem',
+        this.retriever,
         '--max-depth',
         String(options?.maxDepth ?? this.config.maxDepth),
         '--max-time',
