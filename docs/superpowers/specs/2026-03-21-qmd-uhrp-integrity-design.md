@@ -22,24 +22,6 @@ Let Shad auto-detect and use QMD for hybrid retrieval (BM25 + vector + reranking
 - Adding `@tobilu/qmd` as a direct dependency (Shad manages its own QMD integration)
 - Passphrase-based key ID protection (future feature)
 
-## Migration
-
-The basket name, protocol ID, and token format are changing:
-
-| | Old | New |
-|--|-----|-----|
-| Basket | `agent-memories` | `agid-memory` |
-| Protocol ID | `[2, 'agidentity memory']` | `[2, 'agid memory']` |
-| Token fields | `[uhrpUrl, tags, importance]` | `[uhrpUrl, tags]` |
-| Key ID | `memory-${Date.now()}` | `"1"` |
-
-**Backward compatibility:** The Memory Reader must check both baskets (`agid-memory` and `agent-memories`) during a transition period. Old tokens are read by:
-- Querying `agent-memories` basket
-- Decrypting with protocol ID `[2, 'agidentity memory']` and the original per-memory key ID (stored in `customInstructions` on the output)
-- Ignoring the `importance` field (3rd token field)
-
-New writes always use the new format. Old tokens remain readable until explicitly migrated or expired. No automated migration — old and new coexist.
-
 ---
 
 ## 1. Shad Retriever Configuration
@@ -80,11 +62,7 @@ No changes to the temp vault decrypt/cleanup flow. The only difference is which 
 | Key ID        | `"1"`                    |
 | Counterparty  | User's own public key    |
 
-**Changes from current format:**
-- Basket renamed from `agent-memories` to `agid-memory`
-- Protocol ID changed from `[2, 'agidentity memory']` to `[2, 'agid memory']`
-- `importance` field removed from token
-- Key ID is static `"1"` (passphrase-based key IDs deferred to future)
+**Note:** No backward compatibility needed — system is not yet in production. Old code using `agent-memories` basket, `[2, 'agidentity memory']` protocol, and `importance` field will be replaced directly.
 
 ---
 
