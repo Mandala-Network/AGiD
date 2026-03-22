@@ -14,7 +14,7 @@ Restructure AGiD so that every tool is a plugin, the plugin/skill system is Open
 3. Skills system uses OpenClaw's `SKILL.md` format with AGiD extensions
 4. Add missing general-purpose tools (exec/process, file ops, browser) as plugins
 5. Ship `@agid/openclaw-plugin` npm package for OpenClaw users
-6. Remove niche tools (Base2, X/Twitter, x402, overlay lookup, create_skill)
+6. Remove niche tools (Base2, X/Twitter, x402, overlay lookup, discover_services, create_skill)
 
 ## Non-Goals
 
@@ -74,20 +74,34 @@ OpenClaw plugins that don't reference `api.agid` work unchanged. AGiD plugins us
 api.registerTool({
   name: string;              // Tool name (must not clash with core)
   description: string;       // LLM-facing description
-  parameters: TSchema;       // TypeBox schema for parameters
-  execute(id, params, ctx?): Promise<ToolResult>;
+  parameters: TSchema;       // TypeBox or JSON Schema object (both accepted)
+  execute(id: string, params: any, ctx?: ToolContext): Promise<ToolResult>;
 }, options?: {
   optional?: boolean;        // User must add to tools.allow
   group?: string;            // Tool group for access control
 });
 ```
 
-**Tool result format:**
+The `id` parameter is a unique invocation ID generated per tool call (for audit logging and tracing). The existing AGiD `execute(params, ctx)` signature differs — migrated tools need to add the `id` first parameter. The plugin runtime adapter handles this during the transition period by injecting a generated ID for old-style tools.
+
+**Tool result format (OpenClaw-compatible):**
 ```typescript
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
 }
 ```
+
+**Migration from current format:** The existing AGiD `ToolResult` uses `{ content: string; isError?: boolean }`. During migration, an adapter wraps old-style results into the new format:
+```typescript
+function adaptResult(old: { content: string; isError?: boolean }): ToolResult {
+  return {
+    content: [{ type: "text", text: old.content }],
+    isError: old.isError,
+  };
+}
+```
+The adapter runs in the plugin runtime's tool dispatch layer. Old tools work unchanged until migrated. New tools use the new format directly.
 
 **AGiD-extended tool registration:**
 ```typescript
@@ -152,7 +166,41 @@ Both `openclaw` and `agid` sections are recognized. This allows the same package
 
 **Plugins run in-process** (same as OpenClaw — no sandboxing). A plugin bug can crash the gateway. This matches OpenClaw's trust model.
 
-### 1.5 Tool Access Control
+### 1.5 Plugin Lifecycle
+
+```typescript
+export default definePluginEntry({
+  id: "my-plugin",
+  name: "My Plugin",
+  register(api) {
+    // Called during gateway startup — register tools, hooks, etc.
+  },
+  async destroy() {
+    // Called during gateway shutdown — cleanup resources
+    // Close SQLite connections, kill child processes, stop Playwright, etc.
+  }
+});
+```
+
+The gateway calls `destroy()` on all loaded plugins during graceful shutdown. If `destroy()` throws, the error is logged but does not block other plugins from shutting down.
+
+### 1.6 Error Handling
+
+**Plugin load errors:**
+- Invalid manifest (bad JSON, missing `id`) → skip plugin, log warning, continue
+- Module not found → skip plugin, log warning, continue
+- `register()` throws → skip plugin, log error, continue
+- Other plugins continue loading — one broken plugin does not take down the gateway
+
+**Tool execution errors:**
+- `execute()` throws → return `{ content: [{ type: "text", text: error.message }], isError: true }` to the LLM
+- `execute()` times out → kill execution, return timeout error to the LLM
+- The agent loop handles `isError: true` results the same as the current `isError` field
+
+**Tool name conflicts:**
+- If a plugin registers a tool name that already exists, the duplicate is skipped and a warning is logged (same as OpenClaw)
+
+### 1.7 Tool Access Control
 
 Same system as OpenClaw:
 
@@ -223,7 +271,7 @@ Skill instructions injected into system prompt...
 4. Bundled skills: shipped with AGiD
 5. Extra dirs: `skills.load.extraDirs` config
 
-Skills are snapshotted at session start. Changes take effect on next new session.
+Skills are snapshotted at session start by default. When `skills.load.watch` is enabled, a file watcher detects changes and refreshes eligible skills mid-session (same behavior as OpenClaw).
 
 ---
 
@@ -266,11 +314,12 @@ Skills are snapshotted at session start. Changes take effect on next new session
 | agid_x_trending | X/Twitter — deferred |
 | agid_x_tweet | X/Twitter — deferred |
 | agid_x402_request | Deferred to API overlay |
+| agid_discover_services | Deferred to API overlay |
 | agid_overlay_lookup | Deferred to API overlay |
 | agid_create_skill | Replaced by skills system |
-| **Total removed** | **12** |
+| **Total removed** | **13** |
 
-### 3.4 Total: 11 plugin packages, 57 tools
+### 3.4 Total: 11 plugin packages, 57 tools (63 original - 13 removed + 7 new)
 
 ---
 
@@ -330,29 +379,44 @@ Published as `@agid/openclaw-plugin`:
 
 ```typescript
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import { WalletToolbox } from "@bsv/wallet-toolbox";
 
 export default definePluginEntry({
   id: "agid",
   name: "AGiD — Auditable Agent Identity",
   register(api) {
-    // Initialize wallet-toolbox with configured storage
     const config = api.config?.plugins?.entries?.agid ?? {};
-    const wallet = initWallet({
-      storage: config.storage ?? 'local',
-      network: config.network ?? 'testnet',
-      storagePath: config.storagePath ?? '~/.agid/wallet.sqlite',
-    });
 
-    // Register all AGiD tools
-    registerIdentityTools(api, wallet);
-    registerCryptoTools(api, wallet);
-    registerWalletTools(api, wallet);
-    registerMemoryTools(api, wallet);
-    registerMessagingTools(api, wallet);
-    registerAuditTools(api, wallet);
-    registerOptimizeTools(api, wallet);
-    registerDeployTools(api, wallet);
+    // Lazy wallet initialization — wallet is created on first tool use,
+    // not at registration time. This avoids async issues in register()
+    // and skips wallet setup if no AGiD tools are actually called.
+    let walletPromise: Promise<AgentWallet> | null = null;
+    function getWallet() {
+      if (!walletPromise) {
+        walletPromise = initWallet({
+          storage: config.storage ?? 'local',
+          network: config.network ?? 'testnet',
+          storagePath: config.storagePath ?? '~/.agid/wallet.sqlite',
+        });
+      }
+      return walletPromise;
+    }
+
+    // Register all AGiD tools with lazy wallet access
+    registerIdentityTools(api, getWallet);
+    registerCryptoTools(api, getWallet);
+    registerWalletTools(api, getWallet);
+    registerMemoryTools(api, getWallet);
+    registerMessagingTools(api, getWallet);
+    registerAuditTools(api, getWallet);
+    registerOptimizeTools(api, getWallet);
+    registerDeployTools(api, getWallet);
+  },
+  async destroy() {
+    // Cleanup wallet connection on shutdown
+    if (walletPromise) {
+      const wallet = await walletPromise;
+      await wallet.destroy?.();
+    }
   }
 });
 ```
@@ -415,7 +479,9 @@ Each phase is independently deployable. The agent loop checks both the old tool 
 
 ## 6. Configuration
 
-### 6.1 AGiD Config (extends existing)
+### 6.1 AGiD Config
+
+The plugin/skills/tools config uses a JSON5 config file at `~/.agid/agid.json`. This is separate from the existing `AGIdentityEnvConfig` which remains env-var based. The existing `loadConfig()` continues to work for wallet, UHRP, Shad, and server settings. The new config file handles plugin/skill/tool settings that don't map well to flat env vars. Both are loaded at startup.
 
 ```json5
 {
