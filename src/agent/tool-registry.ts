@@ -10,6 +10,8 @@ import type { AgentToolDefinition, RegisteredTool, ToolResult } from '../types/a
 import type { MemoryManager } from '../storage/memory/memory-manager.js';
 import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
 import { corePlugin, type ToolDescriptor, type ToolContext, type ToolPlugin, type ToolCategory } from './tools/index.js';
+import { PluginRegistry } from '../plugins/plugin-registry.js';
+import { adaptNewResult } from '../plugins/result-adapter.js';
 
 export class ToolRegistry {
   private tools = new Map<string, RegisteredTool>();
@@ -86,6 +88,42 @@ export class ToolRegistry {
         execute: (params) => desc.execute(params, ctx),
       });
     }
+  }
+
+  /**
+   * Bridge: register all tools from the plugin registry into the old tool registry.
+   * Uses the result adapter to convert new format to old format.
+   */
+  registerFromPluginRegistry(pluginRegistry: PluginRegistry): void {
+    for (const pluginTool of pluginRegistry.getTools()) {
+      const { registration } = pluginTool;
+
+      if (this.tools.has(registration.name)) {
+        console.warn(`[ToolRegistry] Tool '${registration.name}' already exists — skipping plugin tool`);
+        continue;
+      }
+
+      if (registration.requiresWallet) {
+        this.walletTools.add(registration.name);
+      }
+
+      this.register({
+        definition: {
+          name: registration.name,
+          description: registration.description,
+          input_schema: {
+            type: 'object',
+            properties: registration.parameters?.properties ?? registration.parameters ?? {},
+            required: registration.parameters?.required,
+          },
+        },
+        execute: async (params) => {
+          const result = await pluginRegistry.executeTool(registration.name, params);
+          return adaptNewResult(result);
+        },
+      });
+    }
+    this.definitionsCache = null;
   }
 
   /**
