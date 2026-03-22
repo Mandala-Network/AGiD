@@ -5,11 +5,11 @@
 
 ## Overview
 
-Enable Shad's QMD retriever as the default retrieval mode, implement local-first storage with scheduled UHRP backup, and add integrity verification using content hashes stored in PushDrop tokens.
+Let Shad auto-detect and use QMD for hybrid retrieval (BM25 + vector + reranking), implement local-first storage with scheduled UHRP backup, and add integrity verification using content hashes stored in PushDrop tokens.
 
 ## Goals
 
-1. Enable QMD as a configurable Shad retriever (default: `qmd`)
+1. Use Shad with `--retriever auto` so it auto-detects QMD for hybrid search
 2. Local-first storage with PushDrop tokens created at write-time
 3. Scheduled sync to UHRP as optional remote backup
 4. Pre- and post-retrieval integrity verification using content hashes
@@ -18,7 +18,8 @@ Enable Shad's QMD retriever as the default retrieval mode, implement local-first
 ## Non-Goals
 
 - Replacing existing vault implementations (LocalEncryptedVault, EncryptedShadVault)
-- Vector embeddings or custom semantic indexing
+- Managing QMD embeddings or indexing directly (Shad handles this)
+- Adding `@tobilu/qmd` as a direct dependency (Shad manages its own QMD integration)
 - Passphrase-based key ID protection (future feature)
 
 ## Migration
@@ -41,17 +42,22 @@ New writes always use the new format. Old tokens remain readable until explicitl
 
 ---
 
-## 1. QMD Retriever Configuration
+## 1. Shad Retriever Configuration
 
-The `ShadTempVaultExecutor` currently hardcodes `--retriever filesystem`. Change to:
+The `ShadTempVaultExecutor` currently hardcodes `--retriever filesystem`. Change to `--retriever auto`.
 
-- Read `retriever` from `ShadConfig` (already typed as `'auto' | 'qmd' | 'filesystem'`)
-- Pass through to Shad CLI args: `--retriever ${config.retriever}`
-- Default: `qmd`
-- Config via env var: `SHAD_RETRIEVER=qmd`
-- When `qmd` is selected, Shad handles its own indexing internally — we just provide the decrypted files in the temp directory as before
+- Default: `auto` — Shad auto-detects QMD if installed and uses hybrid search (BM25 + vector + RRF + reranking). Falls back to filesystem if QMD is not available.
+- Shad's `--qmd-hybrid` flag is on by default, so hybrid search is automatic when QMD is detected.
+- Shad manages QMD indexing and embedding internally — AGiD just provides the decrypted files in the temp directory as before.
+- The retriever remains configurable via `ShadConfig` and env var `SHAD_RETRIEVER` for cases where you want to force a specific backend.
+- **Prerequisite:** QMD must be installed globally (`npm install -g @tobilu/qmd`) for Shad to detect it.
 
 No changes to the temp vault decrypt/cleanup flow. The only difference is which flag Shad receives.
+
+**Shad search modes available via `ShadTempVaultExecutor`:**
+- `execute()` — full DAG reasoning with vault context
+- `search()` — `shad search` with hybrid/bm25/vector modes
+- `context()` — retrieval + synthesis without full DAG
 
 ---
 
@@ -119,7 +125,7 @@ No changes to the temp vault decrypt/cleanup flow. The only difference is which 
 1. Read encrypted memories from local vault
 2. Run integrity verifier on encrypted content (pre-retrieval)
 3. Decrypt verified files to temp directory
-4. Execute Shad with `--retriever qmd`
+4. Execute Shad with `--retriever auto` (auto-detects QMD if installed)
 5. Run integrity verifier (post-retrieval, attach proofs to cited docs)
 6. Cleanup temp directory
 
@@ -219,7 +225,7 @@ The config extends the existing `AGIdentityEnvConfig` type. The `retriever` fiel
 interface AGiDConfig {
   // ... existing fields ...
 
-  // Shad retriever — default: 'qmd'
+  // Shad retriever — default: 'auto' (auto-detects QMD if installed)
   shadRetriever: 'auto' | 'qmd' | 'filesystem';
 
   // Remote backup
@@ -241,7 +247,7 @@ interface AGiDConfig {
 
 | Variable                   | Default     | Description                    |
 |----------------------------|-------------|--------------------------------|
-| `SHAD_RETRIEVER`           | `qmd`       | Shad retriever mode            |
+| `SHAD_RETRIEVER`           | `auto`      | Shad retriever mode (auto-detects QMD) |
 | `REMOTE_BACKUP_ENABLED`    | `false`     | Enable UHRP backup sync       |
 | `REMOTE_BACKUP_INTERVAL_MS`| `3600000`   | Sync interval (1 hour)         |
 | `INTEGRITY_STRICT`         | `false`     | Abort on verification failure  |
@@ -280,7 +286,7 @@ Read Path:
     → Read encrypted content from local vault (or recover from UHRP)
     → IntegrityVerifier: hash encrypted content, compare to token hashes
     → Decrypt verified files to temp directory
-    → Shad --retriever qmd (over verified files only)
+    → Shad --retriever auto (auto-detects QMD, over verified files only)
     → IntegrityVerifier: attach proofs to cited documents
     → Cleanup temp directory
     → Return results with provenance
