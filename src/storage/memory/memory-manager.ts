@@ -51,7 +51,6 @@ export interface MemoryManagerOptions {
 
 export interface RecallOptions {
   tags?: string[];
-  importance?: string;
   limit?: number;
   semantic?: boolean;
   query?: string;
@@ -64,7 +63,6 @@ export interface RecallResult {
   memories: Array<{
     content: string;
     tags: string[];
-    importance: string;
     txid: string;
     blockTimestamp: number;
     uhrpUrl: string;
@@ -215,7 +213,6 @@ export class MemoryManager {
         return {
           content: typeof doc === 'string' ? doc : doc.content ?? String(doc),
           tags: provenance?.tags ?? [],
-          importance: provenance?.importance ?? 'medium',
           txid: provenance?.txid ?? '',
           blockTimestamp: provenance?.createdAt ?? 0,
           uhrpUrl: provenance?.uhrpUrl ?? '',
@@ -241,15 +238,14 @@ export class MemoryManager {
    * Get memories from cache or fetch fresh from chain.
    * Cache invalidates after TTL or when store() is called.
    */
-  private async getCachedMemories(options?: { tags?: string[]; importance?: string }): Promise<Memory[]> {
+  private async getCachedMemories(options?: { tags?: string[] }): Promise<Memory[]> {
     const now = Date.now();
 
     // Return cached if fresh and no filters (filtered queries bypass cache)
     if (
       this.memoryCache &&
       (now - this.memoryCache.fetchedAt) < this.cacheTtlMs &&
-      !options?.tags &&
-      !options?.importance
+      !options?.tags
     ) {
       return this.memoryCache.memories;
     }
@@ -258,7 +254,7 @@ export class MemoryManager {
     const memories = await listMemories(this.wallet, options);
 
     // Only cache unfiltered results
-    if (!options?.tags && !options?.importance) {
+    if (!options?.tags) {
       this.memoryCache = { memories, fetchedAt: now };
     }
 
@@ -306,8 +302,6 @@ export class MemoryManager {
         if (content.includes(term)) score += 1;
         if (tagText.includes(term)) score += 2; // Tags weighted higher
       }
-      // Boost high-importance memories
-      if (m.importance === 'high') score += 1;
       return { memory: m, score };
     });
 
@@ -360,7 +354,6 @@ export class MemoryManager {
     const limit = opts?.limit ?? 20;
     const memories = await this.getCachedMemories({
       tags: opts?.tags,
-      importance: opts?.importance,
     });
     const limited = memories.slice(0, limit);
     return {
@@ -383,7 +376,7 @@ export class MemoryManager {
     // 1. Fetch memories (cached)
     let memories: Memory[];
     try {
-      memories = await this.getCachedMemories({ importance: opts.importance });
+      memories = await this.getCachedMemories();
     } catch (error) {
       return {
         memories: [],
@@ -457,7 +450,6 @@ export class MemoryManager {
         return {
           content: typeof doc === 'string' ? doc : doc.content ?? String(doc),
           tags: provenance?.tags ?? [],
-          importance: provenance?.importance ?? 'medium',
           txid: provenance?.txid ?? '',
           blockTimestamp: provenance?.createdAt ?? 0,
           uhrpUrl: provenance?.uhrpUrl ?? '',
@@ -481,7 +473,6 @@ function toRecallEntry(m: Memory) {
   return {
     content: m.content,
     tags: m.tags,
-    importance: m.importance,
     txid: m.txid,
     blockTimestamp: m.createdAt,
     uhrpUrl: m.uhrpUrl,
