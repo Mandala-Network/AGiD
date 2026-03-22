@@ -2,7 +2,7 @@
  * Unit tests for TradeMemoryRecorder.
  *
  * Tests cover:
- *   1. recordTrade -- encrypted content, tag construction, importance levels, error handling
+ *   1. recordTrade -- encrypted content, tag construction, error handling
  *   2. recallTrades -- tag filtering, base tag, limit parameter
  *   3. Integration with trading tools -- fire-and-forget pattern
  */
@@ -28,7 +28,6 @@ function createMockMemoryManager(): MemoryManager {
     txid: "tx-abc123",
     uhrpUrl: "uhrp://abc123",
     tags: ["trade", "instrument:AAPL.XNAS"],
-    importance: "high",
     createdAt: Date.now(),
   };
 
@@ -44,7 +43,6 @@ function createMockMemoryManager(): MemoryManager {
           timestamp: Date.now(),
         }),
         tags: ["trade", "instrument:AAPL.XNAS", "side:BUY", "type:trade_filled"],
-        importance: "high",
         txid: "tx-recall-1",
         blockTimestamp: Date.now(),
         uhrpUrl: "uhrp://recall-1",
@@ -58,7 +56,6 @@ function createMockMemoryManager(): MemoryManager {
           timestamp: Date.now(),
         }),
         tags: ["trade", "instrument:MSFT.XNAS", "side:SELL", "type:trade_submitted"],
-        importance: "medium",
         txid: "tx-recall-2",
         blockTimestamp: Date.now(),
         uhrpUrl: "uhrp://recall-2",
@@ -69,7 +66,7 @@ function createMockMemoryManager(): MemoryManager {
   };
 
   return {
-    store: vi.fn<[{ content: string; tags: string[]; importance: string }], Promise<MemoryToken>>()
+    store: vi.fn<[{ content: string; tags: string[] }], Promise<MemoryToken>>()
       .mockResolvedValue(mockStoreResult),
     recall: vi.fn<[Record<string, unknown> | undefined], Promise<RecallResult>>()
       .mockResolvedValue(mockRecallResult),
@@ -180,7 +177,7 @@ describe("recordTrade", () => {
     expect(storeArg.tags).toContain("type:trade_submitted");
   });
 
-  it("fills and position closes stored as high importance", async () => {
+  it("fills and position closes stored without importance field", async () => {
     const fillEvent: TradeEvent = {
       eventType: "trade_filled",
       instrument: "AAPL.XNAS",
@@ -190,24 +187,13 @@ describe("recordTrade", () => {
     };
     await recorder.recordTrade(fillEvent);
 
-    let storeArg = (memoryManager.store as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(storeArg.importance).toBe("high");
-
-    const closeEvent: TradeEvent = {
-      eventType: "position_closed",
-      instrument: "AAPL.XNAS",
-      side: "SELL",
-      quantity: "100",
-      pnl: "500.00",
-      timestamp: Date.now(),
-    };
-    await recorder.recordTrade(closeEvent);
-
-    storeArg = (memoryManager.store as ReturnType<typeof vi.fn>).mock.calls[1][0];
-    expect(storeArg.importance).toBe("high");
+    const storeArg = (memoryManager.store as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(storeArg.importance).toBeUndefined();
+    expect(storeArg.content).toBeDefined();
+    expect(storeArg.tags).toBeDefined();
   });
 
-  it("submissions and cancellations stored as medium importance", async () => {
+  it("submissions and cancellations stored without importance field", async () => {
     const submitEvent: TradeEvent = {
       eventType: "trade_submitted",
       instrument: "AAPL.XNAS",
@@ -217,20 +203,10 @@ describe("recordTrade", () => {
     };
     await recorder.recordTrade(submitEvent);
 
-    let storeArg = (memoryManager.store as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(storeArg.importance).toBe("medium");
-
-    const cancelEvent: TradeEvent = {
-      eventType: "trade_canceled",
-      instrument: "AAPL.XNAS",
-      side: "BUY",
-      quantity: "100",
-      timestamp: Date.now(),
-    };
-    await recorder.recordTrade(cancelEvent);
-
-    storeArg = (memoryManager.store as ReturnType<typeof vi.fn>).mock.calls[1][0];
-    expect(storeArg.importance).toBe("medium");
+    const storeArg = (memoryManager.store as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(storeArg.importance).toBeUndefined();
+    expect(storeArg.content).toBeDefined();
+    expect(storeArg.tags).toBeDefined();
   });
 
   it("returns null (not throws) when memory store fails", async () => {
