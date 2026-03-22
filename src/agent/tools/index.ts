@@ -14,9 +14,7 @@ import { walletOpsTools } from './wallet-ops.js';
 import { walletClientTools } from './wallet-client.js';
 import { transactionTools } from './transactions.js';
 import { tokenTools } from './tokens.js';
-import { messagingTools } from './messaging.js';
 import { memoryTools } from './memory.js';
-import { serviceTools } from './services.js';
 import { xResearchTools } from './x-research.js';
 import { auditTools } from './audit.js';
 import { deploymentTools } from './deployment.js';
@@ -27,14 +25,14 @@ import { zkproofTools } from './zkproof-ops.js';
 import { skillCreatorTools } from './skill-creator.js';
 
 export function createAllTools(ctx: ToolContext): ToolDescriptor[] {
+  // Migrated to plugins: messaging (agid-messaging), services (agid-optimize)
+  // Removed tools: agid_discover_services, agid_x402_request, agid_overlay_lookup
   const tools: ToolDescriptor[] = [
     ...identityTools(),
     ...walletOpsTools(),
     ...walletClientTools(),
     ...transactionTools(),
     ...tokenTools(),
-    ...messagingTools(),
-    ...serviceTools(),
     ...xResearchTools(),
     ...deploymentTools(),
     ...certTools(),
