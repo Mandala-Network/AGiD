@@ -1,131 +1,94 @@
 /**
- * Memory Writer
+ * Memory Writer (Local-First)
  *
- * Implements PushDrop-based memory write workflow:
- * encrypt → UHRP upload (with timeout) → PushDrop tokenization → wallet basket storage
- *
- * If UHRP upload fails or times out, encrypted content is embedded directly
- * in the PushDrop token fields (works fine for memories under ~50KB).
+ * Local-first memory write workflow:
+ * 1. Encrypt content with BRC-42 ([2, 'agid memory'], keyID "1")
+ * 2. SHA-256 hash the encrypted output → compute UHRP URL locally
+ * 3. Store encrypted content to local vault (via StorageCoordinator)
+ * 4. Create PushDrop token [uhrpUrl, tags] in 'agid-memory' basket
+ * 5. No UHRP upload at write time — deferred to SyncScheduler
  */
 
-import { StorageUploader } from '@bsv/sdk';
 import { PushDrop } from '@bsv/sdk';
 import type { BRC100Wallet } from '../../types/index.js';
 import type { MemoryInput, MemoryToken } from './memory-types.js';
+import { computeUhrpUrl } from '../integrity-verifier.js';
+import type { StorageCoordinator } from '../storage-coordinator.js';
 
-const UHRP_TIMEOUT_MS = 15_000; // 15 seconds max for UHRP upload
+/** Constants */
+export const PROTOCOL_ID: [number, string] = [2, 'agid memory'];
+export const KEY_ID = '1';
+export const BASKET = 'agid-memory';
 
 /**
- * Store a memory with cryptographic ownership proof
- *
- * Creates a PushDrop token (BRC-48) containing:
- * - Encrypted memory content (via UHRP URL or embedded directly)
- * - Tags and importance metadata in token fields
- * - Ownership locked to agent's public key
- * - Stored in 'agent-memories' wallet basket
+ * Store a memory with local-first pattern.
  *
  * @param wallet - Agent's BRC-100 wallet
- * @param memory - Memory content, tags, and importance
- * @param storageUrl - UHRP storage server URL (default: https://go-uhrp.b1nary.cloud)
- * @returns Memory token with txid and UHRP URL
+ * @param memory - Memory content and tags
+ * @param coordinator - Storage coordinator for local vault write + dirty tracking
+ * @returns Memory token with txid and locally-computed UHRP URL
  */
 export async function storeMemory(
   wallet: BRC100Wallet & { getUnderlyingWallet?: () => any },
   memory: MemoryInput,
-  storageUrl: string = 'https://go-uhrp.b1nary.cloud'
+  coordinator?: StorageCoordinator,
 ): Promise<MemoryToken> {
   const underlyingWallet = wallet.getUnderlyingWallet?.();
   if (!underlyingWallet) {
     throw new Error('Cannot access underlying wallet for memory storage');
   }
 
-  // 1. Encrypt content (ALWAYS encrypted for privacy)
-  const encryptionKeyID = `memory-${Date.now()}`;
-  console.log(`[MemoryWriter] Encrypting with keyID: ${encryptionKeyID}`);
+  // 1. Encrypt content
   const plaintext = new TextEncoder().encode(memory.content);
   const encrypted = await wallet.encrypt({
     plaintext: Array.from(plaintext),
-    protocolID: [2, 'agidentity memory'],
-    keyID: encryptionKeyID,
+    protocolID: PROTOCOL_ID,
+    keyID: KEY_ID,
   });
-  console.log(`[MemoryWriter] Encrypted OK, ciphertext length: ${encrypted.ciphertext.length}`);
 
-  // 2. Try UHRP upload with timeout — fall back to embedding in token
-  let uhrpUrl = '';
-  let embeddedData: number[] | null = null;
+  // 2. Hash encrypted output → compute UHRP URL locally
+  const encryptedBytes = new Uint8Array(encrypted.ciphertext);
+  const uhrpUrl = computeUhrpUrl(encryptedBytes);
 
-  try {
-    const uploader = new StorageUploader({
-      storageURL: storageUrl,
-      wallet: underlyingWallet,
-    });
-
-    const uploadResult = await Promise.race([
-      uploader.publishFile({
-        file: {
-          data: new Uint8Array(encrypted.ciphertext),
-          type: 'application/octet-stream',
-        },
-        retentionPeriod: 365 * 24 * 60, // 1 year in minutes
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`UHRP upload timed out after ${UHRP_TIMEOUT_MS}ms`)), UHRP_TIMEOUT_MS)
-      ),
-    ]);
-
-    uhrpUrl = uploadResult.uhrpURL;
-    console.log(`[MemoryWriter] UHRP upload OK: ${uhrpUrl}`);
-  } catch (error) {
-    console.warn(`[MemoryWriter] UHRP upload failed, embedding in token: ${error instanceof Error ? error.message : error}`);
-    embeddedData = Array.from(encrypted.ciphertext);
+  // 3. Store encrypted content to local vault (adds to dirty list for sync)
+  const storagePath = `memories/${memory.tags.join('-') || 'memory'}-${Date.now()}.enc`;
+  if (coordinator) {
+    await coordinator.write(storagePath, Buffer.from(encryptedBytes).toString('base64'));
   }
 
-  // 3. Create PushDrop token
+  // 4. Create PushDrop token with [uhrpUrl, tags]
   const fields: number[][] = [
-    Array.from(new TextEncoder().encode(uhrpUrl || 'embedded')),
+    Array.from(new TextEncoder().encode(uhrpUrl)),
     Array.from(new TextEncoder().encode(memory.tags.join(','))),
-    Array.from(new TextEncoder().encode(memory.importance)),
   ];
-
-  // If UHRP failed, embed encrypted content as a 4th field
-  if (embeddedData) {
-    fields.push(embeddedData);
-  }
 
   const pushDrop = new PushDrop(underlyingWallet);
   const lockingScript = await pushDrop.lock(
     fields,
-    [2, 'agidentity memory'],  // protocolID
-    `memory-${Date.now()}`,     // keyID
-    'self',                      // counterparty
-    false,                       // forSelf
-    true,                        // includeSignature
-    'before'                     // lockPosition
+    PROTOCOL_ID,
+    KEY_ID,
+    'self',
+    false,
+    true,
+    'before',
   );
 
-  // 4. Create transaction with token output stored in basket
-  const customInstr = JSON.stringify({ keyID: encryptionKeyID });
-  console.log(`[MemoryWriter] Creating action with customInstructions: ${customInstr}`);
-  console.log(`[MemoryWriter] basket: agent-memories, tags: ${JSON.stringify(['agidentity memory', memory.importance, ...memory.tags])}`);
+  // 5. Create transaction with token in agid-memory basket
   const result = await wallet.createAction({
     description: `Memory: ${memory.tags.join(', ')}`,
     outputs: [{
       script: lockingScript.toHex(),
-      satoshis: 1, // Minimum UTXO value
-      basket: 'agent-memories', // Store in basket for retrieval
-      tags: ['agidentity memory', memory.importance, ...memory.tags],
-      customInstructions: customInstr,
+      satoshis: 1,
+      basket: BASKET,
+      tags: ['agid memory', ...memory.tags],
     }],
-    labels: ['agidentity memory', memory.importance, ...memory.tags],
+    labels: ['agid memory', ...memory.tags],
   });
-  console.log(`[MemoryWriter] createAction result txid: ${result.txid}`);
 
-  // 5. Return memory token
   return {
     txid: result.txid,
-    uhrpUrl: uhrpUrl || `embedded:${result.txid}`,
+    uhrpUrl,
     tags: memory.tags,
-    importance: memory.importance,
     createdAt: Date.now(),
   };
 }
