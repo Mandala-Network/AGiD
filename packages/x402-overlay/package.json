@@ -1,0 +1,29 @@
+{
+  "name": "@agid/x402-overlay",
+  "version": "1.0.0",
+  "description": "x402 service registry overlay — topic manager and lookup service for decentralized paid service discovery",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bsv/overlay": "^2.0.2",
+    "@bsv/overlay-express": "^2.1.1",
+    "@bsv/sdk": "^2.0.4",
+    "dotenv": "^17.2.4",
+    "mongodb": "^7.1.0",
+    "mysql2": "^3.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}
