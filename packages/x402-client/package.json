@@ -1,0 +1,21 @@
+{
+  "name": "@agid/x402-client",
+  "version": "1.0.0",
+  "description": "x402 service registry client — register, update, remove, and discover paid services on the x402 overlay",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bsv/sdk": "^2.0.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}
