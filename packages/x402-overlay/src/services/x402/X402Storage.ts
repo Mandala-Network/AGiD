@@ -1,11 +1,9 @@
 /**
  * x402 Service Registry — MongoDB Storage Manager
- *
- * Persists and queries admitted service registrations.
  */
 
 import type { Collection, Db } from 'mongodb'
-import type { UTXOReference, X402Record, X402Registration } from './X402Types'
+import type { UTXOReference, X402Record } from './X402Types'
 
 export class X402Storage {
   private collection: Collection<X402Record>
@@ -22,7 +20,7 @@ export class X402Storage {
       await this.collection.createIndex({ 'registration.capabilities': 1 })
       await this.collection.createIndex({ 'registration.hostUrl': 1 })
       await this.collection.createIndex({ 'registration.identityKey': 1 })
-      await this.collection.createIndex({ 'registration.name': 'text', 'registration.description': 'text' })
+      await this.collection.createIndex({ 'registration.pricing.defaultPrice': 1 })
     } catch {
       // Indexes may already exist
     }
@@ -44,6 +42,13 @@ export class X402Storage {
     return this.queryRefs({ 'registration.category': category })
   }
 
+  async findByCategoryAndMaxPrice(category: string, maxPrice: number): Promise<UTXOReference[]> {
+    return this.queryRefs({
+      'registration.category': category,
+      'registration.pricing.defaultPrice': { $lte: maxPrice },
+    })
+  }
+
   async findByCapability(capability: string): Promise<UTXOReference[]> {
     return this.queryRefs({ 'registration.capabilities': capability })
   }
@@ -58,11 +63,6 @@ export class X402Storage {
 
   async findAll(): Promise<UTXOReference[]> {
     return this.queryRefs({})
-  }
-
-  async getRegistration(txid: string, outputIndex: number): Promise<X402Registration | null> {
-    const record = await this.collection.findOne({ txid, outputIndex })
-    return record?.registration ?? null
   }
 
   private async queryRefs(filter: object): Promise<UTXOReference[]> {

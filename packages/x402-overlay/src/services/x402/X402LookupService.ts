@@ -1,9 +1,9 @@
 /**
  * x402 Service Registry — Lookup Service
  *
- * Indexes admitted service registrations and provides query capabilities
- * for discovering services by category, capability, host URL, or operator
- * identity key.
+ * Indexes admitted 5-field registration tokens and provides query
+ * capabilities: by category, capability, host URL, operator identity key,
+ * and max price.
  *
  * Service: ls_x402
  */
@@ -14,6 +14,7 @@ import { X402Storage } from './X402Storage'
 import {
   X402_PROTOCOL_ID,
   FIELD,
+  FIELD_COUNT,
   type X402Registration,
   type X402LookupQuery,
   type UTXOReference,
@@ -31,7 +32,7 @@ export class X402LookupService implements LookupService {
 
   /**
    * Called when the topic manager admits an output.
-   * Decode the PushDrop token and store the registration.
+   * Decode the 5-field PushDrop token and store.
    */
   async outputAdmittedByTopic(
     txid: string,
@@ -41,7 +42,7 @@ export class X402LookupService implements LookupService {
   ): Promise<void> {
     try {
       const decoded = PushDrop.decode(outputScript)
-      if (!decoded || !decoded.fields || decoded.fields.length < 9) return
+      if (!decoded?.fields || decoded.fields.length < FIELD_COUNT) return
 
       const fields = decoded.fields.map((f: number[]) =>
         Buffer.from(f).toString('utf8'),
@@ -49,7 +50,6 @@ export class X402LookupService implements LookupService {
 
       if (fields[FIELD.PROTOCOL] !== X402_PROTOCOL_ID) return
 
-      // Extract identity key from PushDrop locking public key
       const identityKey = decoded.lockingPublicKey?.toString() ?? ''
 
       let pricing: any
@@ -60,13 +60,9 @@ export class X402LookupService implements LookupService {
 
       const registration: X402Registration = {
         hostUrl: fields[FIELD.HOST_URL],
-        name: fields[FIELD.NAME],
-        description: fields[FIELD.DESCRIPTION],
         category: fields[FIELD.CATEGORY],
         pricing,
         capabilities,
-        contactUrl: fields[FIELD.CONTACT_URL] || '',
-        registeredAt: fields[FIELD.REGISTERED_AT],
         identityKey,
       }
 
@@ -81,30 +77,26 @@ export class X402LookupService implements LookupService {
     }
   }
 
-  /**
-   * Called when a registration UTXO is spent — remove the listing.
-   */
   async outputSpent(txid: string, outputIndex: number, topic: string): Promise<void> {
     await this.storage.deleteRecord(txid, outputIndex)
   }
 
-  /**
-   * Called when an output is evicted from the overlay.
-   */
   async outputEvicted?(txid: string, outputIndex: number, topic: string): Promise<void> {
     await this.storage.deleteRecord(txid, outputIndex)
   }
 
   /**
-   * Query the registry. Supports filtering by category, capability,
-   * host URL, and operator identity key. Empty query returns all.
+   * Query the registry. Supports category, capability, hostUrl,
+   * identityKey, and maxDefaultPrice filters.
    */
   async lookup(question: LookupQuestion): Promise<LookupAnswer> {
     const query = (question as any).query as X402LookupQuery | undefined
 
     let refs: UTXOReference[]
 
-    if (query?.category) {
+    if (query?.category && query?.maxDefaultPrice !== undefined) {
+      refs = await this.storage.findByCategoryAndMaxPrice(query.category, query.maxDefaultPrice)
+    } else if (query?.category) {
       refs = await this.storage.findByCategory(query.category)
     } else if (query?.capability) {
       refs = await this.storage.findByCapability(query.capability)
@@ -119,7 +111,7 @@ export class X402LookupService implements LookupService {
     return {
       type: 'output-list',
       outputs: refs.map(r => ({
-        beef: Buffer.alloc(0), // Overlay engine fills this from its UTXO store
+        beef: Buffer.alloc(0),
         outputIndex: r.outputIndex,
       })),
     } as any
@@ -128,46 +120,28 @@ export class X402LookupService implements LookupService {
   getDocumentation(): string {
     return `# x402 Service Registry Lookup Service (ls_x402)
 
-Indexes x402 paid service registrations and supports discovery queries.
+Indexes x402 paid service registrations for discovery queries.
 
 ## Query Types
 
-**By category:**
-\`\`\`json
-{ "service": "ls_x402", "query": { "category": "ai" } }
-\`\`\`
+| Query | Description |
+|-------|-------------|
+| \`{ "category": "ai" }\` | All services in a category |
+| \`{ "capability": "search" }\` | Services with a specific capability |
+| \`{ "hostUrl": "https://..." }\` | Exact host lookup |
+| \`{ "identityKey": "02..." }\` | All services by an operator |
+| \`{ "category": "ai", "maxDefaultPrice": 200 }\` | Price-filtered discovery |
+| \`{}\` | All registrations |
 
-**By capability:**
-\`\`\`json
-{ "service": "ls_x402", "query": { "capability": "search" } }
-\`\`\`
-
-**By host URL:**
-\`\`\`json
-{ "service": "ls_x402", "query": { "hostUrl": "https://api.example.com" } }
-\`\`\`
-
-**By operator identity key:**
-\`\`\`json
-{ "service": "ls_x402", "query": { "identityKey": "02abc...def" } }
-\`\`\`
-
-**All registrations:**
-\`\`\`json
-{ "service": "ls_x402", "query": {} }
-\`\`\`
-
-Results are returned as UTXO references. Decode the PushDrop fields to
-reconstruct registration data including host URL, pricing, and capabilities.`
+Results are UTXO references. Decode PushDrop fields for registration data.
+Fetch /.well-known/x402-info from the host for name, description, and docs.`
   }
 
   getMetaData(): object {
     return {
       name: 'x402 Service Registry',
       shortDescription: 'Discover and verify x402 paid services',
-      iconURL: '',
       version: '1.0.0',
-      informationURL: '',
     }
   }
 }

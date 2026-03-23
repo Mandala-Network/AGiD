@@ -1,16 +1,25 @@
 # x402 Service Registry Overlay
 
-Decentralized discovery and verification for x402 paid HTTP services. Service operators publish registration tokens on-chain. Clients query the overlay to find services by category, capability, or operator identity — without relying on a centralized registry.
+Decentralized discovery and verification for x402 paid HTTP services. Service operators publish minimal 5-field registration tokens on-chain. Clients query the overlay to find services by category, capability, or operator identity — and compare pricing — without relying on a centralized registry.
 
 ## How It Works
 
-1. **Register** — An operator creates a PushDrop token containing their host URL, pricing, capabilities, and service metadata. The token is signed by their identity key and submitted to the overlay.
+1. **Register** — Operator creates a PushDrop token: host URL, category, pricing, capabilities. Signed by their identity key.
+2. **Discover** — Clients query `ls_x402` by category, capability, host URL, identity key, or max price.
+3. **Verify** — PushDrop signature proves operator identity. Mutual authentication at request time proves the server holds the key.
+4. **De-list** — Spending the registration UTXO removes the service from the overlay.
 
-2. **Discover** — Clients query `ls_x402` to find services by category (`"ai"`, `"data"`, `"compute"`), capability (`"search"`, `"generate"`), host URL, or operator identity key.
+## Token Format (5 fields)
 
-3. **Verify** — Each registration is signed by the operator's identity key and anchored on-chain. Clients verify the signature, then use mutual authentication when making paid requests to confirm the server holds the same key.
+| Index | Field | Example |
+|-------|-------|---------|
+| 0 | protocol | `"x402-registry-v1"` |
+| 1 | hostUrl | `"https://api.example.com"` |
+| 2 | category | `"ai"` |
+| 3 | pricing | `{"currency":"satoshis","defaultPrice":100,...}` |
+| 4 | capabilities | `["search","generate"]` |
 
-4. **De-list** — Spending the registration UTXO removes the service from the overlay. Operators control their own listings.
+Name, description, docs, and contact info are fetched from `{hostUrl}/.well-known/x402-info`. Operator identity comes from the PushDrop locking key. Timestamp comes from the block.
 
 ## Quick Start
 
@@ -22,38 +31,29 @@ npm install
 npm run dev
 ```
 
-Requires MySQL and MongoDB. See `.env.example` for all configuration options.
+Requires MySQL and MongoDB. See `.env.example` for configuration.
 
-## Querying the Registry
+## Querying
 
 ```typescript
 import { LookupResolver } from '@bsv/sdk'
 
 const resolver = new LookupResolver({ networkPreset: 'mainnet' })
 
-// Find all AI services
-const result = await resolver.query({
-  service: 'ls_x402',
-  query: { category: 'ai' }
-})
+// Find AI services
+await resolver.query({ service: 'ls_x402', query: { category: 'ai' } })
 
 // Find services with search capability
-const result = await resolver.query({
-  service: 'ls_x402',
-  query: { capability: 'search' }
-})
+await resolver.query({ service: 'ls_x402', query: { capability: 'search' } })
+
+// Agent price comparison — AI services under 200 sats default
+await resolver.query({ service: 'ls_x402', query: { category: 'ai', maxDefaultPrice: 200 } })
 
 // Look up a specific host
-const result = await resolver.query({
-  service: 'ls_x402',
-  query: { hostUrl: 'https://api.example.com' }
-})
+await resolver.query({ service: 'ls_x402', query: { hostUrl: 'https://api.example.com' } })
 
-// Find all services by an operator
-const result = await resolver.query({
-  service: 'ls_x402',
-  query: { identityKey: '02abc...def' }
-})
+// All services by an operator
+await resolver.query({ service: 'ls_x402', query: { identityKey: '02abc...def' } })
 ```
 
 ## Registering a Service
@@ -62,14 +62,13 @@ const result = await resolver.query({
 import { PushDrop, WalletClient } from '@bsv/sdk'
 
 const wallet = new WalletClient()
+const pushDrop = new PushDrop(wallet)
 
 const fields = [
-  'x402-registry-v1',                          // protocol
-  'https://api.example.com',                    // hostUrl
-  'Example AI Service',                         // name
-  'AI-powered search and generation',           // description
-  'ai',                                         // category
-  JSON.stringify({                              // pricing
+  'x402-registry-v1',
+  'https://api.example.com',
+  'ai',
+  JSON.stringify({
     currency: 'satoshis',
     endpoints: [
       { path: '/search', method: 'GET', price: 100 },
@@ -78,12 +77,9 @@ const fields = [
     defaultPrice: 100,
     freeEndpoints: ['/.well-known/x402-info', '/health']
   }),
-  JSON.stringify(['search', 'generate']),       // capabilities
-  'https://example.com/support',                // contactUrl
-  new Date().toISOString(),                     // registeredAt
+  JSON.stringify(['search', 'generate']),
 ]
 
-const pushDrop = new PushDrop(wallet)
 const lockingScript = await pushDrop.lock(
   fields.map(f => Array.from(Buffer.from(f, 'utf8'))),
   [1, 'x402-registry'],
@@ -104,38 +100,9 @@ await wallet.createAction({
 })
 ```
 
-## Registration Token Format
-
-| Index | Field | Description |
-|-------|-------|-------------|
-| 0 | protocol | `"x402-registry-v1"` |
-| 1 | hostUrl | Service base URL (HTTPS required) |
-| 2 | name | Service name (max 100 chars) |
-| 3 | description | Description (max 500 chars) |
-| 4 | category | Category identifier (max 50 chars) |
-| 5 | pricing | JSON pricing object |
-| 6 | capabilities | JSON array of capability strings |
-| 7 | contactUrl | Support URL (optional) |
-| 8 | registeredAt | ISO 8601 timestamp |
-
-## Architecture
-
-```
-src/
-├── index.ts                           # Server entry point
-└── services/
-    └── x402/
-        ├── X402TopicManager.ts        # Validates registration tokens
-        ├── X402LookupService.ts       # Indexes and queries registrations
-        ├── X402LookupServiceFactory.ts # MongoDB factory
-        ├── X402Storage.ts             # Persistence layer
-        ├── X402Types.ts               # Type definitions
-        └── index.ts                   # Barrel exports
-```
-
 ## Specification
 
-See `specs/x402-registry-overlay.md` for the full technical specification including protocol format, validation rules, pricing schema, query types, and security considerations.
+See `specs/x402-registry-overlay.md` for the full technical specification.
 
 ## License
 

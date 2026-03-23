@@ -1,9 +1,9 @@
 /**
  * x402 Service Registry — Topic Manager
  *
- * Validates incoming registration transactions and determines which
- * outputs should be admitted to the overlay. Enforces the x402-registry-v1
- * protocol format, field constraints, and pricing schema validation.
+ * Validates incoming registration transactions. Enforces the 5-field
+ * x402-registry-v1 token format: protocol, hostUrl, category, pricing,
+ * capabilities.
  *
  * Topic: tm_x402
  */
@@ -11,13 +11,10 @@
 import type { TopicManager, AdmittanceInstructions } from '@bsv/overlay'
 import { PushDrop } from '@bsv/sdk'
 import type { Beef } from '@bsv/sdk'
-import { X402_PROTOCOL_ID, FIELD } from './X402Types'
+import { X402_PROTOCOL_ID, FIELD, FIELD_COUNT } from './X402Types'
 
 export class X402TopicManager implements TopicManager {
 
-  /**
-   * Validate a transaction and return which outputs are admissible.
-   */
   async identifyAdmissibleOutputs(
     beef: Beef,
     previousCoinsToRetain: string[],
@@ -31,103 +28,79 @@ export class X402TopicManager implements TopicManager {
       const admissibleOutputs: number[] = []
 
       for (let i = 0; i < tx.outputs.length; i++) {
-        try {
-          const output = tx.outputs[i]
-          const script = output.lockingScript ?? output.script
-          if (!script) continue
-
-          // Decode PushDrop token
-          const decoded = PushDrop.decode(script)
-          if (!decoded || !decoded.fields || decoded.fields.length < 9) continue
-
-          // Decode fields as UTF-8
-          const fields = decoded.fields.map((f: number[]) =>
-            Buffer.from(f).toString('utf8'),
-          )
-
-          // Validate protocol identifier
-          if (fields[FIELD.PROTOCOL] !== X402_PROTOCOL_ID) continue
-
-          // Validate hostUrl — must be HTTPS
-          const hostUrl = fields[FIELD.HOST_URL]
-          if (!hostUrl || !hostUrl.startsWith('https://')) continue
-
-          // Validate name — non-empty, max 100 chars
-          const name = fields[FIELD.NAME]
-          if (!name || name.length === 0 || name.length > 100) continue
-
-          // Validate description — max 500 chars
-          const description = fields[FIELD.DESCRIPTION]
-          if (description && description.length > 500) continue
-
-          // Validate category — non-empty, max 50 chars
-          const category = fields[FIELD.CATEGORY]
-          if (!category || category.length === 0 || category.length > 50) continue
-
-          // Validate pricing — must be valid JSON with currency field
-          const pricingRaw = fields[FIELD.PRICING]
-          if (!pricingRaw) continue
-          let pricing: any
-          try {
-            pricing = JSON.parse(pricingRaw)
-            if (!pricing.currency || typeof pricing.currency !== 'string') continue
-          } catch {
-            continue
-          }
-
-          // Validate capabilities — must be valid JSON array
-          const capabilitiesRaw = fields[FIELD.CAPABILITIES]
-          if (!capabilitiesRaw) continue
-          try {
-            const capabilities = JSON.parse(capabilitiesRaw)
-            if (!Array.isArray(capabilities)) continue
-            if (!capabilities.every((c: any) => typeof c === 'string')) continue
-          } catch {
-            continue
-          }
-
-          // Field 7 (contactUrl) is optional — no validation beyond string type
-
-          // Validate registeredAt — must be parseable as a date
-          const registeredAt = fields[FIELD.REGISTERED_AT]
-          if (!registeredAt || isNaN(Date.parse(registeredAt))) continue
-
-          // All validations passed — admit this output
+        if (this.validateOutput(tx.outputs[i])) {
           admissibleOutputs.push(i)
-        } catch {
-          // Skip outputs that fail to decode
-          continue
         }
       }
 
-      return {
-        admissibleOutputs,
-        coinsToRetain: [],
-      }
+      return { admissibleOutputs, coinsToRetain: [] }
     } catch (error) {
-      console.error('[X402TopicManager] Error processing transaction:', error)
+      console.error('[X402TopicManager] Error:', error)
       return { admissibleOutputs: [], coinsToRetain: [] }
+    }
+  }
+
+  private validateOutput(output: any): boolean {
+    try {
+      const script = output.lockingScript ?? output.script
+      if (!script) return false
+
+      const decoded = PushDrop.decode(script)
+      if (!decoded?.fields || decoded.fields.length < FIELD_COUNT) return false
+
+      const fields = decoded.fields.map((f: number[]) =>
+        Buffer.from(f).toString('utf8'),
+      )
+
+      // Field 0: protocol identifier
+      if (fields[FIELD.PROTOCOL] !== X402_PROTOCOL_ID) return false
+
+      // Field 1: hostUrl — HTTPS required
+      if (!fields[FIELD.HOST_URL]?.startsWith('https://')) return false
+
+      // Field 2: category — non-empty, max 50 chars
+      const category = fields[FIELD.CATEGORY]
+      if (!category || category.length === 0 || category.length > 50) return false
+
+      // Field 3: pricing — valid JSON with currency
+      try {
+        const pricing = JSON.parse(fields[FIELD.PRICING])
+        if (!pricing.currency || typeof pricing.currency !== 'string') return false
+      } catch {
+        return false
+      }
+
+      // Field 4: capabilities — valid JSON array of strings
+      try {
+        const caps = JSON.parse(fields[FIELD.CAPABILITIES])
+        if (!Array.isArray(caps)) return false
+        if (!caps.every((c: any) => typeof c === 'string')) return false
+      } catch {
+        return false
+      }
+
+      return true
+    } catch {
+      return false
     }
   }
 
   getDocumentation(): string {
     return `# x402 Service Registry Topic Manager (tm_x402)
 
-Validates x402 service registration tokens. Each token contains:
+Validates x402 service registration tokens. Minimal 5-field format:
 
 | Index | Field | Validation |
 |-------|-------|------------|
 | 0 | protocol | Must be "x402-registry-v1" |
-| 1 | hostUrl | Must be valid HTTPS URL |
-| 2 | name | Non-empty, max 100 chars |
-| 3 | description | Max 500 chars |
-| 4 | category | Non-empty, max 50 chars |
-| 5 | pricing | Valid JSON with currency field |
-| 6 | capabilities | Valid JSON array of strings |
-| 7 | contactUrl | Optional |
-| 8 | registeredAt | Valid ISO 8601 timestamp |
+| 1 | hostUrl | Must start with "https://" |
+| 2 | category | Non-empty, max 50 chars |
+| 3 | pricing | Valid JSON with currency field |
+| 4 | capabilities | Valid JSON array of strings |
 
-Tokens are PushDrop-encoded with protocol [1, "x402-registry"].
+Operator identity is derived from the PushDrop locking key.
+Registration time is derived from the block timestamp.
+Service name/description/docs are fetched from the host at /.well-known/x402-info.
 Spending a registration UTXO removes the service from the overlay.`
   }
 
@@ -135,9 +108,7 @@ Spending a registration UTXO removes the service from the overlay.`
     return {
       name: 'x402 Service Registry Topic Manager',
       shortDescription: 'Validates x402 paid service registration tokens',
-      iconURL: '',
       version: '1.0.0',
-      informationURL: '',
     }
   }
 }
