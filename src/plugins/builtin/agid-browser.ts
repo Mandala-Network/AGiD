@@ -11,6 +11,20 @@ function json(data: Record<string, unknown>) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
 }
 
+const ALLOWED_SCHEMES = new Set(['http:', 'https:']);
+
+function validateUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!ALLOWED_SCHEMES.has(parsed.protocol)) {
+      return `URL scheme not allowed: ${parsed.protocol} — only http: and https: are permitted`;
+    }
+    return null;
+  } catch {
+    return `Invalid URL: ${url}`;
+  }
+}
+
 let browserInstance: any = null;
 let currentPage: any = null;
 
@@ -58,8 +72,10 @@ export const agidBrowserPlugin = definePluginEntry({
 
           switch (action) {
             case 'navigate': {
-              const page = await ensureBrowser();
               const url = params.url as string;
+              const urlError = validateUrl(url);
+              if (urlError) return json({ error: urlError });
+              const page = await ensureBrowser();
               await page.goto(url);
               const title = await page.title();
               return json({ url, title });
@@ -85,6 +101,9 @@ export const agidBrowserPlugin = definePluginEntry({
             case 'evaluate': {
               const page = await ensureBrowser();
               const expression = params.expression as string;
+              if (expression.length > 10_000) {
+                return json({ error: 'Expression too long (max 10,000 characters)' });
+              }
               const result = await page.evaluate(expression);
               return json({ result });
             }
