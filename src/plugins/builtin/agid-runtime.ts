@@ -21,6 +21,21 @@ interface BackgroundSession {
 
 const sessions = new Map<string, BackgroundSession>();
 
+const DENIED_PATTERNS: RegExp[] = [
+  /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+.*\/|.*-rf\s|.*-fr\s)/,  // rm -rf, rm -fr
+  /\bcurl\b.*\|\s*(sh|bash|zsh)/,                             // curl | sh
+  /\bwget\b.*\|\s*(sh|bash|zsh)/,                             // wget | sh
+  /\bwget\b.*-O\s*-.*\|\s*(sh|bash|zsh)/,                     // wget -O - | bash
+  /\bmkfs\b/,                                                  // mkfs.*
+  /\bdd\b.*if=\/dev\/(zero|random|urandom).*of=\/dev\//,      // dd wipe disk
+  /\bchmod\b.*-R\s+777\s+\//,                                 // chmod -R 777 /
+  />\s*\/dev\/sd[a-z]/,                                        // redirect to block device
+];
+
+function isCommandBlocked(command: string): boolean {
+  return DENIED_PATTERNS.some(pattern => pattern.test(command));
+}
+
 export const agidRuntimePlugin = definePluginEntry({
   id: 'agid-runtime',
   name: 'AGiD Runtime',
@@ -35,7 +50,7 @@ export const agidRuntimePlugin = definePluginEntry({
             command: { type: 'string', description: 'Shell command to execute' },
             workdir: { type: 'string', description: 'Working directory' },
             env: { type: 'object', description: 'Additional environment variables' },
-            timeout: { type: 'number', description: 'Timeout in seconds (default 1800)' },
+            timeout: { type: 'number', description: 'Timeout in seconds (default 120)' },
             background: { type: 'boolean', description: 'Run in background' },
           },
           required: ['command'],
@@ -43,9 +58,12 @@ export const agidRuntimePlugin = definePluginEntry({
         requiresWallet: false,
         async execute(_id, params) {
           const command = params.command as string;
+          if (isCommandBlocked(command)) {
+            return json({ error: 'Command blocked: matches a destructive pattern. Refusing to execute.' });
+          }
           const workdir = (params.workdir as string) || process.cwd();
           const env = params.env as Record<string, string> | undefined;
-          const timeout = ((params.timeout as number) || 1800) * 1000;
+          const timeout = ((params.timeout as number) || 120) * 1000;
           const background = params.background as boolean;
 
           const spawnEnv = env ? { ...process.env, ...env } : process.env;
