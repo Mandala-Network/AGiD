@@ -29,7 +29,11 @@ export class SyncScheduler {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => this.tick(), this.intervalMs);
+    const timer = setInterval(() => this.tick(), this.intervalMs);
+    if (typeof timer === 'object' && 'unref' in timer) {
+      timer.unref();
+    }
+    this.timer = timer;
   }
 
   stop(): void {
