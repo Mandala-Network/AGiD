@@ -135,7 +135,7 @@ export const agidIdentityPlugin = definePluginEntry({
         name: 'agid_identity',
         description: 'Get your cryptographic identity (BSV public key, network, balance)',
         parameters: { type: 'object', properties: {}, required: [] },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, _params, ctx) {
           const identity = await ctx!.wallet.getPublicKey({ identityKey: true });
           const network = await ctx!.wallet.getNetwork();
@@ -152,7 +152,7 @@ export const agidIdentityPlugin = definePluginEntry({
         name: 'agid_balance',
         description: 'Check your BSV wallet balance in satoshis',
         parameters: { type: 'object', properties: {}, required: [] },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, _params, ctx) {
           const balance = await ctx!.wallet.getBalanceAndUtxos();
           const network = await ctx!.wallet.getNetwork();
@@ -178,7 +178,7 @@ export const agidIdentityPlugin = definePluginEntry({
           },
           required: [],
         },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, params, ctx) {
           const result = await ctx!.wallet.getPublicKey({
             identityKey: params.identityKey as boolean | undefined,
@@ -200,7 +200,7 @@ export const agidIdentityPlugin = definePluginEntry({
         name: 'agid_get_height',
         description: 'Get the current BSV blockchain block height',
         parameters: { type: 'object', properties: {}, required: [] },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, _params, ctx) {
           const height = await ctx!.wallet.getHeight();
           return json({ height });
@@ -224,7 +224,7 @@ export const agidIdentityPlugin = definePluginEntry({
           },
           required: [],
         },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, params, ctx) {
           const attributes: Record<string, string> = {};
           if (params.name) attributes.name = params.name as string;
@@ -407,7 +407,7 @@ export const agidIdentityPlugin = definePluginEntry({
           },
           required: [],
         },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, params, ctx) {
           const certifiers = params.certifier ? [params.certifier as string] : undefined;
           const types = params.type ? [params.type as string] : [AGID_CERT_TYPE];
@@ -443,7 +443,7 @@ export const agidIdentityPlugin = definePluginEntry({
           },
           required: ['serializedCertificate'],
         },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, params, ctx) {
           const serialized = params.serializedCertificate as string;
           const checkRevocation = params.checkRevocation === true;
@@ -583,7 +583,7 @@ export const agidIdentityPlugin = definePluginEntry({
           },
           required: ['serialNumber', 'certifier'],
         },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, params, ctx) {
           const serialNumber = params.serialNumber as string;
           const certifier = params.certifier as string;

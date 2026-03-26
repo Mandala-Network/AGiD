@@ -34,7 +34,7 @@ describe('agid-wallet plugin', () => {
     }
   });
 
-  it('create_action, internalize_action, send_payment, token_create, token_redeem require wallet', () => {
+  it('all wallet tools require wallet', () => {
     const registry = new PluginRegistry();
     registry.loadPlugin({
       manifest: { id: 'agid-wallet' },
@@ -42,31 +42,8 @@ describe('agid-wallet plugin', () => {
       rootPath: '',
     });
     const tools = registry.getTools();
-    const walletRequired = [
-      'agid_create_action',
-      'agid_internalize_action',
-      'agid_send_payment',
-      'agid_token_create',
-      'agid_token_redeem',
-    ];
-    for (const name of walletRequired) {
-      const tool = tools.find(t => t.registration.name === name);
-      expect(tool?.registration.requiresWallet).toBe(true);
-    }
-  });
-
-  it('list_outputs and token_list do not require wallet', () => {
-    const registry = new PluginRegistry();
-    registry.loadPlugin({
-      manifest: { id: 'agid-wallet' },
-      definition: agidWalletPlugin,
-      rootPath: '',
-    });
-    const tools = registry.getTools();
-    const noWallet = ['agid_list_outputs', 'agid_token_list'];
-    for (const name of noWallet) {
-      const tool = tools.find(t => t.registration.name === name);
-      expect(tool?.registration.requiresWallet).toBe(false);
+    for (const tool of tools) {
+      expect(tool.registration.requiresWallet, `${tool.registration.name} should require wallet`).toBe(true);
     }
   });
 });

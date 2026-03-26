@@ -128,7 +128,7 @@ export const agidWalletPlugin = definePluginEntry({
           },
           required: [],
         },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, params, ctx) {
           const wallet = ctx?.wallet;
           if (!wallet) return error('Wallet not available');
@@ -224,7 +224,7 @@ export const agidWalletPlugin = definePluginEntry({
           },
           required: [],
         },
-        requiresWallet: false,
+        requiresWallet: true,
         async execute(_id, params, ctx) {
           const wallet = ctx?.wallet;
           if (!wallet) return error('Wallet not available');

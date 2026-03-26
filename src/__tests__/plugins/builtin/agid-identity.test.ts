@@ -36,6 +36,14 @@ describe('agid-identity plugin', () => {
     const tools = registry.getTools();
 
     const walletRequired = [
+      'agid_identity',
+      'agid_balance',
+      'agid_get_public_key',
+      'agid_get_height',
+      'agid_lookup_identity',
+      'agid_cert_list',
+      'agid_cert_verify',
+      'agid_cert_check_revocation',
       'agid_cert_issue',
       'agid_cert_receive',
       'agid_cert_revoke',
@@ -64,14 +72,6 @@ describe('agid-identity plugin', () => {
     const tools = registry.getTools();
 
     const noWallet = [
-      'agid_identity',
-      'agid_balance',
-      'agid_get_public_key',
-      'agid_get_height',
-      'agid_lookup_identity',
-      'agid_cert_list',
-      'agid_cert_verify',
-      'agid_cert_check_revocation',
       'agid_zkproof_verify',
     ];
 
