@@ -37,6 +37,24 @@ export function walletClientTools(): ToolDescriptor[] {
           (params.walletClientUrl as string) ||
           process.env.AGID_WALLET_CLIENT_URL ||
           'http://localhost:3301';
+        // Restrict to localhost to prevent SSRF
+        try {
+          const parsed = new URL(url);
+          const host = parsed.hostname;
+          if (host !== 'localhost' && host !== '127.0.0.1' && host !== '::1') {
+            return {
+              content: JSON.stringify({
+                error: `Wallet client URL must be localhost — got: ${host}`,
+              }),
+              isError: true,
+            };
+          }
+        } catch {
+          return {
+            content: JSON.stringify({ error: `Invalid wallet client URL: ${url}` }),
+            isError: true,
+          };
+        }
         const operation = params.operation as string;
         const opParams = params.params as Record<string, unknown>;
 
@@ -113,6 +131,24 @@ export function walletClientTools(): ToolDescriptor[] {
           (params.walletClientUrl as string) ||
           process.env.AGID_WALLET_CLIENT_URL ||
           'http://localhost:3301';
+        // Restrict to localhost to prevent SSRF
+        try {
+          const parsed = new URL(url);
+          const host = parsed.hostname;
+          if (host !== 'localhost' && host !== '127.0.0.1' && host !== '::1') {
+            return {
+              content: JSON.stringify({
+                error: `Wallet client URL must be localhost — got: ${host}`,
+              }),
+              isError: true,
+            };
+          }
+        } catch {
+          return {
+            content: JSON.stringify({ error: `Invalid wallet client URL: ${url}` }),
+            isError: true,
+          };
+        }
         const data = params.data as string;
         const protocolID = (params.protocolID as [0 | 1 | 2, string]) || [0 as const, 'user authorship'];
         const keyID = (params.keyID as string) || '1';
