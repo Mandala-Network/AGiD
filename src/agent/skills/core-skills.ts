@@ -144,15 +144,9 @@ The user wants you to remember something, recall past knowledge, or manage your 
 
 2. Choose appropriate tags for categorization. Use consistent tag names across memories (e.g. "preference", "fact", "contact", "project", "decision").
 
-3. Set importance based on content:
-   - "high": financial decisions, security-related facts, user identity info, critical preferences
-   - "medium": project context, technical facts, general preferences
-   - "low": casual observations, transient context
-
-4. Call agid_store_memory with:
+3. Call agid_store_memory with:
    - content: your clear, searchable summary (NOT the raw user message)
    - tags: relevant category tags
-   - importance: "high", "medium", or "low"
 
 5. Confirm storage to the user with the returned txid as proof.
 
@@ -160,7 +154,6 @@ The user wants you to remember something, recall past knowledge, or manage your 
 
 1. Call agid_recall_memories with relevant filters:
    - tags: filter by category if the user asks about a specific topic
-   - importance: filter by priority if appropriate
    - For semantic search: set semantic=true and provide a query string
 
 2. If the first recall returns nothing relevant, try broader search terms or remove tag filters.
