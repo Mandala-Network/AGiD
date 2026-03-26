@@ -24,6 +24,8 @@ export interface SkillDescriptor {
   txid?: string;
   /** UHRP content address (set after UHRP upload) */
   uhrpUrl?: string;
+  /** Encryption key ID (from customInstructions, needed for UHRP body decryption) */
+  keyID?: string;
 }
 
 /** PushDrop token field layout for agidskills basket */

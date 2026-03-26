@@ -173,6 +173,17 @@ export class SkillStore {
         const name = fieldStrings[SKILL_TOKEN_FIELDS.NAME] ?? '';
         const txid = output.outpoint?.split(':')[0] ?? '';
 
+        // Extract keyID from customInstructions (stored at write time)
+        let keyID: string | undefined;
+        if (output.customInstructions) {
+          try {
+            const instr = JSON.parse(output.customInstructions);
+            keyID = instr.keyID;
+          } catch {
+            // ignore malformed customInstructions
+          }
+        }
+
         skills.push({
           name,
           description: fieldStrings[SKILL_TOKEN_FIELDS.DESCRIPTION] ?? '',
@@ -181,6 +192,7 @@ export class SkillStore {
           body: this.bodyCache.get(name) || '',
           txid,
           uhrpUrl: fieldStrings[SKILL_TOKEN_FIELDS.UHRP_URL] ?? '',
+          keyID,
         });
       } catch (error) {
         console.warn('[SkillStore] Failed to decode skill token:', error instanceof Error ? error.message : error);
@@ -222,8 +234,8 @@ export class SkillStore {
       ]);
 
       // Decrypt the downloaded content
-      // Parse keyID from customInstructions if we stored it
-      const keyId = `skill-${skill.name}`;
+      // Use the keyID preserved from customInstructions at store time
+      const keyId = skill.keyID || `skill-${skill.name}`;
       const decrypted = await this.wallet.decrypt({
         ciphertext: Array.from(downloadResult.data),
         protocolID: SKILL_PROTOCOL_ID,
