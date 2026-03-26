@@ -148,7 +148,7 @@ The user wants you to remember something, recall past knowledge, or manage your 
    - content: your clear, searchable summary (NOT the raw user message)
    - tags: relevant category tags
 
-5. Confirm storage to the user with the returned txid as proof.
+4. Confirm storage to the user with the returned txid as proof.
 
 ## Recalling memories
 

@@ -133,8 +133,9 @@ export const agidFsPlugin = definePluginEntry({
             return json({ path: filePath, replacements: 1, edited: true });
           }
 
-          const replacements = content.split(oldString).length - 1;
-          content = content.split(oldString).join(newString);
+          const parts = content.split(oldString);
+          const replacements = parts.length - 1;
+          content = parts.join(newString);
           await fs.writeFile(filePath, content, 'utf8');
           return json({ path: filePath, replacements, edited: true });
         },
