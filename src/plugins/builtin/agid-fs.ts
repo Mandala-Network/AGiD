@@ -16,7 +16,7 @@ function resolveSafePath(filePath: string): string {
   const cwd = process.cwd();
   const resolved = nodePath.resolve(cwd, filePath);
   const relative = nodePath.relative(cwd, resolved);
-  if (relative.startsWith('..') && !resolved.startsWith(cwd)) {
+  if (relative.startsWith('..') || !resolved.startsWith(cwd)) {
     throw new Error(`Path escapes working directory: ${filePath}`);
   }
   return resolved;
@@ -133,11 +133,8 @@ export const agidFsPlugin = definePluginEntry({
             return json({ path: filePath, replacements: 1, edited: true });
           }
 
-          let replacements = 0;
-          while (content.includes(oldString)) {
-            content = content.replace(oldString, newString);
-            replacements++;
-          }
+          const replacements = content.split(oldString).length - 1;
+          content = content.split(oldString).join(newString);
           await fs.writeFile(filePath, content, 'utf8');
           return json({ path: filePath, replacements, edited: true });
         },
