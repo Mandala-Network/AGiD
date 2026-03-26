@@ -46,7 +46,7 @@ export function serviceTools(): ToolDescriptor[] {
         let stored = false;
         if (storeOnChainFlag && result.optimizedText && ctx.memoryManager) {
           try {
-            await ctx.memoryManager.store({ content: result.optimizedText, tags: ['gepa-optimized'], importance: 'medium' });
+            await ctx.memoryManager.store({ content: result.optimizedText, tags: ['gepa-optimized'] });
             stored = true;
           } catch {
             // Non-fatal

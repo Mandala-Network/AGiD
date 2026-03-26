@@ -113,8 +113,8 @@ export class ToolRegistry {
           description: registration.description,
           input_schema: {
             type: 'object',
-            properties: registration.parameters?.properties ?? registration.parameters ?? {},
-            required: registration.parameters?.required,
+            properties: (registration.parameters?.properties ?? registration.parameters ?? {}) as Record<string, unknown>,
+            required: registration.parameters?.required as string[] | undefined,
           },
         },
         execute: async (params) => {
