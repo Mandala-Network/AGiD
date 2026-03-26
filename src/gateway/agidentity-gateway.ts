@@ -35,6 +35,8 @@ import type { VaultStore } from '../types/index.js';
 import type { LocalEncryptedVault } from '../storage/vault/local-encrypted-vault.js';
 import { SkillStore } from '../agent/skills/skill-store.js';
 import { seedCoreSkills } from '../agent/skills/index.js';
+import { PluginRegistry } from '../plugins/plugin-registry.js';
+import * as builtinPlugins from '../plugins/builtin/index.js';
 
 // =============================================================================
 // Types
@@ -99,6 +101,7 @@ export class AGIdentityGateway {
   private shadExecutor: ShadTempVaultExecutor | null = null;
   private memoryManager: MemoryManager | null = null;
   private skillStore: SkillStore | null = null;
+  private pluginRegistry: PluginRegistry | null = null;
   private running = false;
   private agentPublicKey: string | null = null;
   private workspacePath: string = '';
@@ -158,9 +161,43 @@ export class AGIdentityGateway {
     this.memoryManager = memoryManager;
     const toolRegistry = new ToolRegistry();
     this.toolRegistry = toolRegistry;
-    toolRegistry.registerBuiltinTools(this.wallet, workspacePath, sessionsPath, memoryManager);
 
-    // Register external plugins
+    // Load all builtin plugins via PluginRegistry
+    const pluginRegistry = new PluginRegistry();
+    pluginRegistry.setAGiDExtensions({
+      wallet: this.wallet,
+      audit: this.auditTrail,
+      identity: this.identityGate,
+      memoryManager,
+    });
+
+    const builtinList = [
+      builtinPlugins.agidIdentityPlugin,
+      builtinPlugins.agidCryptoPlugin,
+      builtinPlugins.agidWalletPlugin,
+      builtinPlugins.agidMemoryPlugin,
+      builtinPlugins.agidMessagingPlugin,
+      builtinPlugins.agidAuditPlugin,
+      builtinPlugins.agidDeployPlugin,
+      builtinPlugins.agidRuntimePlugin,
+      builtinPlugins.agidFsPlugin,
+      builtinPlugins.agidBrowserPlugin,
+      builtinPlugins.agidOptimizePlugin,
+    ];
+
+    for (const plugin of builtinList) {
+      pluginRegistry.loadPlugin({
+        manifest: { id: plugin.id, name: plugin.name },
+        definition: plugin,
+        rootPath: '',
+      });
+    }
+
+    // Bridge plugin tools into old ToolRegistry
+    toolRegistry.registerFromPluginRegistry(pluginRegistry);
+    this.pluginRegistry = pluginRegistry;
+
+    // Register external plugins (old-style ToolPlugin interface)
     if (this.config.plugins?.length) {
       const ctx = { wallet: this.wallet, workspacePath, sessionsPath, memoryManager };
       toolRegistry.registerPlugins(this.config.plugins, ctx);
@@ -941,6 +978,8 @@ export class AGIdentityGateway {
       this.messageBoxGateway = null;
     }
 
+    await this.pluginRegistry?.destroyAll();
+    this.pluginRegistry = null;
     this.identityGate = null;
     this.auditTrail = null;
   }
