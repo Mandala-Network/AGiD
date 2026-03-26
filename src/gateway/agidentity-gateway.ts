@@ -940,11 +940,10 @@ export class AGIdentityGateway {
     // Skip error responses
     if (agentResponse.startsWith('Sorry, I encountered an error')) return;
 
-    // Determine importance based on what tools were used
+    // Categorize interaction for tagging
     const hasPayment = toolsUsed.some(t => t.includes('payment') || t.includes('send'));
     const hasMemory = toolsUsed.some(t => t.includes('memory'));
     const hasTrade = toolsUsed.some(t => t.includes('nautilus') || t.includes('trade'));
-    const importance = (hasPayment || hasTrade) ? 'high' : 'medium';
 
     // Build compact interaction summary
     const userPreview = userMessage.substring(0, 150).replace(/\n/g, ' ');
@@ -958,8 +957,8 @@ export class AGIdentityGateway {
     if (hasMemory) tags.push('knowledge');
 
     try {
-      await this.memoryManager.store({ content, tags, importance });
-      console.log(`[AGIdentityGateway] Auto-memory stored (${tags.join(', ')}, ${importance})`);
+      await this.memoryManager.store({ content, tags });
+      console.log(`[AGIdentityGateway] Auto-memory stored (${tags.join(', ')})`);
     } catch (error) {
       console.warn('[AGIdentityGateway] Auto-memory failed:', error instanceof Error ? error.message : error);
     }
