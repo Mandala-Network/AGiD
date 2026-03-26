@@ -14,7 +14,7 @@ import { getTransactionTimestamp } from './arc-client.js';
 import { verifyIntegrity } from '../integrity-verifier.js';
 import type { StorageCoordinator } from '../storage-coordinator.js';
 
-const PROTOCOL_ID: [number, string] = [2, 'agid memory'];
+const PROTOCOL_ID: [0 | 1 | 2, string] = [2, 'agid memory'];
 const KEY_ID = '1';
 const BASKET = 'agid-memory';
 const DOWNLOAD_TIMEOUT_MS = 15_000;

@@ -16,7 +16,7 @@ import { computeUhrpUrl } from '../integrity-verifier.js';
 import type { StorageCoordinator } from '../storage-coordinator.js';
 
 /** Constants */
-export const PROTOCOL_ID: [number, string] = [2, 'agid memory'];
+export const PROTOCOL_ID: [0 | 1 | 2, string] = [2, 'agid memory'];
 export const KEY_ID = '1';
 export const BASKET = 'agid-memory';
 
