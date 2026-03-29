@@ -9,6 +9,7 @@
  */
 
 import { createHash } from 'crypto';
+import { StorageUtils } from '@bsv/sdk';
 import type { ShadRetrievedDocument } from '../types/index.js';
 
 export interface IntegrityResult {
@@ -25,18 +26,18 @@ export interface ProofMetadata {
 
 /**
  * Compute a UHRP URL from encrypted content.
- * UHRP URLs are `uhrp://{sha256hex}`.
+ * Uses the SDK's Base58Check encoding with `ce00` prefix (BRC-48 compliant).
  */
 export function computeUhrpUrl(encryptedContent: Uint8Array): string {
-  const hash = createHash('sha256').update(encryptedContent).digest('hex');
-  return `uhrp://${hash}`;
+  return StorageUtils.getURLForFile(encryptedContent);
 }
 
 /**
- * Extract the hex hash from a UHRP URL.
+ * Extract the raw SHA-256 hash from a UHRP URL as hex.
  */
 export function extractHash(uhrpUrl: string): string {
-  return uhrpUrl.replace('uhrp://', '');
+  const hashBytes = StorageUtils.getHashFromURL(uhrpUrl);
+  return Buffer.from(hashBytes).toString('hex');
 }
 
 /**
@@ -47,7 +48,12 @@ export function verifyIntegrity(
   uhrpUrl: string,
 ): IntegrityResult {
   const computedHash = createHash('sha256').update(encryptedContent).digest('hex');
-  const expectedHash = extractHash(uhrpUrl);
+  let expectedHash: string;
+  try {
+    expectedHash = extractHash(uhrpUrl);
+  } catch {
+    return { verified: false, contentHash: computedHash, expectedHash: uhrpUrl };
+  }
 
   return {
     verified: computedHash === expectedHash,

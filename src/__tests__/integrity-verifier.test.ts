@@ -1,42 +1,57 @@
 import { describe, it, expect } from 'vitest';
-import { createHash } from 'crypto';
+import { StorageUtils } from '@bsv/sdk';
 import {
   verifyIntegrity,
   verifyBatch,
   attachProofs,
   computeUhrpUrl,
+  extractHash,
 } from '../storage/integrity-verifier.js';
 import type { ShadRetrievedDocument } from '../types/index.js';
+import { createHash } from 'crypto';
 
 function sha256hex(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
 describe('computeUhrpUrl', () => {
-  it('computes uhrp URL from encrypted content', () => {
+  it('produces a valid Base58Check UHRP URL', () => {
     const content = new Uint8Array([1, 2, 3, 4]);
     const url = computeUhrpUrl(content);
-    const expectedHash = sha256hex(content);
-    expect(url).toBe(`uhrp://${expectedHash}`);
+    // SDK validation accepts it
+    expect(StorageUtils.isValidURL(url)).toBe(true);
+  });
+
+  it('round-trips: extractHash recovers the original SHA-256', () => {
+    const content = new Uint8Array([10, 20, 30]);
+    const url = computeUhrpUrl(content);
+    const recovered = extractHash(url);
+    expect(recovered).toBe(sha256hex(content));
   });
 });
 
 describe('verifyIntegrity', () => {
-  it('returns verified for matching hash', () => {
+  it('returns verified for matching content', () => {
     const content = new Uint8Array([10, 20, 30]);
-    const hash = sha256hex(content);
-    const uhrpUrl = `uhrp://${hash}`;
+    const uhrpUrl = computeUhrpUrl(content);
 
     const result = verifyIntegrity(content, uhrpUrl);
     expect(result.verified).toBe(true);
-    expect(result.contentHash).toBe(hash);
+    expect(result.contentHash).toBe(sha256hex(content));
   });
 
-  it('returns not verified for mismatched hash', () => {
-    const content = new Uint8Array([10, 20, 30]);
-    const uhrpUrl = 'uhrp://0000000000000000000000000000000000000000000000000000000000000000';
+  it('returns not verified for different content', () => {
+    const original = new Uint8Array([10, 20, 30]);
+    const tampered = new Uint8Array([99, 99, 99]);
+    const uhrpUrl = computeUhrpUrl(original);
 
-    const result = verifyIntegrity(content, uhrpUrl);
+    const result = verifyIntegrity(tampered, uhrpUrl);
+    expect(result.verified).toBe(false);
+  });
+
+  it('handles invalid UHRP URLs gracefully', () => {
+    const content = new Uint8Array([1, 2, 3]);
+    const result = verifyIntegrity(content, 'not-a-valid-url');
     expect(result.verified).toBe(false);
   });
 });
@@ -44,8 +59,7 @@ describe('verifyIntegrity', () => {
 describe('verifyBatch', () => {
   it('returns verified map and empty failed for valid files', () => {
     const content = new Uint8Array([1, 2, 3]);
-    const hash = sha256hex(content);
-    const uhrpUrl = `uhrp://${hash}`;
+    const uhrpUrl = computeUhrpUrl(content);
 
     const result = verifyBatch([
       { path: 'a.md', encryptedContent: content, uhrpUrl, tokenTxid: 'tx1' },
@@ -57,7 +71,8 @@ describe('verifyBatch', () => {
 
   it('adds failed files to failed list in soft mode', () => {
     const content = new Uint8Array([1, 2, 3]);
-    const badUrl = 'uhrp://0000000000000000000000000000000000000000000000000000000000000000';
+    const differentContent = new Uint8Array([9, 8, 7]);
+    const badUrl = computeUhrpUrl(differentContent);
 
     const result = verifyBatch([
       { path: 'bad.md', encryptedContent: content, uhrpUrl: badUrl, tokenTxid: 'tx1' },
@@ -68,7 +83,8 @@ describe('verifyBatch', () => {
 
   it('throws in strict mode on hash mismatch', () => {
     const content = new Uint8Array([1, 2, 3]);
-    const badUrl = 'uhrp://0000000000000000000000000000000000000000000000000000000000000000';
+    const differentContent = new Uint8Array([9, 8, 7]);
+    const badUrl = computeUhrpUrl(differentContent);
 
     expect(() => verifyBatch(
       [{ path: 'bad.md', encryptedContent: content, uhrpUrl: badUrl, tokenTxid: 'tx1' }],
