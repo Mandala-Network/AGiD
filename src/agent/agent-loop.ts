@@ -172,6 +172,7 @@ export class AgentLoop {
           input_schema: t.input_schema,
         }))
       : [];
+    console.log(`[AgentLoop] Sending ${tools.length} tools to LLM: ${tools.map(t => t.name).join(', ')}`);
 
     // 5. Iterative loop
     let messages: LLMMessage[] = history as LLMMessage[];
@@ -347,6 +348,7 @@ export class AgentLoop {
           input_schema: t.input_schema,
         }))
       : [];
+    console.log(`[AgentLoop] Sending ${tools.length} tools to LLM: ${tools.map(t => t.name).join(', ')}`);
 
     // 5. Iterative loop with event emission
     let messages: LLMMessage[] = history as LLMMessage[];

@@ -275,6 +275,7 @@ export class AGIdentityGateway {
     console.log(`[AGIdentityGateway]    Model: ${model}`);
     console.log(`[AGIdentityGateway]    Workspace: ${workspacePath}`);
     console.log(`[AGIdentityGateway]    Tools: ${toolRegistry.getDefinitions().length}`);
+    console.log(`[AGIdentityGateway]    Tool names: ${toolRegistry.getDefinitions().map(t => t.name).join(', ')}`);
 
     // 3. Create MessageBoxGateway
     this.messageBoxGateway = await createMessageBoxGateway({
