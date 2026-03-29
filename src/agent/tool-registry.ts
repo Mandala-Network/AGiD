@@ -107,6 +107,12 @@ export class ToolRegistry {
         this.walletTools.add(registration.name);
       }
 
+      // Map plugin group to ToolCategory for intent-based filtering
+      const group = pluginTool.options.group;
+      if (group) {
+        this.toolCategories.set(registration.name, group as ToolCategory);
+      }
+
       this.register({
         definition: {
           name: registration.name,

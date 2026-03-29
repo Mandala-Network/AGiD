@@ -11,7 +11,7 @@ import type { SkillStore } from '../skills/skill-store.js';
 import type { GepaOptimizer } from '../../integrations/gepa/gepa-optimizer.js';
 import type { PromptBuilder } from '../prompt-builder.js';
 
-export type ToolCategory = 'identity' | 'crypto' | 'memory' | 'zkproof' | 'messaging' | 'transactions' | 'tokens' | 'calibration' | 'services' | 'research' | 'audit' | 'deployment' | 'shad' | 'skills';
+export type ToolCategory = 'identity' | 'crypto' | 'memory' | 'zkproof' | 'messaging' | 'transactions' | 'tokens' | 'calibration' | 'services' | 'research' | 'audit' | 'deployment' | 'shad' | 'skills' | 'wallet' | 'fs' | 'runtime' | 'browser' | 'deploy';
 
 export interface ToolDescriptor {
   definition: AgentToolDefinition;
