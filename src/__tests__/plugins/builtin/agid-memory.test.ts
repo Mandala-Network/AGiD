@@ -11,12 +11,13 @@ describe('agid-memory plugin', () => {
       rootPath: '',
     });
     const tools = registry.getTools();
-    expect(tools).toHaveLength(4);
+    expect(tools).toHaveLength(5);
     const names = tools.map(t => t.registration.name);
     expect(names).toContain('agid_store_memory');
     expect(names).toContain('agid_recall_memories');
     expect(names).toContain('shad_deep_recall');
     expect(names).toContain('shad_search_memories');
+    expect(names).toContain('agid_gc_legacy_tokens');
   });
 
   it('tools are in the memory group', () => {
@@ -31,7 +32,7 @@ describe('agid-memory plugin', () => {
     }
   });
 
-  it('agid_store_memory requires wallet', () => {
+  it('agid_store_memory and agid_gc_legacy_tokens require wallet', () => {
     const registry = new PluginRegistry();
     registry.loadPlugin({
       manifest: { id: 'agid-memory' },
@@ -39,8 +40,10 @@ describe('agid-memory plugin', () => {
       rootPath: '',
     });
     const tools = registry.getTools();
-    const storeTool = tools.find(t => t.registration.name === 'agid_store_memory');
-    expect(storeTool!.registration.requiresWallet).toBe(true);
+    for (const name of ['agid_store_memory', 'agid_gc_legacy_tokens']) {
+      const tool = tools.find(t => t.registration.name === name);
+      expect(tool!.registration.requiresWallet, `${name} should require wallet`).toBe(true);
+    }
   });
 
   it('recall and shad tools do NOT require wallet', () => {

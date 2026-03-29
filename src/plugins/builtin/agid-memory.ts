@@ -4,6 +4,7 @@
  * On-chain memory storage and retrieval, including Shad deep reasoning.
  */
 
+import { PushDrop, LockingScript, Transaction } from '@bsv/sdk';
 import { definePluginEntry } from '../define-plugin-entry.js';
 
 function json(data: Record<string, unknown>) {
@@ -179,6 +180,109 @@ export const agidMemoryPlugin = definePluginEntry({
             shadAvailable: result.shadAvailable,
             message: result.message,
           });
+        },
+      },
+      { group: 'memory' },
+    );
+
+    // =========================================================================
+    // 5. agid_gc_legacy_tokens — Spend legacy hex-format memory tokens
+    // =========================================================================
+    api.registerTool(
+      {
+        name: 'agid_gc_legacy_tokens',
+        description:
+          'Find and spend legacy memory tokens that use the old hex-format UHRP URLs ' +
+          '(uhrp://{hex}). These tokens cannot be downloaded and should be cleaned up. ' +
+          'Returns the count of tokens found and spent.',
+        parameters: {
+          type: 'object',
+          properties: {
+            dryRun: { type: 'boolean', description: 'If true, only count legacy tokens without spending them (default: false)' },
+          },
+          required: [],
+        },
+        requiresWallet: true,
+        async execute(_id, params, ctx) {
+          const wallet = ctx?.wallet;
+          if (!wallet) return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Wallet not available' }) }], isError: true };
+
+          const dryRun = (params.dryRun as boolean) ?? false;
+          const underlyingWallet = wallet.getUnderlyingWallet?.();
+          if (!underlyingWallet) return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Wallet not initialized' }) }], isError: true };
+
+          const legacyHexPattern = /^uhrp:\/\/[0-9a-f]{64}$/i;
+
+          // List all memory tokens
+          const result = await underlyingWallet.listOutputs({
+            basket: 'agid-memory',
+            tags: ['agid memory'],
+            include: 'locking scripts',
+            includeCustomInstructions: true,
+          });
+
+          const legacyTokens: Array<{ outpoint: string; lockingScript: string; satoshis: number }> = [];
+
+          for (const output of result.outputs) {
+            if (!output.spendable || !output.lockingScript) continue;
+            try {
+              const decoded = PushDrop.decode(LockingScript.fromHex(output.lockingScript), 'before');
+              const uhrpUrl = new TextDecoder().decode(new Uint8Array(decoded.fields[0]));
+              if (legacyHexPattern.test(uhrpUrl)) {
+                legacyTokens.push({
+                  outpoint: output.outpoint,
+                  lockingScript: output.lockingScript,
+                  satoshis: output.satoshis,
+                });
+              }
+            } catch {
+              // Skip tokens that can't be decoded
+            }
+          }
+
+          if (legacyTokens.length === 0) {
+            return json({ found: 0, spent: 0, message: 'No legacy hex-format tokens found' });
+          }
+
+          if (dryRun) {
+            return json({ found: legacyTokens.length, spent: 0, dryRun: true, outpoints: legacyTokens.map(t => t.outpoint) });
+          }
+
+          // Spend legacy tokens
+          let spent = 0;
+          const errors: string[] = [];
+
+          for (const token of legacyTokens) {
+            try {
+              const pushDrop = new PushDrop(underlyingWallet);
+              const unlockInfo = pushDrop.unlock(
+                [2, 'agid memory'],
+                '1',
+                'self',
+                'all',
+                false,
+                token.satoshis,
+                LockingScript.fromHex(token.lockingScript),
+              );
+              const dummyTx = new Transaction();
+              const unlockingScript = await unlockInfo.sign(dummyTx, 0);
+
+              await wallet.createAction({
+                description: 'GC: Spend legacy hex-format memory token',
+                inputs: [{
+                  outpoint: token.outpoint,
+                  unlockingScript: unlockingScript.toHex(),
+                  inputDescription: 'Legacy hex-format memory token',
+                }],
+                outputs: [],
+              });
+              spent++;
+            } catch (err) {
+              errors.push(`${token.outpoint}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+
+          return json({ found: legacyTokens.length, spent, errors: errors.length > 0 ? errors : undefined });
         },
       },
       { group: 'memory' },

@@ -14,6 +14,15 @@ import { getTransactionTimestamp } from './arc-client.js';
 import { verifyIntegrity } from '../integrity-verifier.js';
 import type { StorageCoordinator } from '../storage-coordinator.js';
 
+/**
+ * Detect legacy hex-format UHRP URLs (e.g. uhrp://{64 hex chars}).
+ * These were produced by a bug in computeUhrpUrl before the Base58Check fix.
+ * The SDK rejects them, so we skip silently rather than attempting download.
+ */
+function isLegacyHexUrl(url: string): boolean {
+  return /^uhrp:\/\/[0-9a-f]{64}$/i.test(url);
+}
+
 const PROTOCOL_ID: [0 | 1 | 2, string] = [2, 'agid memory'];
 const KEY_ID = '1';
 const BASKET = 'agid-memory';
@@ -68,6 +77,12 @@ export async function listMemories(
 
       // 3. Get encrypted content — local first, then UHRP recovery
       let ciphertextBytes: Uint8Array | null = null;
+
+      // Skip legacy hex-format UHRP URLs (pre-Base58Check fix)
+      if (isLegacyHexUrl(uhrpUrl)) {
+        console.warn(`[MemoryReader] Skipping legacy hex-format token (output ${idx}) — use agid_gc_legacy_tokens to clean up`);
+        continue;
+      }
 
       // 3a. Try embedded data in token
       if (uhrpUrl === 'embedded' && decoded.fields.length >= 3) {
