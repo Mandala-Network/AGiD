@@ -62,16 +62,18 @@ export class AgentLoop {
   private classifyIntent(userMessage: string): { needsTools: boolean; categories: ToolCategory[] | null } {
     const msg = userMessage.toLowerCase();
 
-    // Reasoning patterns — no tools needed
-    const reasoningPatterns = [
-      /^(what|why|how|when|where|who|can you|could you|would you|do you|is it|are you|tell me|explain|think|discuss|opinion|idea|thought|consider)/,
-      /\?$/,
-      /^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no|right|got it)/,
+    // Only skip tools for trivial greetings/acknowledgments
+    const trivialPatterns = [
+      /^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no|right|got it|good morning|good evening)[\s!.]*$/,
     ];
+    const isTrivial = trivialPatterns.some(p => p.test(msg.trim()));
 
-    const isReasoning = reasoningPatterns.some(p => p.test(msg));
+    if (isTrivial) {
+      return { needsTools: false, categories: null };
+    }
 
-    // Action keywords that override reasoning classification
+    // Always provide tools — the LLM decides whether to use them.
+    // Keyword hints narrow the category set to reduce token usage.
     const actionKeywords: Record<string, ToolCategory[]> = {
       'sign': ['crypto'],
       'encrypt': ['crypto'],
@@ -124,7 +126,6 @@ export class AgentLoop {
       'screenshot': ['browser'],
     };
 
-    // Check for action keywords
     const matchedCategories = new Set<ToolCategory>();
     for (const [keyword, cats] of Object.entries(actionKeywords)) {
       if (msg.includes(keyword)) {
@@ -137,11 +138,7 @@ export class AgentLoop {
       return { needsTools: true, categories: Array.from(matchedCategories) };
     }
 
-    if (isReasoning) {
-      return { needsTools: false, categories: null };
-    }
-
-    // Ambiguous — provide all tools, let the prompt guide behavior
+    // No keyword match — provide all tools, let the LLM decide
     return { needsTools: true, categories: null };
   }
 
