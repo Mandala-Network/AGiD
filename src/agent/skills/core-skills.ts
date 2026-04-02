@@ -226,6 +226,102 @@ The user wants to send a BSV payment, check a balance, or manage funds.
 - Always confirm payment details with the user before executing — especially for large amounts.
 - Payment amounts are always in satoshis (1 BSV = 100,000,000 satoshis).`,
   },
+
+  // =========================================================================
+  // x402 Isolate — Secure Cloud Code Execution
+  // =========================================================================
+  {
+    name: 'x402-isolate',
+    description: 'Execute JavaScript/TypeScript code in a secure cloud sandbox via x402 micropayment',
+    triggers: [
+      'run code',
+      'execute code',
+      'sandbox',
+      'isolate',
+      'run javascript',
+      'run typescript',
+      'secure execution',
+      'dynamic worker',
+      'cloud execution',
+      'remote execution',
+    ],
+    requiredTools: ['agid_x402_request'],
+    body: `# x402 Isolate — Secure Code Execution
+
+## When to use
+You need to run JavaScript/TypeScript code in a secure, isolated cloud environment.
+Use this when:
+- You've generated code that needs to execute but shouldn't run locally
+- You need a sandboxed environment (no filesystem, no network access)
+- You want to test or run code without side effects on the host machine
+- The user asks you to run code securely or in a sandbox
+
+## Cost
+20,000 satoshis (~$0.01) per execution. Payment is automatic via your wallet.
+If execution fails, you receive an automatic refund.
+
+## How to call
+
+Use agid_x402_request with:
+- url: "https://x402-isolate.DEPLOY_SUBDOMAIN.workers.dev/execute"
+- method: "POST"
+- body: JSON string with two fields:
+  - code: Your JavaScript code as a string
+  - input: Any JSON data the code needs (optional, defaults to null)
+
+## Code format
+
+Your code MUST export a default object with an async run(input) method:
+
+\`\`\`javascript
+export default {
+  async run(input) {
+    // input is the JSON you passed in the request
+    // return value becomes the output
+    return { result: input.values.reduce((a, b) => a + b, 0) };
+  }
+}
+\`\`\`
+
+## Constraints
+- No network access (fetch, XMLHttpRequest, WebSocket are all blocked)
+- No filesystem access
+- No npm imports (single-file only, use built-in APIs like crypto.subtle)
+- Max code + input size: 64KB
+- Max execution time: 5 seconds CPU
+- Max output size: 256KB
+
+## Handling the response
+
+The response JSON has these fields:
+- success: boolean — whether execution completed without error
+- output: the return value from run() (only present if success=true)
+- error: error message string (only present if success=false)
+- durationMs: execution time in milliseconds
+
+If success is false and a refund field is present, your wallet has already
+been refunded automatically — no action needed.
+
+## Example
+
+To compute a SHA-256 hash of text in the cloud sandbox:
+
+agid_x402_request({
+  url: "https://x402-isolate.DEPLOY_SUBDOMAIN.workers.dev/execute",
+  method: "POST",
+  body: JSON.stringify({
+    code: "export default { async run(input) { const data = new TextEncoder().encode(input.text); const hash = await crypto.subtle.digest('SHA-256', data); return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join(''); } }",
+    input: { text: "hello world" }
+  })
+})
+
+## Important
+- Always check the success field before using the output
+- Keep code concise — you're paying per execution, batch work into one run() call
+- Never include secrets or credentials in the code — the sandbox operator can see the code
+- The sandbox has access to standard Web APIs (crypto.subtle, TextEncoder, JSON, etc.)
+- Each execution is a fresh isolate — no state persists between calls`,
+  },
 ];
 
 /**
