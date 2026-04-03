@@ -1,0 +1,24 @@
+{
+  "name": "@agid/openclaw-plugin",
+  "version": "1.0.0",
+  "description": "AGiD tools as an OpenClaw-compatible plugin with embedded BSV wallet",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "openclaw": {
+    "extensions": ["./dist/index.js"]
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@bsv/sdk": "^2.0.3",
+    "@bsv/wallet-toolbox": "^2.0.19",
+    "peercert": "^0.1.4"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

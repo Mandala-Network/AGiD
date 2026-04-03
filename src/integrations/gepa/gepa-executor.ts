@@ -57,7 +57,8 @@ export class GepaExecutor {
    */
   async checkGepaAvailable(): Promise<GepaAvailability> {
     return new Promise((resolve) => {
-      const proc = spawn(this.pythonPath, ['-c', 'from importlib.metadata import version; print(version("gepa"))']);
+      // Test actual imports (not just metadata) to catch missing dependencies like litellm
+      const proc = spawn(this.pythonPath, ['-c', 'from importlib.metadata import version; from gepa.optimize_anything import optimize_anything; print(version("gepa"))']);
 
       let stdout = '';
       let stderr = '';

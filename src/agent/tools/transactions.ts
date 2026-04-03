@@ -31,6 +31,7 @@ export function transactionTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'transactions',
       execute: async (params, ctx) => {
         const underlyingWallet = ctx.wallet.getUnderlyingWallet();
         if (!underlyingWallet) throw new Error('Wallet not available');
@@ -75,6 +76,7 @@ export function transactionTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'transactions',
       execute: async (params, ctx) => {
         const underlyingWallet = ctx.wallet.getUnderlyingWallet();
         if (!underlyingWallet) throw new Error('Wallet not available');
@@ -103,6 +105,7 @@ export function transactionTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'transactions',
       execute: async (params, ctx) => {
         const underlyingWallet = ctx.wallet.getUnderlyingWallet();
         if (!underlyingWallet) throw new Error('Wallet not available');
@@ -130,6 +133,7 @@ export function transactionTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'transactions',
       execute: async (params, ctx) => {
         const ppClient = ctx.wallet.getPeerPayClient();
         if (!ppClient) throw new Error('PeerPay not initialized');

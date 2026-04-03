@@ -87,7 +87,7 @@ export class AGIdentityShadBridge {
       maxNodes: bridgeConfig.maxNodes ?? 50,
       maxTime: bridgeConfig.maxTime ?? 300,
       strategy: bridgeConfig.strategy ?? 'research',
-      retriever: bridgeConfig.retriever ?? 'api'
+      retriever: bridgeConfig.retriever ?? 'auto'
     };
   }
 
@@ -328,7 +328,7 @@ export class AGIdentityShadBridge {
    */
   private async runShad(
     task: string,
-    retrieverPort: number,
+    _retrieverPort: number,
     options: {
       strategy: ShadStrategy;
       maxDepth: number;
@@ -337,23 +337,20 @@ export class AGIdentityShadBridge {
   ): Promise<ShadResult> {
     return new Promise((resolve, reject) => {
       const args = [
-        '-m', 'shad.cli',
         'run', task,
-        '--retriever', 'api',
-        '--retriever-url', `http://127.0.0.1:${retrieverPort}`,
+        '--retriever', 'auto',
         '--strategy', options.strategy,
         '--max-depth', String(options.maxDepth),
         '--max-time', String(options.maxTime),
         '--json'
       ];
 
-      const shadProcess = spawn(this.config.pythonPath, args, {
+      const shadProcess = spawn('shad', args, {
         env: {
           ...process.env,
           SHAD_SECURE_MODE: 'true',
           PYTHONUNBUFFERED: '1'
         },
-        cwd: this.config.shadPath.replace('~', process.env.HOME ?? '')
       });
 
       let stdout = '';
@@ -434,7 +431,7 @@ export class AGIdentityShadBridge {
     error?: string;
   }> {
     return new Promise((resolve) => {
-      const process = spawn(this.config.pythonPath, ['-m', 'shad.cli', '--version']);
+      const process = spawn('shad', ['--version']);
 
       let stdout = '';
       let stderr = '';

@@ -38,7 +38,6 @@ export interface TradeEvent {
 export interface RecalledTrade {
   content: string;
   tags: string[];
-  importance: string;
   txid: string;
   blockTimestamp: number;
 }
@@ -48,19 +47,6 @@ export interface RecallTradesOptions {
   side?: string;
   type?: string;
   limit?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Importance mapping
-// ---------------------------------------------------------------------------
-
-const HIGH_IMPORTANCE_EVENTS = new Set<string>([
-  "trade_filled",
-  "position_closed",
-]);
-
-function getImportance(eventType: string): "high" | "medium" {
-  return HIGH_IMPORTANCE_EVENTS.has(eventType) ? "high" : "medium";
 }
 
 // ---------------------------------------------------------------------------
@@ -86,13 +72,11 @@ export class TradeMemoryRecorder {
   ): Promise<{ txid: string; uhrpUrl: string } | null> {
     try {
       const tags = this.buildTags(event);
-      const importance = getImportance(event.eventType);
       const content = JSON.stringify(event);
 
       const result = await this._memoryManager.store({
         content,
         tags,
-        importance,
       });
 
       return { txid: result.txid, uhrpUrl: result.uhrpUrl };
@@ -122,7 +106,6 @@ export class TradeMemoryRecorder {
     return result.memories.map((m) => ({
       content: m.content,
       tags: m.tags,
-      importance: m.importance,
       txid: m.txid,
       blockTimestamp: m.blockTimestamp,
     }));

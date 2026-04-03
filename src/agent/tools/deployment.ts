@@ -26,6 +26,7 @@ export function deploymentTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'deployment',
       execute: async (params, ctx) => {
         const client = new MandalaClient(ctx.wallet)
         const result = await client.createProject(
@@ -49,6 +50,7 @@ export function deploymentTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'deployment',
       execute: async (params, ctx) => {
         const client = new MandalaClient(ctx.wallet)
         const result = await client.listProjects(params.nodeUrl as string)
@@ -69,6 +71,7 @@ export function deploymentTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'deployment',
       execute: async (params, ctx) => {
         const client = new MandalaClient(ctx.wallet)
         const info = await client.getProjectInfo(params.nodeUrl as string, params.projectId as string)
@@ -89,6 +92,7 @@ export function deploymentTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'deployment',
       execute: async (params, ctx) => {
         const client = new MandalaClient(ctx.wallet)
         const result = await client.deploy(params.nodeUrl as string, params.projectId as string)
@@ -114,6 +118,7 @@ export function deploymentTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'deployment',
       execute: async (params, ctx) => {
         const client = new MandalaClient(ctx.wallet)
         const result = await client.updateSettings(
@@ -141,6 +146,7 @@ export function deploymentTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'deployment',
       execute: async (params, ctx) => {
         const client = new MandalaClient(ctx.wallet)
         const nodeUrl = params.nodeUrl as string
@@ -175,6 +181,7 @@ export function deploymentTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'deployment',
       execute: async (params, ctx) => {
         const client = new MandalaClient(ctx.wallet)
         const nodeUrl = params.nodeUrl as string
@@ -212,6 +219,7 @@ export function deploymentTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'deployment',
       execute: async (params) => {
         const client = new MandalaClient(null as any)
         const info = await client.getPublicInfo(params.nodeUrl as string)

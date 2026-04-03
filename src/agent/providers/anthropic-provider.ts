@@ -37,10 +37,28 @@ export class AnthropicProvider implements LLMProvider {
       tools: params.tools as Anthropic.Tool[],
     });
 
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('');
+    // Extract thinking blocks (Anthropic extended thinking) and text blocks
+    const thinkingParts: string[] = [];
+    let rawText = '';
+
+    for (const block of response.content) {
+      if (block.type === 'thinking' && 'thinking' in block && typeof (block as any).thinking === 'string') {
+        thinkingParts.push((block as any).thinking);
+      } else if (block.type === 'text') {
+        rawText += (block as Anthropic.TextBlock).text;
+      }
+    }
+
+    // Fallback: extract <think> tags from text content (model may emit them inline)
+    const thinkMatch = rawText.match(/<think>([\s\S]*?)<\/think>/);
+    if (thinkMatch) {
+      thinkingParts.push(thinkMatch[1].trim());
+    }
+
+    // Strip <think> tags from display text
+    const text = rawText.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+
+    const reasoning = thinkingParts.length > 0 ? thinkingParts.join('\n') : undefined;
 
     const toolCalls = response.content
       .filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
@@ -61,6 +79,7 @@ export class AnthropicProvider implements LLMProvider {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
       },
+      reasoning,
     };
   }
 

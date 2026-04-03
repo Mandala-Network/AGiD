@@ -101,7 +101,7 @@ export class SecureTeamVault {
     this.wallet = config.wallet;
     // CurvePoint bundles its own @bsv/sdk with incompatible AtomicBEEF types
     this.curvePoint = new CurvePoint(this.wallet.asWalletInterface() as any);
-    this.defaultProtocolID = config.defaultProtocolID ?? [2 as SecurityLevel, 'agidentity-team'];
+    this.defaultProtocolID = config.defaultProtocolID ?? [2 as SecurityLevel, 'agidentity team'];
     this.trustedCertifiers = config.trustedCertifiers;
     this.persistTeamConfig = config.persistTeamConfig;
     this.loadTeamConfig = config.loadTeamConfig;

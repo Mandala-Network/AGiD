@@ -305,7 +305,7 @@ export interface ShadConfig {
   maxNodes?: number;
   maxTime?: number;
   strategy?: ShadStrategy;
-  retriever?: 'auto' | 'qmd' | 'filesystem' | 'api';
+  retriever?: 'auto' | 'qmd' | 'filesystem';
 }
 
 export type ShadStrategy = 'software' | 'research' | 'analysis' | 'planning';
@@ -323,6 +323,9 @@ export interface ShadRetrievedDocument {
   content: string;
   confidence: number;
   source: string;
+  contentHash?: string;
+  tokenTxid?: string;
+  verified?: boolean;
 }
 
 export interface ShadExecutionTrace {
@@ -331,6 +334,16 @@ export interface ShadExecutionTrace {
   depth: number;
   nodes: number;
   durationMs: number;
+}
+
+export interface IntegrityConfig {
+  strict: boolean;
+  verifyOnRetrieval: boolean;
+}
+
+export interface RemoteBackupConfig {
+  enabled: boolean;
+  intervalMs: number;
 }
 
 export interface SecureRetrievalContext {

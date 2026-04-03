@@ -20,6 +20,7 @@ export function tokenTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'tokens',
       execute: async (params, ctx) => {
         const fields = params.fields as string[];
         const protocol = (params.protocol as string) || 'agidentity token';
@@ -48,6 +49,7 @@ export function tokenTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'tokens',
       execute: async (params, ctx) => {
         const basket = (params.basket as string) || 'tokens';
         const underlyingWallet = ctx.wallet.getUnderlyingWallet();
@@ -86,6 +88,7 @@ export function tokenTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'tokens',
       execute: async (params, ctx) => {
         const underlyingWallet = ctx.wallet.getUnderlyingWallet();
         if (!underlyingWallet) throw new Error('Wallet not initialized');

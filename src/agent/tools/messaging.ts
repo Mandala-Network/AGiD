@@ -18,6 +18,7 @@ export function messagingTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'messaging',
       execute: async (params, ctx) => {
         const recipient = params.recipient as string;
         const messageBox = (params.messageBox as string) || 'general';
@@ -45,6 +46,7 @@ export function messagingTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'messaging',
       execute: async (params, ctx) => {
         const messageBox = (params.messageBox as string) || 'general';
         const messages = await ctx.wallet.listMessages({ messageBox });
@@ -77,6 +79,7 @@ export function messagingTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'messaging',
       execute: async (params, ctx) => {
         const messageIds = params.messageIds as string[];
         await ctx.wallet.acknowledgeMessages({ messageIds });
@@ -94,6 +97,7 @@ export function messagingTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'messaging',
       execute: async (_params, ctx) => {
         const payments = await (ctx.wallet as any).listIncomingPayments();
         return ok({
@@ -120,6 +124,7 @@ export function messagingTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'messaging',
       execute: async (params, ctx) => {
         const payments = await (ctx.wallet as any).listIncomingPayments();
         const payment = payments.find((p: any) => p.messageId === params.messageId);

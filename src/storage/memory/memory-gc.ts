@@ -1,7 +1,7 @@
 /**
  * Memory Garbage Collection
  *
- * Implements retention policies based on importance levels.
+ * Implements flat retention policy for all memories.
  * Uses TAAL ARC API to get block timestamps for age calculation.
  * Spends expired tokens to remove them from wallet basket.
  */
@@ -11,13 +11,9 @@ import type { AgentWallet } from '../../wallet/agent-wallet.js';
 import { getTransactionTimestamp } from './arc-client.js';
 
 /**
- * Retention policy in days based on importance level
+ * Flat retention policy: all memories retained for 365 days
  */
-export const RETENTION_POLICY = {
-  high: 365 * 3,    // 3 years
-  medium: 365,       // 1 year
-  low: 90,           // 90 days
-} as const;
+export const RETENTION_DAYS = 365;
 
 /**
  * GC statistics
@@ -31,7 +27,7 @@ export interface GCStats {
  * Apply garbage collection to memory tokens
  *
  * Queries memory tokens, fetches timestamps from TAAL ARC API, and spends
- * expired ones based on retention policy (high=3yr, medium=1yr, low=90d).
+ * expired ones based on a flat 365-day retention policy.
  *
  * @param wallet - Agent's BRC-100 wallet
  * @returns Statistics on tokens spent and kept
@@ -46,7 +42,7 @@ export async function applyGarbageCollection(
 
   // 1. Query all memory tokens
   const result = await underlyingWallet.listOutputs({
-    basket: 'agent-memories',
+    basket: 'agid-memory',
     include: 'entire transactions', // Include BEEF for spending
     includeCustomInstructions: true,
     limit: 10000, // Get all tokens
@@ -67,13 +63,10 @@ export async function applyGarbageCollection(
       // Skip if not spendable
       if (!output.spendable) continue;
 
-      // Extract importance from PushDrop fields
+      // Decode PushDrop fields [uhrpUrl, tags]
       if (!output.lockingScript) continue;
 
-      const decoded = PushDrop.decode(LockingScript.fromHex(output.lockingScript), 'before');
-      const [, , importanceBytes] = decoded.fields;
-
-      const importance = new TextDecoder().decode(new Uint8Array(importanceBytes)) as keyof typeof RETENTION_POLICY;
+      PushDrop.decode(LockingScript.fromHex(output.lockingScript), 'before');
 
       // Get timestamp from ARC API
       const txid = output.outpoint.split(':')[0];
@@ -83,9 +76,8 @@ export async function applyGarbageCollection(
       const ageMs = now - createdAt;
       const ageDays = ageMs / (24 * 60 * 60 * 1000);
 
-      // Check if expired based on retention policy
-      const maxAgeDays = RETENTION_POLICY[importance];
-      if (ageDays > maxAgeDays) {
+      // Check if expired based on flat retention policy
+      if (ageDays > RETENTION_DAYS) {
         // Parse customInstructions to get keyID
         let keyID = `memory-gc-${output.outpoint}`;
         if (output.customInstructions) {
@@ -101,7 +93,7 @@ export async function applyGarbageCollection(
           outpoint: output.outpoint,
           lockingScript: output.lockingScript,
           satoshis: output.satoshis,
-          protocolID: [2, 'agidentity memory'],
+          protocolID: [2, 'agid memory'],
           keyID,
         });
       }

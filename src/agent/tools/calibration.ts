@@ -31,6 +31,7 @@ export function calibrationTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'calibration',
       execute: async (params, ctx) => {
         const title = params.title as string;
         const description = params.description as string;
@@ -110,6 +111,7 @@ export function calibrationTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'calibration',
       execute: async (params, ctx) => {
         const contentTxid = params.contentTxid as string;
         const contentVout = (params.contentVout as number) ?? 0;
@@ -163,6 +165,7 @@ export function calibrationTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'calibration',
       execute: async (params) => {
         const queryType = params.queryType as string;
         const client = new OverlayClient();
@@ -224,6 +227,7 @@ export function calibrationTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'calibration',
       execute: async (params, ctx) => {
         const variants = params.variants as Array<{ title: string; description?: string; content: string; contentType?: string }>;
         const satsPerCal = (params.satsPerCalibration as number) ?? 100;

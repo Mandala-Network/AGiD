@@ -198,7 +198,17 @@ export class OllamaProvider implements LLMProvider {
     // Strip any residual <think> tags from content
     text = text.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
 
-    const done = data.stop_reason === 'end_turn' || data.stop_reason === 'stop';
+    // Fallback: extract tool calls from text if none were returned as structured blocks
+    if (toolCalls.length === 0 && text) {
+      const extracted = this.extractToolCallsFromText(text);
+      if (extracted.toolCalls.length > 0) {
+        console.log(`[OllamaProvider] Extracted ${extracted.toolCalls.length} tool call(s) from text (anthropic format fallback)`);
+        toolCalls.push(...extracted.toolCalls);
+        text = extracted.cleanedText;
+      }
+    }
+
+    const done = (data.stop_reason === 'end_turn' || data.stop_reason === 'stop') && toolCalls.length === 0;
     const rawContent = this.buildCanonicalContent(text, toolCalls);
 
     return {
@@ -334,8 +344,18 @@ export class OllamaProvider implements LLMProvider {
       input: JSON.parse(tc.function.arguments) as Record<string, unknown>,
     }));
 
+    // Fallback: extract tool calls from text if none were returned as structured blocks
+    if (toolCalls.length === 0 && text) {
+      const extracted = this.extractToolCallsFromText(text);
+      if (extracted.toolCalls.length > 0) {
+        console.log(`[OllamaProvider] Extracted ${extracted.toolCalls.length} tool call(s) from text (openai format fallback)`);
+        toolCalls.push(...extracted.toolCalls);
+        text = extracted.cleanedText;
+      }
+    }
+
     // Map finish_reason: 'stop' = done, 'tool_calls' = needs tool execution
-    const done = choice.finish_reason === 'stop' || choice.finish_reason === 'length';
+    const done = (choice.finish_reason === 'stop' || choice.finish_reason === 'length') && toolCalls.length === 0;
 
     // Build canonical content for storage
     const rawContent = this.buildCanonicalContent(text, toolCalls);
@@ -406,6 +426,110 @@ export class OllamaProvider implements LLMProvider {
     }
 
     return result;
+  }
+
+  // =========================================================================
+  // Text-based tool call extraction (fallback for models that don't use structured tool_use)
+  // =========================================================================
+
+  /**
+   * Some models (e.g. MiniMax-M2.7) output tool calls as text markers instead of
+   * structured tool_use blocks. This method extracts them from the response text
+   * and returns structured LLMToolUse objects.
+   *
+   * Supported formats:
+   *   [TOOL_CALL] {tool => "name", args => {...}} [/TOOL_CALL]
+   *   <tool_call> {"name": "...", "arguments": {...}} </tool_call>
+   *   ```tool_call\n{"name": "...", "arguments": {...}}\n```
+   */
+  private extractToolCallsFromText(
+    text: string,
+  ): { toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }>; cleanedText: string } {
+    const toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
+    let cleanedText = text;
+    let callIndex = 0;
+
+    // Pattern 1: [TOOL_CALL] {tool => "name", args => {json}} [/TOOL_CALL]
+    const bracketPattern = /\[TOOL_CALL\]\s*([\s\S]*?)\s*\[\/TOOL_CALL\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = bracketPattern.exec(text)) !== null) {
+      const body = match[1].trim();
+      const parsed = this.parseLooseToolCall(body);
+      if (parsed) {
+        toolCalls.push({ id: `text-tc-${callIndex++}`, name: parsed.name, input: parsed.input });
+      }
+      cleanedText = cleanedText.replace(match[0], '');
+    }
+
+    // Pattern 2: <tool_call> {"name": "...", "arguments": {...}} </tool_call>
+    const xmlPattern = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
+    while ((match = xmlPattern.exec(text)) !== null) {
+      const body = match[1].trim();
+      const parsed = this.parseLooseToolCall(body);
+      if (parsed) {
+        toolCalls.push({ id: `text-tc-${callIndex++}`, name: parsed.name, input: parsed.input });
+      }
+      cleanedText = cleanedText.replace(match[0], '');
+    }
+
+    // Pattern 3: ```tool_call\n{...}\n```
+    const fencedPattern = /```tool_call\s*\n([\s\S]*?)\n\s*```/g;
+    while ((match = fencedPattern.exec(text)) !== null) {
+      const body = match[1].trim();
+      const parsed = this.parseLooseToolCall(body);
+      if (parsed) {
+        toolCalls.push({ id: `text-tc-${callIndex++}`, name: parsed.name, input: parsed.input });
+      }
+      cleanedText = cleanedText.replace(match[0], '');
+    }
+
+    return { toolCalls, cleanedText: cleanedText.trim() };
+  }
+
+  /**
+   * Parse a tool call body that may be in JSON format or the loose
+   * `{tool => "name", args => {...}}` format used by some models.
+   */
+  private parseLooseToolCall(
+    body: string,
+  ): { name: string; input: Record<string, unknown> } | null {
+    // Try strict JSON first: {"name": "...", "arguments": {...}}
+    try {
+      const json = JSON.parse(body);
+      if (json.name) {
+        return { name: json.name, input: json.arguments ?? json.args ?? json.input ?? {} };
+      }
+      if (json.tool) {
+        return { name: json.tool, input: json.arguments ?? json.args ?? json.input ?? {} };
+      }
+    } catch {
+      // Not valid JSON — try loose parsing below
+    }
+
+    // Loose format: {tool => "name", args => {...}}
+    // Strip outer braces if the body is wrapped in them
+    let inner = body;
+    if (inner.startsWith('{') && inner.endsWith('}')) {
+      inner = inner.slice(1, -1).trim();
+    }
+
+    const toolMatch = inner.match(/tool\s*(?:=>|:)\s*"([^"]+)"/);
+    if (!toolMatch) return null;
+
+    const name = toolMatch[1];
+    let input: Record<string, unknown> = {};
+
+    // Extract args block — match from args key to the last closing brace
+    const argsMatch = inner.match(/args\s*(?:=>|:)\s*(\{[\s\S]*\})\s*$/);
+    if (argsMatch) {
+      try {
+        input = JSON.parse(argsMatch[1]);
+      } catch {
+        // Empty or malformed args — use empty object
+      }
+    }
+
+    return { name, input };
   }
 
   // =========================================================================

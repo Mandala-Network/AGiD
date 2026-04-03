@@ -11,6 +11,7 @@ export function identityTools(): ToolDescriptor[] {
         input_schema: { type: 'object', properties: {}, required: [] },
       },
       requiresWallet: false,
+      category: 'identity',
       execute: async (_params, ctx) => {
         const identity = await ctx.wallet.getPublicKey({ identityKey: true });
         const network = await ctx.wallet.getNetwork();
@@ -25,6 +26,7 @@ export function identityTools(): ToolDescriptor[] {
         input_schema: { type: 'object', properties: {}, required: [] },
       },
       requiresWallet: false,
+      category: 'identity',
       execute: async (_params, ctx) => {
         const balance = await ctx.wallet.getBalanceAndUtxos();
         const network = await ctx.wallet.getNetwork();
@@ -48,6 +50,7 @@ export function identityTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'identity',
       execute: async (params, ctx) => {
         const result = await ctx.wallet.getPublicKey({
           identityKey: params.identityKey as boolean | undefined,
@@ -67,6 +70,7 @@ export function identityTools(): ToolDescriptor[] {
         input_schema: { type: 'object', properties: {}, required: [] },
       },
       requiresWallet: false,
+      category: 'identity',
       execute: async (_params, ctx) => {
         const height = await ctx.wallet.getHeight();
         return ok({ height });
@@ -91,6 +95,7 @@ export function identityTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'identity',
       execute: async (params, ctx) => {
         const attributes: Record<string, string> = {};
         if (params.name) attributes.name = params.name as string;

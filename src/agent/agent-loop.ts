@@ -7,6 +7,7 @@
 
 import type { LLMProvider, LLMMessage } from './llm-provider.js';
 import type { ToolRegistry } from './tool-registry.js';
+import type { ToolCategory } from './tools/types.js';
 import type { SessionStore } from './session-store.js';
 import type { PromptBuilder, IdentityContext } from './prompt-builder.js';
 import type { AgentLoopResult, AgentToolCall, AgentUsageStats, ConversationTurn } from '../types/agent-types.js';
@@ -14,6 +15,7 @@ import type { AnchorChain } from '../audit/anchor-chain.js';
 import { sha256 } from '../audit/anchor-chain.js';
 import { ProgressEmitter } from '../messaging/progress-emitter.js';
 import type { ProgressEvent } from '../messaging/progress-emitter.js';
+import { calculateBudget, truncateToolResult } from './token-budget.js';
 
 export interface AgentLoopConfig {
   toolRegistry: ToolRegistry;
@@ -23,6 +25,10 @@ export interface AgentLoopConfig {
   provider: LLMProvider;
   maxIterations: number;
   maxTokens: number;
+  /** Model context window size in tokens (default: 128000) */
+  contextWindow?: number;
+  /** Max tokens per tool result before truncation (default: 4000) */
+  maxToolResultTokens?: number;
   /** Called with assistant reasoning text before each tool execution batch.
    *  Use this to inject reasoning text into plugins (e.g. NautilusTradingPlugin). */
   preToolExecution?: (assistantText: string) => void;
@@ -36,6 +42,8 @@ export class AgentLoop {
   private model: string;
   private maxIterations: number;
   private maxTokens: number;
+  private contextWindow: number;
+  private maxToolResultTokens: number;
   private preToolExecution?: (assistantText: string) => void;
 
   constructor(config: AgentLoopConfig) {
@@ -46,12 +54,100 @@ export class AgentLoop {
     this.model = config.model;
     this.maxIterations = config.maxIterations;
     this.maxTokens = config.maxTokens;
+    this.contextWindow = config.contextWindow ?? 128_000;
+    this.maxToolResultTokens = config.maxToolResultTokens ?? 4000;
     this.preToolExecution = config.preToolExecution;
+  }
+
+  private classifyIntent(userMessage: string): { needsTools: boolean; categories: ToolCategory[] | null } {
+    const msg = userMessage.toLowerCase();
+
+    // Only skip tools for trivial greetings/acknowledgments
+    const trivialPatterns = [
+      /^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no|right|got it|good morning|good evening)[\s!.]*$/,
+    ];
+    const isTrivial = trivialPatterns.some(p => p.test(msg.trim()));
+
+    if (isTrivial) {
+      return { needsTools: false, categories: null };
+    }
+
+    // Always provide tools — the LLM decides whether to use them.
+    // Keyword hints narrow the category set to reduce token usage.
+    const actionKeywords: Record<string, ToolCategory[]> = {
+      'sign': ['crypto'],
+      'encrypt': ['crypto'],
+      'decrypt': ['crypto'],
+      'hmac': ['crypto'],
+      'balance': ['identity', 'wallet'],
+      'identity': ['identity'],
+      'public key': ['identity'],
+      'payment': ['transactions', 'wallet', 'messaging'],
+      'send payment': ['transactions', 'wallet'],
+      'send message': ['messaging'],
+      'message': ['messaging'],
+      'memory': ['memory', 'shad'],
+      'remember': ['memory'],
+      'recall': ['memory', 'shad'],
+      'store': ['memory'],
+      'clean up': ['memory'],
+      'legacy': ['memory'],
+      'garbage': ['memory'],
+      'proof': ['zkproof'],
+      'zkproof': ['zkproof'],
+      'commitment': ['zkproof'],
+      'verify': ['zkproof', 'audit'],
+      'token': ['tokens', 'wallet'],
+      'create token': ['tokens', 'wallet'],
+      'transaction': ['transactions', 'wallet'],
+      'utxo': ['wallet'],
+      'output': ['wallet'],
+      'deploy': ['deployment', 'deploy'],
+      'mandala': ['deployment', 'deploy'],
+      'certificate': ['identity'],
+      'calibrat': ['calibration'],
+      'discover': ['services'],
+      'overlay': ['services'],
+      'audit': ['audit'],
+      'workspace': ['audit'],
+      'session': ['audit'],
+      'file': ['fs'],
+      'read': ['fs'],
+      'write': ['fs'],
+      'edit': ['fs'],
+      'patch': ['fs'],
+      'exec': ['runtime'],
+      'run': ['runtime'],
+      'command': ['runtime'],
+      'shell': ['runtime'],
+      'process': ['runtime'],
+      'browser': ['browser'],
+      'navigate': ['browser'],
+      'screenshot': ['browser'],
+    };
+
+    const matchedCategories = new Set<ToolCategory>();
+    for (const [keyword, cats] of Object.entries(actionKeywords)) {
+      if (msg.includes(keyword)) {
+        cats.forEach(c => matchedCategories.add(c));
+      }
+    }
+
+    if (matchedCategories.size > 0) {
+      matchedCategories.add('identity');
+      return { needsTools: true, categories: Array.from(matchedCategories) };
+    }
+
+    // No keyword match — provide all tools, let the LLM decide
+    return { needsTools: true, categories: null };
   }
 
   async run(userMessage: string, sessionId: string, identityContext?: IdentityContext, anchorChain?: AnchorChain): Promise<AgentLoopResult> {
     const toolCalls: AgentToolCall[] = [];
     const usage: AgentUsageStats = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+    // Set user message hint for auto-recall
+    (this.promptBuilder as any).setLastUserMessage?.(userMessage);
 
     // 1. Build system prompt
     const systemPrompt = await this.promptBuilder.buildSystemPrompt(identityContext);
@@ -66,12 +162,17 @@ export class AgentLoop {
     const userTurn: ConversationTurn = { role: 'user', content: userMessage, timestamp: Date.now(), v: 1 };
     await this.sessionStore.addTurn(sessionId, userTurn);
 
-    // 4. Get tool definitions
-    const tools = this.toolRegistry.getDefinitions().map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-    }));
+    // 4. Classify intent and get filtered tool definitions
+    const intent = this.classifyIntent(userMessage);
+    console.log(`[AgentLoop] Intent: needsTools=${intent.needsTools}, categories=${intent.categories?.join(',') ?? 'all'}`);
+    const tools = intent.needsTools
+      ? this.toolRegistry.getDefinitionsByCategories(intent.categories).map(t => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema,
+        }))
+      : [];
+    console.log(`[AgentLoop] Sending ${tools.length} tools to LLM: ${tools.map(t => t.name).join(', ')}`);
 
     // 5. Iterative loop
     let messages: LLMMessage[] = history as LLMMessage[];
@@ -127,11 +228,14 @@ export class AgentLoop {
           console.log(`[AgentLoop] Executing tool: ${call.name}`);
           const result = await this.toolRegistry.execute(call.name, call.input);
 
-          toolCalls.push({ name: call.name, input: call.input, result });
-          resultMap.set(call.id, { toolUseId: call.id, content: result.content, isError: result.isError });
+          // Truncate oversized tool results to protect context budget
+          const content = truncateToolResult(result.content, this.maxToolResultTokens);
+
+          toolCalls.push({ name: call.name, input: call.input, result: { ...result, content } });
+          resultMap.set(call.id, { toolUseId: call.id, content, isError: result.isError });
 
           if (result.isError) {
-            const errStr = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+            const errStr = typeof content === 'string' ? content : JSON.stringify(content);
             console.log(`[AgentLoop] ❌ ${call.name} FAILED: ${errStr.substring(0, 300)}`);
           } else {
             console.log(`[AgentLoop] ✅ ${call.name} completed`);
@@ -218,6 +322,9 @@ export class AgentLoop {
     const toolCalls: AgentToolCall[] = [];
     const usage: AgentUsageStats = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
+    // Set user message hint for auto-recall
+    (this.promptBuilder as any).setLastUserMessage?.(userMessage);
+
     // 1. Build system prompt
     const systemPrompt = await this.promptBuilder.buildSystemPrompt(identityContext);
 
@@ -231,12 +338,17 @@ export class AgentLoop {
     const userTurn: ConversationTurn = { role: 'user', content: userMessage, timestamp: Date.now(), v: 1 };
     await this.sessionStore.addTurn(sessionId, userTurn);
 
-    // 4. Get tool definitions
-    const tools = this.toolRegistry.getDefinitions().map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-    }));
+    // 4. Classify intent and get filtered tool definitions
+    const intent = this.classifyIntent(userMessage);
+    console.log(`[AgentLoop] Intent: needsTools=${intent.needsTools}, categories=${intent.categories?.join(',') ?? 'all'}`);
+    const tools = intent.needsTools
+      ? this.toolRegistry.getDefinitionsByCategories(intent.categories).map(t => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.input_schema,
+        }))
+      : [];
+    console.log(`[AgentLoop] Sending ${tools.length} tools to LLM: ${tools.map(t => t.name).join(', ')}`);
 
     // 5. Iterative loop with event emission
     let messages: LLMMessage[] = history as LLMMessage[];
@@ -249,6 +361,12 @@ export class AgentLoop {
 
         // Emit thinking event before LLM call
         await emitter.emitThinking(resolvedRequestId);
+
+        // Token budget check — log context pressure
+        const budget = calculateBudget(this.contextWindow, systemPrompt, tools, messages, this.maxTokens);
+        if (budget.pressureHigh) {
+          console.log(`[AgentLoop] Context pressure HIGH (${budget.usagePercent}% used, ${budget.available} tokens available)`);
+        }
 
         const response = await this.provider.chat({
           model: this.model,
@@ -308,8 +426,11 @@ export class AgentLoop {
             console.log(`[AgentLoop] Executing tool: ${call.name}`);
             const result = await this.toolRegistry.execute(call.name, call.input);
 
-            toolCalls.push({ name: call.name, input: call.input, result });
-            resultMap.set(call.id, { toolUseId: call.id, content: result.content, isError: result.isError });
+            // Truncate oversized tool results to protect context budget
+            const content = truncateToolResult(result.content, this.maxToolResultTokens);
+
+            toolCalls.push({ name: call.name, input: call.input, result: { ...result, content } });
+            resultMap.set(call.id, { toolUseId: call.id, content, isError: result.isError });
 
             // Emit tool_result after execution
             if (result.isError) {

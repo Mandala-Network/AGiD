@@ -87,6 +87,7 @@ export function xResearchTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'research',
       execute: async (params, ctx) => {
         try {
           const body: Record<string, unknown> = { query: params.query };
@@ -119,6 +120,7 @@ export function xResearchTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'research',
       execute: async (params, ctx) => {
         try {
           const username = (params.username as string).replace(/^@/, '');
@@ -149,6 +151,7 @@ export function xResearchTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'research',
       execute: async (params, ctx) => {
         try {
           const body: Record<string, unknown> = { tweet_id: params.tweet_id };
@@ -178,6 +181,7 @@ export function xResearchTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'research',
       execute: async (params, ctx) => {
         try {
           const body: Record<string, unknown> = {};
@@ -204,6 +208,7 @@ export function xResearchTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: true,
+      category: 'research',
       execute: async (params, ctx) => {
         try {
           const resp = await callXResearch(ctx, '/tweet', { tweet_id: params.tweet_id });

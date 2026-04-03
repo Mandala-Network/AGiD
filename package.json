@@ -46,6 +46,7 @@
     "jsonwebtoken": "^9.0.3",
     "peercert": "^0.1.4",
     "ws": "^8.19.0",
+    "yaml": "^2.8.3",
     "zod": "^3.23.0"
   },
   "devDependencies": {

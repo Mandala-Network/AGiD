@@ -9,6 +9,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { IntegrityStatus } from '../audit/workspace-integrity.js';
 import type { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
+import type { MemoryManager } from '../storage/memory/memory-manager.js';
+import type { SkillDescriptor } from './skills/types.js';
 
 /**
  * A dynamic context provider that returns a string section to append to the
@@ -34,24 +36,48 @@ export interface IdentityContext {
   workspaceIntegrity?: IntegrityStatus;
 }
 
-const DEFAULT_SOUL = `You are an autonomous AI agent with a cryptographic identity on the BSV blockchain.
-You can sign messages, encrypt data, create tokens, send payments, and store memories — all on-chain.
-Be helpful, precise, and use your tools when the user's request requires blockchain operations.
-When asked to prove your identity, sign a message with your wallet key.`;
+const DEFAULT_SOUL = `You are AGiD, an autonomous AI agent with a cryptographic identity on the BSV blockchain.
 
-const DEFAULT_IDENTITY = `I am an AGIdentity agent — a blockchain-native AI with verifiable identity.`;
+CRITICAL: When the user asks a question, discusses ideas, or reasons about a topic — RESPOND WITH TEXT ONLY. Do NOT call any tools unless the user explicitly requests an action that requires one.
 
-const DEFAULT_TOOLS_GUIDE = `Tool usage guidelines:
-- Use agid_balance before any payment to check funds
-- Use agid_sign to prove authorship of a statement
-- Use agid_store_memory to persist important information across sessions
-- Use agid_token_create for on-chain data anchoring
-- Execute tools one at a time (sequential, not parallel) to avoid signing conflicts`;
+Think before acting. Not every message requires a tool call. Most conversations are reasoning — treat them as such.
+
+When you DO need tools, use the minimum set required. Do not call exploratory or calibration tools unless specifically asked.
+
+Never create tokens, run calibration, discover services, or optimize prompts unless the user specifically requests it.
+
+You can sign messages, encrypt data, create tokens, send payments, and store memories — all on-chain. Use these capabilities only when asked.`;
+
+const DEFAULT_IDENTITY = `I am AGiD — a blockchain-native AI with verifiable identity. I reason first and act when asked.`;
+
+const DEFAULT_TOOLS_GUIDE = `BEFORE calling any tool, ask yourself: Did the user request an action? If no — just respond with text.
+
+TOOL CATEGORIES:
+- Identity/Balance (agid_identity, agid_balance, agid_get_public_key): Only when user asks about their identity or balance
+- Signing/Encryption (agid_sign, agid_encrypt, agid_decrypt): Only when user asks to sign, encrypt, or decrypt something
+- Memory (agid_store_memory, agid_recall_memories): Only when user asks to remember or recall something
+- ZK Proofs (agid_zkproof_*): Only when user asks to create or verify a proof
+- Messaging (agid_message_*): Only when user asks to send or read messages
+- Transactions (agid_create_action, agid_list_outputs): Only when user asks about transactions or payments
+- Tokens (agid_token_create): ONLY when user explicitly asks to create a token
+
+NEVER USE PROACTIVELY:
+- agid_split_test, agid_fund_calibration, agid_calibration_* — calibration tools
+- agid_discover_services — service discovery
+- agid_optimize_prompt — prompt optimization
+- agid_publish_content — content publishing
+- agid_x402_request — HTTP requests (unless user asks)
+
+If a tool call fails, do NOT retry with a different tool. Report the failure and ask the user how to proceed.
+Execute tools one at a time (sequential, not parallel) to avoid signing conflicts.`;
 
 export class PromptBuilder {
   private config: PromptBuilderConfig;
-  private cache: { content: string; mtimes: Map<string, number> } | null = null;
+  private cache: { content: string; mtimes: Map<string, number>; gepaAvailable: boolean } | null = null;
   private contextProviders: ContextProvider[] = [];
+  private memoryManager: MemoryManager | null = null;
+  private skills: SkillDescriptor[] = [];
+  private lastUserMessage: string | null = null;
 
   constructor(config: PromptBuilderConfig) {
     this.config = config;
@@ -66,6 +92,29 @@ export class PromptBuilder {
    */
   addContextProvider(provider: ContextProvider): void {
     this.contextProviders.push(provider);
+  }
+
+  setMemoryManager(mm: MemoryManager): void {
+    this.memoryManager = mm;
+  }
+
+  /**
+   * Set the loaded skill descriptors for prompt injection.
+   * Skills are matched by trigger keywords against the user's message.
+   */
+  setSkills(skills: SkillDescriptor[]): void {
+    this.skills = skills;
+  }
+
+  /**
+   * Get current skills list (used by gateway for hot-reload after creation).
+   */
+  getSkills(): SkillDescriptor[] {
+    return this.skills;
+  }
+
+  setLastUserMessage(msg: string): void {
+    this.lastUserMessage = msg;
   }
 
   async buildSystemPrompt(identityContext?: IdentityContext): Promise<string> {
@@ -88,12 +137,25 @@ export class PromptBuilder {
       }
     }
 
+    // Inject matched skills (OpenClaw-style prompt injection)
+    const skillBlock = this.buildSkillBlock();
+    if (skillBlock) {
+      result += '\n\n' + skillBlock;
+    }
+
+    // Auto-recall relevant memories for this message
+    const recalledBlock = await this.recallRelevantMemories();
+    if (recalledBlock) {
+      result += '\n\n' + recalledBlock;
+    }
+
     return result;
   }
 
   private async getStaticPrompt(): Promise<string> {
     const currentMtimes = this.getFileMtimes();
-    if (this.cache && this.mtimesMatch(this.cache.mtimes, currentMtimes)) {
+    const gepaAvailable = this.config.gepaOptimizer?.available ?? false;
+    if (this.cache && this.cache.gepaAvailable === gepaAvailable && this.mtimesMatch(this.cache.mtimes, currentMtimes)) {
       return this.cache.content;
     }
 
@@ -132,7 +194,7 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
     }
 
     const content = parts.join('\n\n');
-    this.cache = { content, mtimes: currentMtimes };
+    this.cache = { content, mtimes: currentMtimes, gepaAvailable };
     return content;
   }
 
@@ -166,6 +228,73 @@ Capabilities: sign messages, encrypt data, transact on BSV, create tokens, send/
     }
 
     return null;
+  }
+
+  /**
+   * Match skills by trigger keywords against the last user message.
+   * Returns an OpenClaw-style skill injection block, or null if no match.
+   */
+  private buildSkillBlock(): string | null {
+    if (this.skills.length === 0 || !this.lastUserMessage) return null;
+
+    const msg = this.lastUserMessage.toLowerCase();
+    const matched = this.skills.filter(skill =>
+      skill.triggers.some(t => msg.includes(t.toLowerCase())),
+    );
+
+    if (matched.length === 0) return null;
+
+    // Only inject skills that have resolved bodies
+    const withBodies = matched.filter(s => s.body);
+    if (withBodies.length === 0) return null;
+
+    const sections = withBodies.map(s =>
+      `[SKILL: ${s.name}]\n${s.description}\nTools: ${s.requiredTools.join(', ')}\n\n${s.body}\n[END SKILL: ${s.name}]`,
+    );
+
+    return '[AVAILABLE SKILLS]\nThe following skills match your current task. Follow the instructions in the matched skill.\n\n' +
+      sections.join('\n\n') +
+      '\n[END AVAILABLE SKILLS]';
+  }
+
+  private async recallRelevantMemories(): Promise<string | null> {
+    if (!this.memoryManager || !this.lastUserMessage) return null;
+
+    try {
+      // Use fast search (not full DAG reasoning) for auto-recall
+      const result = await this.memoryManager.quickRecall(this.lastUserMessage, 5);
+
+      if (!result.memories || result.memories.length === 0) return null;
+
+      const lines = result.memories.map((m, i) => {
+        const tagStr = m.tags.length > 0 ? ` [${m.tags.join(', ')}]` : '';
+        return `${i + 1}. ${m.content.substring(0, 500)}${m.content.length > 500 ? '...' : ''}${tagStr}`;
+      });
+
+      let recalledBlock = lines.join('\n');
+
+      // GEPA-optimize the recalled block for injection context
+      const optimizer = this.config.gepaOptimizer;
+      if (optimizer?.available) {
+        try {
+          recalledBlock = await optimizer.optimize(
+            recalledBlock,
+            `Optimize these recalled memories for injection into an AI agent's system prompt. ` +
+            `The user's current message is: "${this.lastUserMessage.substring(0, 200)}". ` +
+            `Maximize relevance to the current context. Make the information dense, actionable, and directly useful. ` +
+            `Preserve all factual content. Remove redundancy between memories.`,
+            { maxIterations: 3 }, // Fewer iterations for speed
+          );
+        } catch {
+          // Use unoptimized block on GEPA failure
+        }
+      }
+
+      return `[RECALLED MEMORIES]\nThe following memories were automatically recalled as potentially relevant to the current message:\n${recalledBlock}\n[END RECALLED MEMORIES]`;
+    } catch (error) {
+      console.error('[PromptBuilder] Auto-recall failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
   }
 
   private ensureWorkspace(): void {

@@ -6,24 +6,23 @@ export function memoryTools(): ToolDescriptor[] {
     {
       definition: {
         name: 'agid_store_memory',
-        description: 'Store a memory on the blockchain. Encrypts content, uploads to UHRP, creates a PushDrop token, and stores in the agent-memories basket. Use this for all memory storage — including tokenizing core memories, insights, and learnings. Returns txid and UHRP URL on success, or an error if insufficient funds.',
+        description: 'Store a memory on the blockchain. Encrypts content, uploads to UHRP, creates a PushDrop token, and stores in the agid-memory basket. Use this for all memory storage — including tokenizing core memories, insights, and learnings. Returns txid and UHRP URL on success, or an error if insufficient funds.',
         input_schema: {
           type: 'object',
           properties: {
             content: { type: 'string', description: 'Memory content to store' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Tags for categorization' },
-            importance: { type: 'string', description: '"high", "medium", or "low" (default: medium)' },
           },
           required: ['content'],
         },
       },
       requiresWallet: true,
+      category: 'memory',
       execute: async (params, ctx) => {
         if (!ctx.memoryManager) throw new Error('MemoryManager not configured');
         const content = params.content as string;
         const tags = (params.tags as string[]) || [];
-        const importance = (params.importance as 'high' | 'medium' | 'low') || 'medium';
-        const result = await ctx.memoryManager.store({ content, tags, importance });
+        const result = await ctx.memoryManager.store({ content, tags });
         return ok({ txid: result.txid, uhrpUrl: result.uhrpUrl, tags: result.tags, stored: true });
       },
     },
@@ -35,7 +34,6 @@ export function memoryTools(): ToolDescriptor[] {
           type: 'object',
           properties: {
             tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tags' },
-            importance: { type: 'string', description: '"high", "medium", or "low"' },
             limit: { type: 'number', description: 'Max memories to return (default: 20)' },
             semantic: { type: 'boolean', description: 'Enable semantic search via Shad (default: false)' },
             query: { type: 'string', description: 'Search query (required when semantic=true)' },
@@ -47,11 +45,11 @@ export function memoryTools(): ToolDescriptor[] {
         },
       },
       requiresWallet: false,
+      category: 'memory',
       execute: async (params, ctx) => {
         if (!ctx.memoryManager) throw new Error('MemoryManager not configured');
         const result = await ctx.memoryManager.recall({
           tags: params.tags as string[] | undefined,
-          importance: params.importance as string | undefined,
           limit: params.limit as number | undefined,
           semantic: params.semantic as boolean | undefined,
           query: params.query as string | undefined,

@@ -29,6 +29,14 @@ import { createProvider } from '../agent/providers/index.js';
 import type { LLMProvider } from '../agent/llm-provider.js';
 import { MemoryManager } from '../storage/memory/memory-manager.js';
 import { GepaOptimizer } from '../integrations/gepa/gepa-optimizer.js';
+import { createShadExecutor } from '../integrations/shad/index.js';
+import type { ShadTempVaultExecutor } from '../integrations/shad/shad-temp-executor.js';
+import type { VaultStore } from '../types/index.js';
+import type { LocalEncryptedVault } from '../storage/vault/local-encrypted-vault.js';
+import { SkillStore } from '../agent/skills/skill-store.js';
+import { seedCoreSkills } from '../agent/skills/index.js';
+import { PluginRegistry } from '../plugins/plugin-registry.js';
+import * as builtinPlugins from '../plugins/builtin/index.js';
 
 // =============================================================================
 // Types
@@ -61,6 +69,8 @@ export interface AGIdentityGatewayConfig {
   audit?: { enabled?: boolean };
   /** External tool plugins to register */
   plugins?: ToolPlugin[];
+  /** Encrypted vault for Shad integration (optional) */
+  vault?: VaultStore | LocalEncryptedVault;
   /** Called with assistant reasoning text before each tool execution batch.
    *  Use this to inject reasoning text into plugins (e.g. NautilusTradingPlugin). */
   preToolExecution?: (assistantText: string) => void;
@@ -88,6 +98,10 @@ export class AGIdentityGateway {
   private toolRegistry: ToolRegistry | null = null;
   private promptBuilder: PromptBuilder | null = null;
   private gepaOptimizer: GepaOptimizer | null = null;
+  private shadExecutor: ShadTempVaultExecutor | null = null;
+  private memoryManager: MemoryManager | null = null;
+  private skillStore: SkillStore | null = null;
+  private pluginRegistry: PluginRegistry | null = null;
   private running = false;
   private agentPublicKey: string | null = null;
   private workspacePath: string = '';
@@ -131,13 +145,59 @@ export class AGIdentityGateway {
       console.log('[AGIdentityGateway] GEPA not available — using unoptimized prompts. Install with: pip install gepa');
     }
 
-    // 3. Set up agent components
-    const memoryManager = new MemoryManager(this.wallet, { workspacePath, gepaOptimizer });
+    // 3. Initialize Shad executor (optional, graceful fallback)
+    if (this.config.vault) {
+      const shadExecutor = await createShadExecutor({ vault: this.config.vault as any });
+      if (shadExecutor) {
+        this.shadExecutor = shadExecutor;
+        console.log('[AGIdentityGateway] \u2705 Shad executor initialized');
+      } else {
+        console.log('[AGIdentityGateway] Shad not available \u2014 vault reasoning disabled. Install with: curl -fsSL https://raw.githubusercontent.com/jonesj38/shad/main/install.sh | bash');
+      }
+    }
+
+    // 4. Set up agent components
+    const memoryManager = new MemoryManager(this.wallet, { workspacePath, gepaOptimizer, shadExecutor: this.shadExecutor ?? undefined });
+    this.memoryManager = memoryManager;
     const toolRegistry = new ToolRegistry();
     this.toolRegistry = toolRegistry;
-    toolRegistry.registerBuiltinTools(this.wallet, workspacePath, sessionsPath, memoryManager);
 
-    // Register external plugins
+    // Load all builtin plugins via PluginRegistry
+    const pluginRegistry = new PluginRegistry();
+    pluginRegistry.setAGiDExtensions({
+      wallet: this.wallet,
+      audit: this.auditTrail,
+      identity: this.identityGate,
+      memoryManager,
+    });
+
+    const builtinList = [
+      builtinPlugins.agidIdentityPlugin,
+      builtinPlugins.agidCryptoPlugin,
+      builtinPlugins.agidWalletPlugin,
+      builtinPlugins.agidMemoryPlugin,
+      builtinPlugins.agidMessagingPlugin,
+      builtinPlugins.agidAuditPlugin,
+      builtinPlugins.agidDeployPlugin,
+      builtinPlugins.agidRuntimePlugin,
+      builtinPlugins.agidFsPlugin,
+      builtinPlugins.agidBrowserPlugin,
+      builtinPlugins.agidOptimizePlugin,
+    ];
+
+    for (const plugin of builtinList) {
+      pluginRegistry.loadPlugin({
+        manifest: { id: plugin.id, name: plugin.name },
+        definition: plugin,
+        rootPath: '',
+      });
+    }
+
+    // Bridge plugin tools into old ToolRegistry
+    toolRegistry.registerFromPluginRegistry(pluginRegistry);
+    this.pluginRegistry = pluginRegistry;
+
+    // Register external plugins (old-style ToolPlugin interface)
     if (this.config.plugins?.length) {
       const ctx = { wallet: this.wallet, workspacePath, sessionsPath, memoryManager };
       toolRegistry.registerPlugins(this.config.plugins, ctx);
@@ -156,6 +216,38 @@ export class AGIdentityGateway {
       network,
       gepaOptimizer,
     });
+
+    // Enable auto-recall of relevant memories into system prompt
+    this.promptBuilder.setMemoryManager(memoryManager);
+
+    // 5. Initialize SkillStore, seed core skills, and load from on-chain basket
+    this.skillStore = new SkillStore(this.wallet);
+    try {
+      await this.skillStore.fetchAll();
+      await seedCoreSkills(this.skillStore);
+      const allSkills = await this.skillStore.fetchAll();
+      this.promptBuilder.setSkills(allSkills);
+      console.log(`[AGIdentityGateway] Loaded ${allSkills.length} skills from on-chain basket`);
+    } catch (error) {
+      console.warn('[AGIdentityGateway] Skill loading failed (non-fatal):', error instanceof Error ? error.message : error);
+    }
+
+    // Register skill creator tool (needs skillStore + promptBuilder + gepaOptimizer)
+    {
+      const skillCtx = {
+        wallet: this.wallet,
+        workspacePath,
+        sessionsPath,
+        memoryManager,
+        skillStore: this.skillStore,
+        gepaOptimizer,
+        promptBuilder: this.promptBuilder,
+      };
+      // Import and register skill creator tools directly
+      const { skillCreatorTools } = await import('../agent/tools/skill-creator.js');
+      toolRegistry.registerAll(skillCreatorTools(), skillCtx);
+      console.log('[AGIdentityGateway] Registered agid_create_skill tool');
+    }
 
     const sessionStore = new SessionStore({ sessionsPath });
 
@@ -183,6 +275,7 @@ export class AGIdentityGateway {
     console.log(`[AGIdentityGateway]    Model: ${model}`);
     console.log(`[AGIdentityGateway]    Workspace: ${workspacePath}`);
     console.log(`[AGIdentityGateway]    Tools: ${toolRegistry.getDefinitions().length}`);
+    console.log(`[AGIdentityGateway]    Tool names: ${toolRegistry.getDefinitions().map(t => t.name).join(', ')}`);
 
     // 3. Create MessageBoxGateway
     this.messageBoxGateway = await createMessageBoxGateway({
@@ -627,6 +720,26 @@ export class AGIdentityGateway {
       console.error('[AGIdentityGateway] Workspace integrity check failed:', error instanceof Error ? error.message : error);
     }
 
+    // Resolve skill bodies for matched skills before agent loop
+    if (this.skillStore && this.promptBuilder) {
+      const skills = this.promptBuilder.getSkills();
+      if (skills.length > 0) {
+        const msg = content.toLowerCase();
+        const matched = skills.filter(skill =>
+          skill.triggers.some(t => msg.includes(t.toLowerCase())),
+        );
+        for (const skill of matched) {
+          if (!skill.body) {
+            try {
+              skill.body = await this.skillStore.resolveBody(skill);
+            } catch {
+              // Non-fatal: skill will be skipped in prompt injection
+            }
+          }
+        }
+      }
+    }
+
     // Run agent loop with progress event emission
     console.log(`[AGIdentityGateway] Running agent loop with events (session: ${identityContext.conversationId}) ${ts()}`);
     let aiResponse: string;
@@ -652,6 +765,9 @@ export class AGIdentityGateway {
       aiResponse = result.response;
       toolCallCount = result.toolCalls.length;
       console.log(`[AGIdentityGateway] Agent responded (${aiResponse.length} chars, ${result.iterations} iterations, ${result.toolCalls.length} tool calls, ${result.usage.totalTokens} tokens) ${ts()}`);
+
+      // Auto-memory: fire-and-forget storage of high-value interactions
+      this.autoStoreMemory(content, aiResponse, result.toolCalls.map(tc => tc.name), senderKey).catch(() => {});
     } catch (error) {
       console.error('[AGIdentityGateway] Agent loop error:', error instanceof Error ? error.message : error);
       aiResponse = 'Sorry, I encountered an error processing your request. Please try again.';
@@ -741,7 +857,7 @@ export class AGIdentityGateway {
       const merkleRoot = await chain.getMerkleRoot();
       const result = await lockPushDropToken(this.wallet, {
         fields: [
-          'agidentity-anchor-v1',
+          'agidentity anchor v1',
           chain.getSessionId(),
           merkleRoot,
           chain.getHeadHash(),
@@ -798,6 +914,58 @@ export class AGIdentityGateway {
   }
 
   // ===========================================================================
+  // Auto-Memory: Learn from Interactions
+  // ===========================================================================
+
+  /**
+   * Automatically store high-value interaction patterns as memories.
+   * Fire-and-forget — errors are silently logged, never block the response.
+   *
+   * Heuristics for "high-value":
+   * - Agent used 2+ tools (indicates substantive work was done)
+   * - Response is substantial (>200 chars, not an error)
+   * - Payment or memory tools were used (financial/knowledge events)
+   */
+  private async autoStoreMemory(
+    userMessage: string,
+    agentResponse: string,
+    toolsUsed: string[],
+    senderKey: string,
+  ): Promise<void> {
+    if (!this.memoryManager) return;
+
+    // Skip trivial interactions
+    if (agentResponse.length < 200) return;
+    if (toolsUsed.length < 2) return;
+
+    // Skip error responses
+    if (agentResponse.startsWith('Sorry, I encountered an error')) return;
+
+    // Categorize interaction for tagging
+    const hasPayment = toolsUsed.some(t => t.includes('payment') || t.includes('send'));
+    const hasMemory = toolsUsed.some(t => t.includes('memory'));
+    const hasTrade = toolsUsed.some(t => t.includes('nautilus') || t.includes('trade'));
+
+    // Build compact interaction summary
+    const userPreview = userMessage.substring(0, 150).replace(/\n/g, ' ');
+    const agentPreview = agentResponse.substring(0, 300).replace(/\n/g, ' ');
+    const content = `Interaction with ${senderKey.substring(0, 12)}...: User asked "${userPreview}${userMessage.length > 150 ? '...' : ''}". Agent used [${toolsUsed.join(', ')}]. Result: ${agentPreview}${agentResponse.length > 300 ? '...' : ''}`;
+
+    // Build tags
+    const tags: string[] = ['auto-memory', 'interaction'];
+    if (hasPayment) tags.push('payment');
+    if (hasTrade) tags.push('trade');
+    if (hasMemory) tags.push('knowledge');
+
+    try {
+      await this.memoryManager.store({ content, tags });
+      console.log(`[AGIdentityGateway] Auto-memory stored (${tags.join(', ')})`);
+    } catch (error) {
+      console.warn('[AGIdentityGateway] Auto-memory failed:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  // ===========================================================================
   // Lifecycle
   // ===========================================================================
 
@@ -810,6 +978,8 @@ export class AGIdentityGateway {
       this.messageBoxGateway = null;
     }
 
+    await this.pluginRegistry?.destroyAll();
+    this.pluginRegistry = null;
     this.identityGate = null;
     this.auditTrail = null;
   }
@@ -840,6 +1010,14 @@ export class AGIdentityGateway {
 
   getGepaOptimizer(): GepaOptimizer | null {
     return this.gepaOptimizer;
+  }
+
+  getShadExecutor(): ShadTempVaultExecutor | null {
+    return this.shadExecutor;
+  }
+
+  getSkillStore(): SkillStore | null {
+    return this.skillStore;
   }
 
 }

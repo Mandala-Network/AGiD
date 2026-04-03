@@ -29,6 +29,15 @@ export interface AGIdentityEnvConfig {
   shadMaxDepth: number;
   shadMaxNodes: number;
   shadMaxTime: number;
+  shadRetriever: 'auto' | 'qmd' | 'filesystem';
+
+  // Remote Backup
+  remoteBackupEnabled: boolean;
+  remoteBackupIntervalMs: number;
+
+  // Integrity Verification
+  integrityStrict: boolean;
+  integrityVerify: boolean;
 
   // MessageBox
   messageBoxHost: string;
@@ -105,6 +114,15 @@ export function loadConfig(): AGIdentityEnvConfig {
     shadMaxDepth: parseInt(env.SHAD_MAX_DEPTH, 3),
     shadMaxNodes: parseInt(env.SHAD_MAX_NODES, 50),
     shadMaxTime: parseInt(env.SHAD_MAX_TIME, 300),
+    shadRetriever: (env.SHAD_RETRIEVER as 'auto' | 'qmd' | 'filesystem') ?? 'auto',
+
+    // Remote Backup
+    remoteBackupEnabled: parseBool(env.REMOTE_BACKUP_ENABLED, false),
+    remoteBackupIntervalMs: parseInt(env.REMOTE_BACKUP_INTERVAL_MS, 3600000),
+
+    // Integrity Verification
+    integrityStrict: parseBool(env.INTEGRITY_STRICT, false),
+    integrityVerify: parseBool(env.INTEGRITY_VERIFY, true),
 
     // MessageBox
     messageBoxHost: env.MESSAGEBOX_HOST ?? 'https://messagebox.babbage.systems',
