@@ -235,7 +235,12 @@ export class SkillStore {
 
       // Decrypt the downloaded content
       // Use the keyID preserved from customInstructions at store time
-      const keyId = skill.keyID || `skill-${skill.name}`;
+      if (!skill.keyID) {
+        throw new Error(
+          `Cannot resolve body for skill "${skill.name}": missing keyID`,
+        );
+      }
+      const keyId = skill.keyID;
       const decrypted = await this.wallet.decrypt({
         ciphertext: Array.from(downloadResult.data),
         protocolID: SKILL_PROTOCOL_ID,
