@@ -7,6 +7,7 @@
 
 import { initWallet, destroyWallet } from './src/wallet-init.js';
 import { resolveConfig } from './src/config.js';
+import { MemoryManager } from 'agidentity';
 
 // Import only the plugins that provide AGiD's unique value (identity, crypto,
 // wallet, messaging, memory, audit).  OpenClaw already ships its own shell,
@@ -30,6 +31,8 @@ const ALL_PLUGINS = [
   agidMemoryPlugin,
   agidIdentityPlugin,
 ];
+
+let memoryManagerInstance: MemoryManager | null = null;
 
 /**
  * OpenClaw plugin entry point.
@@ -58,10 +61,24 @@ export default {
       return walletPromise;
     };
 
+    // Lazy MemoryManager initialization — only init when a memory tool is called
+    const getMemoryManager = async () => {
+      if (!memoryManagerInstance) {
+        const wallet = await getWallet();
+        memoryManagerInstance = new MemoryManager(wallet, {
+          workspacePath: resolvedConfig.storagePath,
+        });
+      }
+      return memoryManagerInstance;
+    };
+
     // Tools to exclude from the OpenClaw plugin (maintenance utilities
-    // that don't belong in the public distribution).
+    // that don't belong in the public distribution, and Shad tools
+    // since Shad is not included in the plugin).
     const EXCLUDED_TOOLS = new Set([
       'agid_gc_legacy_tokens',
+      'shad_deep_recall',
+      'shad_search_memories',
     ]);
 
     // Create a proxy API that passes wallet context to tools
@@ -78,6 +95,10 @@ export default {
               const wallet = await getWallet();
               ctx = { ...ctx, wallet };
             }
+            // Ensure MemoryManager is initialized for memory tools
+            if (options?.group === 'memory') {
+              await getMemoryManager();
+            }
             return originalExecute(id, params, ctx);
           },
         };
@@ -85,7 +106,8 @@ export default {
       },
       config: api.config,
       agid: {
-        wallet: null, // Will be set lazily
+        get memoryManager() { return memoryManagerInstance; },
+        wallet: null,
         audit: null,
         identity: null,
       },
@@ -98,6 +120,7 @@ export default {
   },
 
   async destroy() {
+    memoryManagerInstance = null;
     await destroyWallet();
     // Destroy any plugins that have cleanup
     for (const plugin of ALL_PLUGINS) {

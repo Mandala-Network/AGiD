@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'agidentity/plugins/builtin': path.resolve(__dirname, '../../dist/plugins/builtin/index.js'),
+      'agidentity': path.resolve(__dirname, '../../dist/index.js'),
     },
   },
   test: {

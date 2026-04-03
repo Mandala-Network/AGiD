@@ -20,9 +20,9 @@ describe('@agid/openclaw-plugin', () => {
     await openclawPlugin.register(mockApi);
 
     // Should register tools from 6 plugins (identity, crypto, wallet, messaging, memory, audit)
-    // audit(2) + messaging(5) + crypto(5) + wallet(7) + memory(4) + identity(18) = 41
-    // minus excluded: agid_gc_legacy_tokens = 40
-    expect(registeredTools.length).toBeGreaterThanOrEqual(38);
+    // audit(2) + messaging(5) + crypto(5) + wallet(7) + memory(2) + identity(18) = 39
+    // minus excluded: agid_gc_legacy_tokens = 38
+    expect(registeredTools.length).toBeGreaterThanOrEqual(36);
 
     // Check core AGiD tool names exist
     const names = registeredTools.map(t => t.name);
@@ -38,6 +38,8 @@ describe('@agid/openclaw-plugin', () => {
     expect(names).not.toContain('agid_optimize_prompt');
     expect(names).not.toContain('agid_mandala_create_project');
     expect(names).not.toContain('agid_gc_legacy_tokens');
+    expect(names).not.toContain('shad_deep_recall');
+    expect(names).not.toContain('shad_search_memories');
   });
 
   it('has destroy method', () => {
