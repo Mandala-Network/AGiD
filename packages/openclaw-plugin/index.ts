@@ -6,34 +6,29 @@
  */
 
 import { initWallet, destroyWallet } from './src/wallet-init.js';
-import type { WalletConfig } from './src/wallet-init.js';
+import { resolveConfig } from './src/config.js';
 
-// Import all builtin plugin definitions
-// These are re-exported from the main agidentity package
-import { agidAuditPlugin } from '../../src/plugins/builtin/agid-audit.js';
-import { agidOptimizePlugin } from '../../src/plugins/builtin/agid-optimize.js';
-import { agidMessagingPlugin } from '../../src/plugins/builtin/agid-messaging.js';
-import { agidCryptoPlugin } from '../../src/plugins/builtin/agid-crypto.js';
-import { agidWalletPlugin } from '../../src/plugins/builtin/agid-wallet.js';
-import { agidMemoryPlugin } from '../../src/plugins/builtin/agid-memory.js';
-import { agidIdentityPlugin } from '../../src/plugins/builtin/agid-identity.js';
-import { agidDeployPlugin } from '../../src/plugins/builtin/agid-deploy.js';
-import { agidRuntimePlugin } from '../../src/plugins/builtin/agid-runtime.js';
-import { agidFsPlugin } from '../../src/plugins/builtin/agid-fs.js';
-import { agidBrowserPlugin } from '../../src/plugins/builtin/agid-browser.js';
-
-const ALL_PLUGINS = [
+// Import only the plugins that provide AGiD's unique value (identity, crypto,
+// wallet, messaging, memory, audit).  OpenClaw already ships its own shell,
+// file-system, and browser tools, so agid-runtime, agid-fs, and agid-browser
+// are omitted.  agid-optimize (GEPA) and agid-deploy (Mandala infra) are
+// outside the plugin's scope.
+import {
   agidAuditPlugin,
-  agidOptimizePlugin,
   agidMessagingPlugin,
   agidCryptoPlugin,
   agidWalletPlugin,
   agidMemoryPlugin,
   agidIdentityPlugin,
-  agidDeployPlugin,
-  agidRuntimePlugin,
-  agidFsPlugin,
-  agidBrowserPlugin,
+} from 'agidentity/plugins/builtin';
+
+const ALL_PLUGINS = [
+  agidAuditPlugin,
+  agidMessagingPlugin,
+  agidCryptoPlugin,
+  agidWalletPlugin,
+  agidMemoryPlugin,
+  agidIdentityPlugin,
 ];
 
 /**
@@ -47,21 +42,33 @@ export default {
   name: 'AGiD — Auditable Agent Identity',
 
   async register(api: any) {
-    // Read config from OpenClaw
-    const config: Partial<WalletConfig> = api.config ?? {};
+    // Resolve and validate config
+    const resolvedConfig = await resolveConfig(api.config ?? {}, api.prompt);
 
     // Lazy wallet initialization — only init when a tool actually needs it
     let walletPromise: Promise<any> | null = null;
     const getWallet = async () => {
       if (!walletPromise) {
-        walletPromise = initWallet(config);
+        walletPromise = initWallet({
+          network: resolvedConfig.network,
+          storage: resolvedConfig.storage,
+          storagePath: resolvedConfig.storagePath,
+        });
       }
       return walletPromise;
     };
 
+    // Tools to exclude from the OpenClaw plugin (maintenance utilities
+    // that don't belong in the public distribution).
+    const EXCLUDED_TOOLS = new Set([
+      'agid_gc_legacy_tokens',
+    ]);
+
     // Create a proxy API that passes wallet context to tools
     const proxyApi = {
       registerTool(tool: any, options?: any) {
+        if (EXCLUDED_TOOLS.has(tool.name)) return;
+
         const originalExecute = tool.execute;
         const wrappedTool = {
           ...tool,

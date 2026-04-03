@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveConfig, AGiDPluginConfigSchema } from '../src/config.js';
+import { resolveConfig } from '../src/config.js';
 
 describe('resolveConfig', () => {
   it('returns full config when all fields provided', async () => {
