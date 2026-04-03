@@ -100,7 +100,7 @@ export function loadConfig(): AGIdentityEnvConfig {
     walletPath: env.AGENT_WALLET_PATH ?? './agent-wallet.sqlite',
 
     // UHRP Storage (upload endpoint - downloads use overlay lookup resolver automatically)
-    uhrpStorageUrl: env.UHRP_STORAGE_URL ?? 'https://go-uhrp.b1nary.cloud',
+    uhrpStorageUrl: env.UHRP_STORAGE_URL ?? 'https://nanostore.babbage.systems',
 
     // Obsidian Vault (Local Encrypted)
     obsidianVaultPath: env.OBSIDIAN_VAULT_PATH,

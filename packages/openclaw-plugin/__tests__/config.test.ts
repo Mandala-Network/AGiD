@@ -23,7 +23,7 @@ describe('resolveConfig', () => {
     expect(result.storage).toBe('local');
     expect(result.storagePath).toBe('~/.agid/wallet.sqlite');
     expect(result.messageboxHost).toBe('https://messagebox.babbage.systems');
-    expect(result.uhrpStorageUrl).toBe('https://go-uhrp.b1nary.cloud');
+    expect(result.uhrpStorageUrl).toBe('https://nanostore.babbage.systems');
     expect(result.walletClientUrl).toBe('http://localhost:3301');
     expect(result.trustedCertifiers).toEqual([]);
     expect(result.requireCerts).toBe(false);

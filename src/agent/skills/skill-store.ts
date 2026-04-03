@@ -23,7 +23,7 @@ export class SkillStore {
 
   constructor(
     private wallet: BRC100Wallet & { getUnderlyingWallet?: () => any },
-    private storageUrl: string = 'https://go-uhrp.b1nary.cloud',
+    private storageUrl: string = 'https://nanostore.babbage.systems',
   ) {}
 
   // ===========================================================================

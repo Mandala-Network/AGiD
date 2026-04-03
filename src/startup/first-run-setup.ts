@@ -195,7 +195,7 @@ export async function runFirstRunSetup(): Promise<{
   // 4. UHRP HOST
   // -----------------------------------------------------------------------
   console.log('4. UHRP HOST');
-  const defaultUhrp = 'https://go-uhrp.b1nary.cloud';
+  const defaultUhrp = 'https://nanostore.babbage.systems';
   const uhrpInput = await ask(`   UHRP storage URL (${defaultUhrp}): `);
   const uhrpUrl = uhrpInput.trim() || defaultUhrp;
   console.log(`   UHRP: ${uhrpUrl}`);

@@ -108,7 +108,7 @@ TRUSTED_CERTIFIERS=<comma-separated-public-keys>
 | `AGID_REQUIRE_CERTS` | `false` | Reject messages from uncertified senders |
 | `AGID_ALLOW_UNAUTHENTICATED` | `false` | Allow unauthenticated HTTP endpoints |
 | `MESSAGEBOX_HOST` | `https://messagebox.babbage.systems` | MessageBox server URL |
-| `UHRP_STORAGE_URL` | `https://go-uhrp.b1nary.cloud` | UHRP storage endpoint |
+| `UHRP_STORAGE_URL` | `https://nanostore.babbage.systems` | UHRP storage endpoint |
 
 ## Agent Tools
 
