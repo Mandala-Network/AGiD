@@ -99,32 +99,40 @@ agid = AGiDToolset(
 ### With approval gates
 
 ```python
+# Use Pydantic AI's built-in .approval_required() composition
 agid = AGiDToolset(
     wallet_url="http://localhost:3321",
     messagebox_url="https://messagebox.babbage.systems",
-    require_approval_for=["agid_send_payment", "agid_create_action", "agid_cert_revoke"],
 )
+
+dangerous = {"agid_send_payment", "agid_create_action", "agid_cert_revoke"}
+gated_agid = agid.approval_required(
+    lambda ctx, tool_def, tool_args: tool_def.name in dangerous
+)
+
+agent = Agent('anthropic:claude-sonnet-4-6', toolsets=[gated_agid])
 ```
 
 ### Multi-agent — different agents, different capabilities
 
 ```python
-# Full investigation agent
-investigator_tools = AGiDToolset(
+# Full investigation agent with approval on spending
+investigator_agid = AGiDToolset(
     wallet_url="http://localhost:3321",
     messagebox_url="https://mb.internal",
-    require_approval_for=["agid_send_payment"],
+).approval_required(
+    lambda ctx, td, ta: td.name == "agid_send_payment"
 )
 
-# Read-only memory agent
-librarian_tools = AGiDToolset(
+# Read-only memory agent — scoped to memory + crypto tools only
+librarian_agid = AGiDToolset(
     wallet_url="http://localhost:3321",
     messagebox_url="https://mb.internal",
     groups=["memory", "crypto"],
 )
 
-investigator = Agent('anthropic:claude-sonnet-4-6', toolsets=[investigator_tools])
-librarian = Agent('anthropic:claude-sonnet-4-6', toolsets=[librarian_tools])
+investigator = Agent('anthropic:claude-sonnet-4-6', toolsets=[investigator_agid])
+librarian = Agent('anthropic:claude-sonnet-4-6', toolsets=[librarian_agid])
 ```
 
 ### Works with any BRC-100 wallet
@@ -143,10 +151,19 @@ agid = AGiDToolset(wallet_url="http://mpc-backend:3321")
 
 ### AGiDToolset
 
-Main entry point. Implements Pydantic AI's `AbstractToolset` interface.
+Main entry point. Subclasses Pydantic AI's `AbstractToolset`.
 
 ```python
-class AGiDToolset(AbstractToolset):
+from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
+from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.agent import RunContext
+from typing import Any
+
+class AGiDToolset(AbstractToolset[Any]):
+    id = "agid"
+    label = "AGiD"
+    tool_name_conflict_hint = "Prefix with 'agid_' or filter by group"
+
     ALL_GROUPS = [
         "identity", "certificates", "memory", "crypto",
         "zkproof", "messaging", "wallet", "audit",
@@ -158,25 +175,92 @@ class AGiDToolset(AbstractToolset):
         messagebox_url: str = "https://messagebox.babbage.systems",
         auth_token: str | None = None,
         groups: list[str] | None = None,
-        require_approval_for: list[str] | None = None,
-    ): ...
+    ):
+        self._wallet_url = wallet_url
+        self._messagebox_url = messagebox_url
+        self._auth_token = auth_token
+        self._groups = groups or self.ALL_GROUPS
+        self._client: BRC100Client | None = None
+        self._messagebox: MessageBoxClient | None = None
 
-    def tool_defs(self) -> list[ToolDefinition]: ...
-    async def call_tool(self, name: str, args: dict) -> str: ...
-    async def __aenter__(self): ...
-    async def __aexit__(self, *exc): ...
+    # --- Required: AbstractToolset abstract methods ---
+
+    async def get_tools(
+        self, ctx: RunContext[Any]
+    ) -> dict[str, ToolsetTool[Any]]:
+        """Return available tools filtered by groups."""
+        tools: dict[str, ToolsetTool[Any]] = {}
+        for group in self._groups:
+            for name, (tool_def, handler) in TOOL_REGISTRY[group].items():
+                tools[name] = ToolsetTool(definition=tool_def)
+        return tools
+
+    async def call_tool(
+        self,
+        name: str,
+        tool_args: dict[str, Any],
+        ctx: RunContext[Any],
+        tool: ToolsetTool[Any],
+    ) -> Any:
+        """Dispatch tool call to the correct handler."""
+        handler = TOOL_HANDLERS[name]
+        return await handler(tool_args, self._client, self._messagebox)
+
+    # --- Optional: Lifecycle ---
+
+    async def __aenter__(self) -> "AGiDToolset":
+        self._client = BRC100Client(self._wallet_url, self._auth_token)
+        await self._client.connect()
+        self._messagebox = MessageBoxClient(self._messagebox_url, self._client)
+        await self._messagebox.connect()
+        return self
+
+    async def __aexit__(self, *exc: Any) -> None:
+        if self._messagebox:
+            await self._messagebox.close()
+        if self._client:
+            await self._client.close()
+
+    async def for_run(self, ctx: RunContext[Any]) -> "AGiDToolset":
+        """Return self — HTTP clients are stateless and safe to share across runs."""
+        return self
+
+    # --- Optional: Instructions ---
+
+    async def get_instructions(self, ctx: RunContext[Any]) -> str | None:
+        """Inject AGiD tool usage guidance into the system prompt."""
+        return (
+            "You have access to AGiD blockchain-native tools for identity, "
+            "encrypted memory, zero-knowledge proofs, certificates, messaging, "
+            "and wallet operations. All cryptographic operations are performed "
+            "by the wallet server — never attempt to handle keys or signing directly."
+        )
 ```
 
 **Responsibilities:**
 - Creates and owns `BRC100Client` and `MessageBoxClient` instances
-- Filters tools by `groups` parameter
-- Marks tools in `require_approval_for` with `requires_approval=True`
+- Filters tools by `groups` parameter via `get_tools()`
 - Dispatches tool calls to the correct handler via `TOOL_HANDLERS` dict
 - Manages async lifecycle (httpx client open/close)
+- Injects usage instructions into the agent's system prompt
 
-**`TOOL_REGISTRY`**: dict mapping group name to list of `ToolDefinition` objects (name, description, JSON schema). Built at import time from each `tools/*.py` module.
+**Approval gating** is handled via Pydantic AI's built-in composition, not a custom parameter:
 
-**`TOOL_HANDLERS`**: flat dict mapping tool name to async handler function. Each handler signature: `async def handler(args: dict, client: BRC100Client, messagebox: MessageBoxClient) -> str`.
+```python
+# Apply approval gates using the standard .approval_required() chain method
+dangerous_tools = {"agid_send_payment", "agid_create_action", "agid_cert_revoke"}
+
+agid = AGiDToolset(wallet_url="http://localhost:3321")
+gated_agid = agid.approval_required(
+    lambda ctx, tool_def, tool_args: tool_def.name in dangerous_tools
+)
+
+agent = Agent('anthropic:claude-sonnet-4-6', toolsets=[gated_agid])
+```
+
+**`TOOL_REGISTRY`**: dict mapping group name to dict of `{tool_name: (ToolDefinition, handler_fn)}`. Built at import time from each `tools/*.py` module.
+
+**`TOOL_HANDLERS`**: flat dict mapping tool name to async handler function. Each handler signature: `async def handler(tool_args: dict[str, Any], client: BRC100Client, messagebox: MessageBoxClient) -> Any`.
 
 ### BRC100Client
 
@@ -543,16 +627,16 @@ STORE_MEMORY_DEF = ToolDefinition(
     description="Store a memory on the blockchain. Encrypts content with your wallet key, "
                 "computes a content-addressed UHRP URL, and creates a PushDrop token in the "
                 "agid-memory basket. Use tags to categorize memories for later retrieval.",
-    parameters=StoreMemoryArgs.model_json_schema(),
+    parameters_json_schema=StoreMemoryArgs.model_json_schema(),
 )
 
 # 3. Implement the handler
 async def handle_store_memory(
-    args: dict,
+    tool_args: dict[str, Any],
     client: BRC100Client,
     messagebox: MessageBoxClient,
-) -> str:
-    parsed = StoreMemoryArgs(**args)
+) -> Any:
+    parsed = StoreMemoryArgs(**tool_args)
 
     # Encrypt content via wallet
     encrypted = await client.encrypt(EncryptArgs(
@@ -587,10 +671,10 @@ async def handle_store_memory(
 ```
 
 **Pattern for all 39 tools:**
-1. Pydantic model for arg validation
-2. `ToolDefinition` with name, description, JSON schema
-3. Async handler that calls `BRC100Client` / `MessageBoxClient` methods
-4. Returns a string (what the LLM sees as the tool result)
+1. Pydantic `BaseModel` for arg validation
+2. `ToolDefinition` with name, description, `parameters_json_schema`
+3. Async handler `(tool_args, client, messagebox) -> Any` that calls `BRC100Client` / `MessageBoxClient`
+4. Returns any serializable value (Pydantic AI handles serialization for the LLM)
 
 ## Error Handling
 
